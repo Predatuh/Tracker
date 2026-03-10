@@ -1,0 +1,387 @@
+import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { map_api, admin_api } from '../api/apiClient';
+import './SiteMapView.css';
+
+function SiteMapView() {
+  const [maps, setMaps] = useState([]);
+  const [selectedMap, setSelectedMap] = useState(null);
+  const [mapAreas, setMapAreas] = useState([]);   // saved SiteArea rows
+  const [file, setFile] = useState(null);
+  const [mapName, setMapName] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  // Detected regions from backend scan (not yet saved)
+  const [detectedRegions, setDetectedRegions] = useState([]);
+  // Assignment: regionIndex -> pbName
+  const [assignments, setAssignments] = useState({});
+
+  // Font-size controls
+  const [globalFontSize, setGlobalFontSize] = useState(14);
+  const [fontSizeOverrides, setFontSizeOverrides] = useState({}); // areaId -> px
+
+  const imgRef = useRef(null);
+  const [imgSize, setImgSize] = useState({ w: 0, h: 0 });
+
+  // ---- Load admin font size on mount ----
+  useEffect(() => {
+    admin_api.getSettings().then(res => {
+      setGlobalFontSize(res.data.data.pb_label_font_size || 14);
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => { fetchMaps(); }, []);
+
+  const fetchMaps = async () => {
+    try {
+      const res = await map_api.getAllSiteMaps();
+      setMaps(res.data.data);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Error fetching maps');
+    }
+  };
+
+  const handleMapSelect = async (map) => {
+    setSelectedMap(map);
+    setDetectedRegions([]);
+    setAssignments({});
+    setError('');
+    try {
+      // Load saved areas (with bbox data)
+      const res = await map_api.getSiteMap(map.id);
+      setMapAreas(res.data.data.areas || []);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Error fetching map');
+    }
+  };
+
+  const handleUpload = async () => {
+    if (!file || !mapName) { setError('Please select a file and enter a name'); return; }
+    setLoading(true); setError(''); setSuccess('');
+    try {
+      await map_api.uploadSiteMap(file, mapName);
+      setSuccess('Site map uploaded successfully!');
+      setFile(null); setMapName('');
+      fetchMaps();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Error uploading map');
+    } finally { setLoading(false); }
+  };
+
+  // ---- Scan map ----
+  const handleScan = async () => {
+    if (!selectedMap) return;
+    setScanning(true); setError(''); setDetectedRegions([]); setAssignments({});
+    try {
+      const res = await map_api.scanMap(selectedMap.id);
+      const regions = res.data.data || [];
+      setDetectedRegions(regions);
+      if (regions.length === 0) setError('No rectangular regions detected in this map.');
+      else setSuccess(`Detected ${regions.length} region(s). Assign PB names below, then save.`);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Error scanning map');
+    } finally { setScanning(false); }
+  };
+
+  // ---- Save detected assignments ----
+  const handleSaveAssignments = async () => {
+    setLoading(true); setError('');
+    try {
+      for (let i = 0; i < detectedRegions.length; i++) {
+        const name = assignments[i];
+        if (!name || !name.trim()) continue;
+        const r = detectedRegions[i];
+        await map_api.createSiteArea({
+          site_map_id: selectedMap.id,
+          name: name.trim(),
+          bbox_x: r.x_pct,
+          bbox_y: r.y_pct,
+          bbox_w: r.w_pct,
+          bbox_h: r.h_pct,
+        });
+      }
+      setSuccess('Areas saved!');
+      setDetectedRegions([]);
+      setAssignments({});
+      handleMapSelect(selectedMap);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Error saving areas');
+    } finally { setLoading(false); }
+  };
+
+  // ---- Update per-area font size override ----
+  const handleAreaFontSize = async (areaId, size) => {
+    setFontSizeOverrides(prev => ({ ...prev, [areaId]: size }));
+    try {
+      await map_api.updateSiteArea(areaId, { label_font_size: size });
+    } catch (e) { /* silent */ }
+  };
+
+  // ---- Delete area ----
+  const handleDeleteArea = async (areaId) => {
+    if (!window.confirm('Remove this area label?')) return;
+    try {
+      await map_api.deleteSiteArea(areaId);
+      setMapAreas(prev => prev.filter(a => a.id !== areaId));
+    } catch (err) {
+      setError(err.response?.data?.error || 'Error deleting area');
+    }
+  };
+
+  // ---- Calculate font-size to fit label inside a box ----
+  const calcFontSize = (label, boxWpx, boxHpx, basePx) => {
+    // Rough estimate: each char ~0.6em wide, line height 1.2
+    const maxByWidth  = (boxWpx * 0.85) / (label.length * 0.6 || 1);
+    const maxByHeight = boxHpx * 0.5;
+    return Math.max(8, Math.min(basePx, maxByWidth, maxByHeight));
+  };
+
+  const onImgLoad = useCallback(() => {
+    if (imgRef.current) {
+      setImgSize({
+        w: imgRef.current.offsetWidth,
+        h: imgRef.current.offsetHeight,
+      });
+    }
+  }, []);
+
+  const pctToPx = (pct, total) => (pct / 100) * total;
+
+  return (
+    <div className="site-map-view container">
+      <h1 className="section-title">Site Map Interactive View</h1>
+
+      {error && <div className="alert alert-error">{error}</div>}
+      {success && <div className="alert alert-success">{success}</div>}
+
+      <div className="sitemap-layout">
+        {/* ───── Sidebar ───── */}
+        <div className="sitemap-sidebar">
+          <h2 className="section-subtitle">Upload Site Map</h2>
+          <div className="form-group">
+            <label>Map Name</label>
+            <input
+              type="text"
+              value={mapName}
+              onChange={(e) => setMapName(e.target.value)}
+              placeholder="e.g., Site Floor Plan"
+            />
+          </div>
+          <div className="form-group">
+            <label>Upload File (SVG, PNG, JPG)</label>
+            <input
+              type="file"
+              accept=".svg,.png,.jpg,.jpeg"
+              onChange={(e) => setFile(e.target.files[0])}
+            />
+          </div>
+          <button
+            className="btn btn-success"
+            onClick={handleUpload}
+            disabled={!file || !mapName || loading}
+          >
+            {loading ? 'Uploading...' : 'Upload Map'}
+          </button>
+
+          <h2 className="section-subtitle" style={{ marginTop: '20px' }}>Available Maps</h2>
+          {maps.length === 0 ? (
+            <p className="no-maps">No site maps uploaded yet.</p>
+          ) : (
+            <div className="maps-list">
+              {maps.map(map => (
+                <button
+                  key={map.id}
+                  className={`map-item ${selectedMap?.id === map.id ? 'active' : ''}`}
+                  onClick={() => handleMapSelect(map)}
+                >
+                  {map.name}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* ── Global font-size slider ── */}
+          {selectedMap && (
+            <div className="font-size-sidebar">
+              <h3>PB Label Size</h3>
+              <label>Global: <strong>{globalFontSize}px</strong></label>
+              <input
+                type="range"
+                min={8}
+                max={72}
+                value={globalFontSize}
+                onChange={e => setGlobalFontSize(Number(e.target.value))}
+                className="font-size-slider"
+              />
+            </div>
+          )}
+
+          {/* ── Saved areas list ── */}
+          {mapAreas.length > 0 && (
+            <div className="areas-sidebar">
+              <h3>Saved Areas</h3>
+              {mapAreas.map(area => (
+                <div key={area.id} className="area-sidebar-item">
+                  <span className="area-name">{area.name}</span>
+                  <div className="area-controls">
+                    <input
+                      type="range"
+                      min={8}
+                      max={72}
+                      value={fontSizeOverrides[area.id] ?? area.label_font_size ?? globalFontSize}
+                      onChange={e => handleAreaFontSize(area.id, Number(e.target.value))}
+                      title="Font size for this label"
+                      className="area-font-slider"
+                    />
+                    <button
+                      className="btn btn-danger btn-sm"
+                      onClick={() => handleDeleteArea(area.id)}
+                    >×</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* ───── Main View ───── */}
+        <div className="sitemap-main">
+          {selectedMap ? (
+            <div className="map-display">
+              <div className="map-toolbar">
+                <h2>{selectedMap.name}</h2>
+                <button
+                  className="btn btn-primary"
+                  onClick={handleScan}
+                  disabled={scanning}
+                >
+                  {scanning ? '🔍 Scanning…' : '🔍 Auto-detect PB Regions'}
+                </button>
+              </div>
+
+              {/* ── Map canvas with overlays ── */}
+              <div className="map-container" style={{ position: 'relative', display: 'inline-block', width: '100%' }}>
+                {selectedMap.file_path?.toLowerCase().endsWith('.svg') ? (
+                  <div
+                    className="svg-container"
+                    ref={imgRef}
+                    onLoad={onImgLoad}
+                    dangerouslySetInnerHTML={{ __html: selectedMap.svg_content }}
+                    style={{ width: '100%' }}
+                  />
+                ) : (
+                  <img
+                    ref={imgRef}
+                    src={`http://localhost:5000/${selectedMap.file_path.replace(/\\/g, '/')}`}
+                    alt={selectedMap.name}
+                    className="map-image"
+                    onLoad={onImgLoad}
+                    style={{ width: '100%', display: 'block' }}
+                  />
+                )}
+
+                {/* ── Overlay: detected (unsaved) regions ── */}
+                {imgSize.w > 0 && detectedRegions.map((r, i) => {
+                  const x  = pctToPx(r.x_pct, imgSize.w);
+                  const y  = pctToPx(r.y_pct, imgSize.h);
+                  const bw = pctToPx(r.w_pct, imgSize.w);
+                  const bh = pctToPx(r.h_pct, imgSize.h);
+                  const lbl = assignments[i] || `R${i + 1}`;
+                  const fs  = calcFontSize(lbl, bw, bh, globalFontSize);
+                  return (
+                    <div
+                      key={i}
+                      className="map-region detected"
+                      style={{ left: x, top: y, width: bw, height: bh }}
+                    >
+                      <span className="region-label" style={{ fontSize: fs }}>
+                        {assignments[i] || '?'}
+                      </span>
+                    </div>
+                  );
+                })}
+
+                {/* ── Overlay: saved areas ── */}
+                {imgSize.w > 0 && mapAreas.filter(a => a.bbox_x != null).map(area => {
+                  const x  = pctToPx(area.bbox_x, imgSize.w);
+                  const y  = pctToPx(area.bbox_y, imgSize.h);
+                  const bw = pctToPx(area.bbox_w, imgSize.w);
+                  const bh = pctToPx(area.bbox_h, imgSize.h);
+                  const overrideSz = fontSizeOverrides[area.id] ?? area.label_font_size;
+                  const fs = overrideSz
+                    ? calcFontSize(area.name, bw, bh, overrideSz)
+                    : calcFontSize(area.name, bw, bh, globalFontSize);
+                  return (
+                    <div
+                      key={area.id}
+                      className="map-region saved"
+                      style={{ left: x, top: y, width: bw, height: bh }}
+                      title={area.name}
+                    >
+                      <span className="region-label" style={{ fontSize: fs }}>
+                        {area.name}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* ── Detected regions assignment panel ── */}
+              {detectedRegions.length > 0 && (
+                <div className="assign-panel">
+                  <h3>Assign PB Names to Detected Regions</h3>
+                  <p className="admin-hint">
+                    Enter the PB name for each detected region. Leave blank to skip saving it.
+                  </p>
+                  <div className="assign-grid">
+                    {detectedRegions.map((r, i) => (
+                      <div className="assign-row" key={i}>
+                        <div className="assign-region-info">
+                          <strong>Region {i + 1}</strong>
+                          <span className="assign-coords">
+                            {r.x_pct.toFixed(1)}%, {r.y_pct.toFixed(1)}% &nbsp;
+                            {r.w_pct.toFixed(1)}×{r.h_pct.toFixed(1)}%
+                          </span>
+                        </div>
+                        <input
+                          type="text"
+                          placeholder="PB Name (e.g. INV-01)"
+                          value={assignments[i] || ''}
+                          onChange={e => setAssignments(prev => ({ ...prev, [i]: e.target.value }))}
+                          className="assign-input"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <div className="assign-actions">
+                    <button
+                      className="btn btn-success"
+                      onClick={handleSaveAssignments}
+                      disabled={loading}
+                    >
+                      {loading ? 'Saving…' : 'Save Labeled Areas'}
+                    </button>
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => { setDetectedRegions([]); setAssignments({}); }}
+                    >
+                      Discard
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="placeholder">
+              <p>Select a site map from the list to view</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default SiteMapView;

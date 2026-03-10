@@ -1,0 +1,953 @@
+import sys
+import os
+import threading
+import time
+import configparser
+import urllib.request
+import urllib.error
+import json
+import subprocess
+import shutil
+from pathlib import Path
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Helpers
+# ────────────────────────────────────────────────────────────────────────────
+
+def _base_dir():
+    """Directory of the exe when frozen, else the script's directory."""
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def _load_config():
+    base = _base_dir()
+    cfg = configparser.ConfigParser()
+    p = os.path.join(base, 'config.ini')
+    if os.path.exists(p):
+        cfg.read(p)
+    return cfg, base
+
+
+def _read_local_version(base):
+    if getattr(sys, 'frozen', False):
+        bundled = os.path.join(sys._MEIPASS, 'version.txt')
+        if os.path.exists(bundled):
+            return open(bundled).read().strip()
+    p = os.path.join(base, 'version.txt')
+    if os.path.exists(p):
+        return open(p).read().strip()
+    return '0.0.0'
+
+
+def _parse_version(v):
+    try:
+        return tuple(int(x) for x in str(v).strip().split('.'))
+    except Exception:
+        return (0, 0, 0)
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Browser "app window"  (no address bar, no tabs — feels native)
+# ────────────────────────────────────────────────────────────────────────────
+
+_EDGE_PATHS = [
+    r'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe',
+    r'C:\Program Files\Microsoft\Edge\Application\msedge.exe',
+]
+_CHROME_PATHS = [
+    r'C:\Program Files\Google\Chrome\Application\chrome.exe',
+    r'C:\Program Files (x86)\Google\Chrome\Application\chrome.exe',
+]
+
+
+def _find_browser():
+    """Return path of Edge or Chrome, or None."""
+    for p in _EDGE_PATHS + _CHROME_PATHS:
+        if os.path.exists(p):
+            return p
+    for name in ('msedge', 'edge', 'google-chrome', 'chrome'):
+        found = shutil.which(name)
+        if found:
+            return found
+    return None
+
+
+def _open_app_window(url, base, log):
+    """
+    Open url in Edge/Chrome --app mode (native-looking desktop window).
+    Falls back to the default browser if neither is found.
+    """
+    browser = _find_browser()
+    if browser:
+        # Use a dedicated user-data-dir so the app window is totally separate
+        # from the user's normal browsing profile.
+        profile_dir = os.path.join(base, 'LBDTracker_profile')
+        os.makedirs(profile_dir, exist_ok=True)
+        cmd = [
+            browser,
+            f'--app={url}',
+            f'--user-data-dir={profile_dir}',
+            '--window-size=1440,920',
+            '--disable-extensions',
+            '--no-first-run',
+            '--disable-default-apps',
+        ]
+        log(f'Launching app window: {browser}')
+        proc = subprocess.Popen(cmd)
+        return proc
+    else:
+        log('No Edge/Chrome found — opening default browser')
+        import webbrowser
+        webbrowser.open(url)
+        return None
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Background update checker
+# ────────────────────────────────────────────────────────────────────────────
+
+def _bg_update_check(update_url, base, port, log):
+    """Check for a newer EXE silently; show a native dialog if found."""
+    if not update_url:
+        return
+    time.sleep(5)
+    update_url = update_url.rstrip('/')
+    log('Checking for updates...')
+    try:
+        req = urllib.request.Request(
+            f'{update_url}/api/version',
+            headers={'User-Agent': 'LBDTracker-Updater/1.0'},
+        )
+        with urllib.request.urlopen(req, timeout=8) as r:
+            data = json.loads(r.read().decode())
+    except Exception as e:
+        log(f'Update check failed: {e}')
+        return
+
+    remote  = data.get('version', '0.0.0')
+    dl_url  = data.get('download_url')
+    local   = _read_local_version(base)
+    log(f'Local {local}  Remote {remote}')
+
+    if _parse_version(remote) <= _parse_version(local) or not dl_url:
+        return
+
+    # Inject a banner into the running app via the local Flask API
+    try:
+        payload = json.dumps({
+            'remote_version': remote,
+            'local_version': local,
+            'download_url': dl_url,
+        }).encode()
+        urllib.request.urlopen(
+            urllib.request.Request(
+                f'http://127.0.0.1:{port}/api/notify-update',
+                data=payload,
+                headers={'Content-Type': 'application/json'},
+                method='POST',
+            ),
+            timeout=3,
+        )
+        log('Update notification sent to app')
+    except Exception as e:
+        log(f'Update notification failed: {e}')
+        # Fallback: native messagebox
+        _show_update_dialog(remote, local, dl_url, base, log)
+
+
+def _show_update_dialog(remote, local, dl_url, base, log):
+    """Tkinter messagebox as a last-resort update prompt."""
+    try:
+        import tkinter as tk
+        from tkinter import messagebox
+        root = tk.Tk()
+        root.withdraw()
+        yes = messagebox.askyesno(
+            'LBD Tracker — Update Available',
+            f'Version {remote} is available (you have {local}).\n\nDownload and restart now?',
+        )
+        root.destroy()
+        if yes:
+            _apply_update(dl_url, base, log)
+    except Exception as e:
+        log(f'Update dialog failed: {e}')
+
+
+def _apply_update(dl_url, base, log):
+    if not getattr(sys, 'frozen', False):
+        log('Dev mode — skipping self-replace')
+        return
+    exe  = sys.executable
+    tmp  = os.path.join(base, 'LBDTracker_update.exe')
+    try:
+        urllib.request.urlretrieve(dl_url, tmp)
+    except Exception as e:
+        log(f'Download failed: {e}')
+        return
+    bat = os.path.join(base, '_lbd_update.bat')
+    with open(bat, 'w') as f:
+        f.write(
+            f'@echo off\ntimeout /t 2 /nobreak > nul\n'
+            f'move /Y "{tmp}" "{exe}"\n'
+            f'start "" "{exe}"\ndel "%~f0"\n'
+        )
+    subprocess.Popen(
+        ['cmd', '/c', bat],
+        creationflags=subprocess.CREATE_NEW_CONSOLE | subprocess.DETACHED_PROCESS,
+        close_fds=True,
+    )
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Flask startup helper
+# ────────────────────────────────────────────────────────────────────────────
+
+def _wait_for_server(port, timeout=30):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            urllib.request.urlopen(f'http://127.0.0.1:{port}/', timeout=1)
+            return True
+        except Exception:
+            time.sleep(0.3)
+    return False
+
+
+def _fatal(msg):
+    try:
+        import tkinter as tk
+        from tkinter import messagebox
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showerror('LBD Tracker — Error', msg)
+        root.destroy()
+    except Exception:
+        pass
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Main
+# ────────────────────────────────────────────────────────────────────────────
+
+def main():
+    cfg, base = _load_config()
+
+    # ── Python path ───────────────────────────────────────────────
+    meipass = sys._MEIPASS if getattr(sys, 'frozen', False) else base
+    backend_path = os.path.join(meipass, 'backend')
+    if backend_path not in sys.path:
+        sys.path.insert(0, backend_path)
+
+    # ── Logging ───────────────────────────────────────────────────
+    log_path = os.path.join(Path.home(), 'LBDTracker_startup.log')
+    def log(msg):
+        try:
+            with open(log_path, 'a') as f:
+                f.write(msg + '\n')
+        except Exception:
+            pass
+
+    log('--- LBD Tracker startup ---')
+
+    # ── Data dir / env ────────────────────────────────────────────
+    db_url = (cfg.get('database', 'url', fallback='') or '').strip()
+    if db_url:
+        os.environ['DATABASE_URL'] = db_url
+    else:
+        data_dir = os.path.join(
+            os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else base,
+            'LBDTracker_data'
+        )
+        os.makedirs(data_dir, exist_ok=True)
+        os.makedirs(os.path.join(data_dir, 'uploads'), exist_ok=True)
+        os.environ['LBD_DATA_DIR'] = data_dir
+
+    os.environ.setdefault('SECRET_KEY', cfg.get('app',   'secret_key', fallback='lbd-local-secret'))
+    os.environ.setdefault('ADMIN_PIN',  cfg.get('admin', 'pin',        fallback='1234'))
+
+    port       = int(cfg.get('app', 'port',       fallback='5000'))
+    update_url =     cfg.get('app', 'update_url', fallback='').strip()
+
+    # ── Create Flask app ──────────────────────────────────────────
+    try:
+        from app import create_app
+        flask_app = create_app()
+        log('Flask app created')
+    except Exception as e:
+        import traceback
+        log(f'Flask create_app failed: {e}\n{traceback.format_exc()}')
+        _fatal(f'Failed to start LBD Tracker:\n\n{e}\n\nLog: {log_path}')
+        return
+
+    # ── Start Waitress in background thread ───────────────────────
+    def _serve():
+        try:
+            from waitress import serve
+            serve(flask_app, host='127.0.0.1', port=port, threads=10)
+        except Exception as e:
+            log(f'Waitress error: {e}')
+
+    threading.Thread(target=_serve, daemon=True).start()
+
+    # ── Wait until Flask responds ─────────────────────────────────
+    log('Waiting for server...')
+    if not _wait_for_server(port, timeout=30):
+        log('Server did not start in time')
+        _fatal(f'LBD Tracker server failed to start.\n\nLog: {log_path}')
+        return
+    log('Server ready')
+
+    # ── Open app window (Edge/Chrome --app mode) ──────────────────
+    url = f'http://127.0.0.1:{port}'
+    proc = _open_app_window(url, base, log)
+
+    # ── Background update check ───────────────────────────────────
+    threading.Thread(
+        target=_bg_update_check,
+        args=(update_url, base, port, log),
+        daemon=True,
+    ).start()
+
+    # ── Keep alive until the browser window is closed ─────────────
+    if proc:
+        log('Waiting for app window to close...')
+        proc.wait()
+        log('App window closed — exiting')
+    else:
+        # No proc (default browser fallback) — keep server alive indefinitely
+        try:
+            while True:
+                time.sleep(60)
+        except KeyboardInterrupt:
+            pass
+
+
+if __name__ == '__main__':
+    main()
+
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _base_dir():
+    """Directory of the exe when frozen, else the script's directory."""
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def _load_config():
+    base = _base_dir()
+    cfg = configparser.ConfigParser()
+    p = os.path.join(base, 'config.ini')
+    if os.path.exists(p):
+        cfg.read(p)
+    return cfg, base
+
+
+def _read_local_version(base):
+    if getattr(sys, 'frozen', False):
+        bundled = os.path.join(sys._MEIPASS, 'version.txt')
+        if os.path.exists(bundled):
+            return open(bundled).read().strip()
+    for p in [os.path.join(base, 'version.txt')]:
+        if os.path.exists(p):
+            return open(p).read().strip()
+    return '0.0.0'
+
+
+def _parse_version(v):
+    try:
+        return tuple(int(x) for x in str(v).strip().split('.'))
+    except Exception:
+        return (0, 0, 0)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Update checker  (runs in a background thread after the window opens)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _bg_update_check(update_url, base, window, log):
+    """Silently checks for a newer EXE; notifies via in-app JS banner."""
+    if not update_url:
+        return
+    time.sleep(4)          # let the UI settle first
+    update_url = update_url.rstrip('/')
+    log('Checking for updates...')
+    try:
+        req = urllib.request.Request(
+            f'{update_url}/api/version',
+            headers={'User-Agent': 'LBDTracker-Updater/1.0'},
+        )
+        with urllib.request.urlopen(req, timeout=8) as r:
+            data = json.loads(r.read().decode())
+    except Exception as e:
+        log(f'Update check failed: {e}')
+        return
+
+    remote  = data.get('version', '0.0.0')
+    dl_url  = data.get('download_url')
+    local   = _read_local_version(base)
+    log(f'Local {local}  Remote {remote}')
+
+    if _parse_version(remote) <= _parse_version(local) or not dl_url:
+        return
+
+    # Show in-app notification banner
+    js = f"""
+(function(){{
+  if(document.getElementById('_upd_banner')) return;
+  var b = document.createElement('div');
+  b.id = '_upd_banner';
+  b.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:99999;'
+    + 'background:#0d3a2f;border-top:1px solid #00e87a;padding:10px 18px;'
+    + 'display:flex;align-items:center;gap:12px;font-family:Inter,sans-serif;font-size:13px;color:#eef2ff;';
+  b.innerHTML = '<span style="flex:1">🚀 <strong>Update available</strong> — v{remote} is ready (you have v{local}). Download now?</span>'
+    + '<button id="_upd_yes" style="background:#00e87a;color:#07091a;border:none;border-radius:6px;padding:6px 14px;font-weight:700;cursor:pointer;">Update & Restart</button>'
+    + '<button id="_upd_no" style="background:transparent;color:#aaa;border:1px solid #444;border-radius:6px;padding:6px 14px;cursor:pointer;">Later</button>';
+  document.body.appendChild(b);
+  document.getElementById('_upd_no').onclick = function(){{ b.remove(); }};
+  document.getElementById('_upd_yes').onclick = function(){{
+    b.innerHTML = '<span>⬇️ Downloading update, please wait…</span>';
+    window.pywebview.api.apply_update('{dl_url}');
+  }};
+}})();
+"""
+    try:
+        window.evaluate_js(js)
+    except Exception as e:
+        log(f'JS banner injection failed: {e}')
+
+
+class _UpdateAPI:
+    """Exposed to JS via pywebview to handle the actual file swap."""
+    def __init__(self, base, log):
+        self._base = base
+        self._log = log
+
+    def apply_update(self, dl_url):
+        import urllib.request, subprocess, sys, os
+        if not getattr(sys, 'frozen', False):
+            self._log('Dev mode – skipping self-replace')
+            return
+        exe = sys.executable
+        tmp = os.path.join(self._base, 'LBDTracker_update.exe')
+        try:
+            urllib.request.urlretrieve(dl_url, tmp)
+        except Exception as e:
+            self._log(f'Download failed: {e}')
+            return
+
+        bat = os.path.join(self._base, '_lbd_update.bat')
+        bat_content = f'@echo off\ntimeout /t 2 /nobreak > nul\nmove /Y "{tmp}" "{exe}"\nstart "" "{exe}"\ndel "%~f0"\n'
+        with open(bat, 'w') as f:
+            f.write(bat_content)
+        subprocess.Popen(
+            ['cmd', '/c', bat],
+            creationflags=subprocess.CREATE_NEW_CONSOLE | subprocess.DETACHED_PROCESS,
+            close_fds=True,
+        )
+        import webview
+        webview.windows[0].destroy()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Flask startup helper
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _wait_for_server(port, timeout=30):
+    """Block until Flask is accepting connections (or timeout)."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            urllib.request.urlopen(f'http://127.0.0.1:{port}/', timeout=1)
+            return True
+        except Exception:
+            time.sleep(0.25)
+    return False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Main
+# ─────────────────────────────────────────────────────────────────────────────
+
+def main():
+    cfg, base = _load_config()
+
+    # ── Python path ───────────────────────────────────────────────
+    meipass = sys._MEIPASS if getattr(sys, 'frozen', False) else base
+    backend_path = os.path.join(meipass, 'backend')
+    if backend_path not in sys.path:
+        sys.path.insert(0, backend_path)
+
+    # ── Logging ───────────────────────────────────────────────────
+    log_path = os.path.join(Path.home(), 'LBDTracker_startup.log')
+    def log(msg):
+        try:
+            with open(log_path, 'a') as f:
+                f.write(msg + '\n')
+        except Exception:
+            pass
+
+    log('--- LBD Tracker startup ---')
+
+    # ── Data dir / env ────────────────────────────────────────────
+    db_url = (cfg.get('database', 'url', fallback='') or '').strip()
+    if db_url:
+        os.environ['DATABASE_URL'] = db_url
+        log(f'Remote DB: {db_url[:40]}...')
+    else:
+        data_dir = os.path.join(
+            os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else base,
+            'LBDTracker_data'
+        )
+        os.makedirs(data_dir, exist_ok=True)
+        os.makedirs(os.path.join(data_dir, 'uploads'), exist_ok=True)
+        os.environ['LBD_DATA_DIR'] = data_dir
+        log(f'Local SQLite: {data_dir}')
+
+    os.environ.setdefault('SECRET_KEY', cfg.get('app',   'secret_key', fallback='lbd-local-secret'))
+    os.environ.setdefault('ADMIN_PIN',  cfg.get('admin', 'pin',        fallback='1234'))
+
+    port       = int(cfg.get('app', 'port',       fallback='5000'))
+    update_url =     cfg.get('app', 'update_url', fallback='').strip()
+
+    # ── Create Flask app ──────────────────────────────────────────
+    try:
+        from app import create_app
+        flask_app = create_app()
+        log('Flask app created')
+    except Exception as e:
+        import traceback
+        log(f'Flask create_app failed: {e}\n{traceback.format_exc()}')
+        _fatal(f'Failed to start LBD Tracker:\n\n{e}\n\nLog: {log_path}')
+        return
+
+    # ── Start Waitress in background thread ───────────────────────
+    def _serve():
+        try:
+            from waitress import serve
+            serve(flask_app, host='127.0.0.1', port=port, threads=10)
+        except Exception as e:
+            log(f'Waitress error: {e}')
+
+    t = threading.Thread(target=_serve, daemon=True)
+    t.start()
+
+    # ── Wait until Flask responds ─────────────────────────────────
+    log('Waiting for server...')
+    if not _wait_for_server(port, timeout=30):
+        log('Server did not start in time')
+        _fatal(f'LBD Tracker server failed to start.\n\nLog: {log_path}')
+        return
+    log('Server ready')
+
+    # ── Open pywebview desktop window ─────────────────────────────
+    try:
+        import webview
+    except ImportError:
+        log('pywebview not installed, falling back to browser')
+        import webbrowser
+        webbrowser.open(f'http://127.0.0.1:{port}')
+        # Keep alive
+        t.join()
+        return
+
+    update_api = _UpdateAPI(base, log)
+
+    window = webview.create_window(
+        title='LBD Tracker',
+        url=f'http://127.0.0.1:{port}',
+        width=1440,
+        height=920,
+        min_size=(900, 600),
+        js_api=update_api,
+        text_select=False,
+    )
+
+    # Start silent update checker after window is shown
+    def _on_shown():
+        if update_url:
+            threading.Thread(
+                target=_bg_update_check,
+                args=(update_url, base, window, log),
+                daemon=True,
+            ).start()
+
+    window.events.shown += _on_shown
+
+    log('Starting pywebview')
+    webview.start(debug=False)
+    log('Window closed')
+
+
+def _fatal(msg):
+    """Show a simple error dialog even without a webview."""
+    try:
+        import tkinter as tk
+        from tkinter import messagebox
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showerror('LBD Tracker — Error', msg)
+        root.destroy()
+    except Exception:
+        pass
+
+
+if __name__ == '__main__':
+    main()
+
+
+
+def _check_for_update(update_url, base_dir, log):
+    """
+    Check the hosted server for a newer EXE.
+    Returns True if the EXE was updated and the process should exit.
+    """
+    if not update_url:
+        return False
+
+    update_url = update_url.rstrip('/')
+    log(f"Checking for updates at {update_url}/api/version ...")
+
+    try:
+        req = urllib.request.Request(
+            f'{update_url}/api/version',
+            headers={'User-Agent': 'LBDTracker-Updater/1.0'},
+        )
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = json.loads(resp.read().decode())
+    except Exception as e:
+        log(f"Update check failed (no internet?): {e}")
+        return False
+
+    remote_version  = data.get('version', '0.0.0')
+    download_url    = data.get('download_url')
+    local_version   = _read_local_version(base_dir)
+
+    log(f"Local version: {local_version}  |  Remote version: {remote_version}")
+
+    if _parse_version(remote_version) <= _parse_version(local_version):
+        log("Already up to date.")
+        return False
+
+    if not download_url:
+        log("Update available but no download URL provided by server.")
+        return False
+
+    # ── Prompt user (console) ──────────────────────────────────────
+    print(f"\n{'='*60}")
+    print(f"  UPDATE AVAILABLE: v{remote_version}  (you have v{local_version})")
+    print(f"{'='*60}")
+    print("  Downloading update automatically...")
+
+    try:
+        # Download to a temp file in the same dir as the EXE
+        exe_dir = base_dir if getattr(sys, 'frozen', False) else base_dir
+        tmp_path = os.path.join(exe_dir, 'LBDTracker_update.exe')
+
+        log(f"Downloading from {download_url} → {tmp_path}")
+
+        def _reporthook(count, block_size, total_size):
+            if total_size > 0:
+                pct = min(100, int(count * block_size * 100 / total_size))
+                print(f"\r  Downloading... {pct}%", end='', flush=True)
+
+        urllib.request.urlretrieve(download_url, tmp_path, _reporthook)
+        print()  # newline after progress
+
+        if not getattr(sys, 'frozen', False):
+            # Dev mode: just replace version.txt and skip bat trick
+            log("Dev mode: update downloaded but not applied (not frozen).")
+            os.remove(tmp_path)
+            return False
+
+        current_exe = sys.executable
+        bat_path    = os.path.join(exe_dir, '_lbd_update.bat')
+
+        # Write a tiny batch file that waits for this process to die,
+        # then swaps the EXE and relaunches it.
+        bat_content = f"""@echo off
+timeout /t 2 /nobreak > nul
+move /Y "{tmp_path}" "{current_exe}"
+if errorlevel 1 (
+    echo Update failed - could not replace EXE
+    pause
+    exit /b 1
+)
+start "" "{current_exe}"
+del "%~f0"
+"""
+        with open(bat_path, 'w') as f:
+            f.write(bat_content)
+
+        log("Launching updater and exiting...")
+        print("\n  Applying update — restarting automatically...\n")
+
+        # Launch the bat in a detached process, then exit
+        subprocess.Popen(
+            ['cmd', '/c', bat_path],
+            creationflags=subprocess.CREATE_NEW_CONSOLE | subprocess.DETACHED_PROCESS,
+            close_fds=True,
+        )
+        return True  # caller should sys.exit()
+
+    except Exception as e:
+        log(f"Update download/apply failed: {e}")
+        print(f"\n  Update failed: {e}\n  Continuing with current version...\n")
+        # Clean up partial download
+        tmp = os.path.join(base_dir, 'LBDTracker_update.exe')
+        if os.path.exists(tmp):
+            try:
+                os.remove(tmp)
+            except Exception:
+                pass
+        return False
+
+
+def main():
+    """Run LBD Tracker — reads config.ini, starts Flask, opens browser."""
+    cfg, base_dir = _load_config()
+
+    # ── Python path ───────────────────────────────────────────────
+    if getattr(sys, 'frozen', False):
+        base_path = sys._MEIPASS
+    else:
+        base_path = base_dir
+    backend_path = os.path.join(base_path, 'backend')
+    if backend_path not in sys.path:
+        sys.path.insert(0, backend_path)
+
+    # ── Logging ───────────────────────────────────────────────────
+    log_path = os.path.join(Path.home(), 'LBDTracker_startup.log')
+    def _log(msg):
+        try:
+            with open(log_path, 'a') as f:
+                f.write(msg + '\n')
+                f.flush()
+        except Exception:
+            pass
+
+    _log(f"--- LBD Tracker startup ---")
+    _log(f"Frozen: {getattr(sys, 'frozen', False)}")
+    _log(f"Backend path: {backend_path}")
+
+    try:
+        # ── Config: DATABASE_URL ───────────────────────────────────
+        db_url = (cfg.get('database', 'url', fallback='') or '').strip()
+        if db_url:
+            os.environ['DATABASE_URL'] = db_url
+            _log(f"Using remote database: {db_url[:40]}...")
+        else:
+            # Local SQLite next to exe
+            if getattr(sys, 'frozen', False):
+                _data_dir = os.path.join(os.path.dirname(sys.executable), 'LBDTracker_data')
+            else:
+                _data_dir = os.path.join(base_dir, 'data')
+            os.makedirs(_data_dir, exist_ok=True)
+            os.makedirs(os.path.join(_data_dir, 'uploads'), exist_ok=True)
+            os.environ['LBD_DATA_DIR'] = _data_dir
+            _log(f"Using local SQLite at: {_data_dir}")
+
+        # ── Config: secrets & admin PIN ───────────────────────────
+        os.environ.setdefault('SECRET_KEY',  cfg.get('app',   'secret_key', fallback='lbd-local-secret'))
+        os.environ.setdefault('ADMIN_PIN',   cfg.get('admin', 'pin',        fallback='1234'))
+
+        port       = int(cfg.get('app', 'port',       fallback='5000'))
+        update_url =     cfg.get('app', 'update_url', fallback='').strip()
+
+        # ── OTA update check ───────────────────────────────────────
+        if _check_for_update(update_url, base_dir, _log):
+            sys.exit(0)   # updater batch file will restart the EXE
+
+        # ── Import & create app ───────────────────────────────────
+        from waitress import serve
+        from app import create_app
+        app = create_app()
+        _log("✓ Flask app created")
+
+        # ── Open browser automatically ────────────────────────────
+        def _open_browser():
+            time.sleep(1.8)
+            webbrowser.open(f'http://localhost:{port}')
+        threading.Thread(target=_open_browser, daemon=True).start()
+
+        print('\n' + '='*60)
+        print('  LBD Tracker')
+        print('='*60)
+        print(f'  URL  : http://localhost:{port}')
+        if db_url:
+            print(f'  DB   : Remote (Railway / cloud)')
+        else:
+            print(f'  DB   : Local SQLite')
+        print('  Opening browser automatically...')
+        print('  Press CTRL+C to stop')
+        print('='*60 + '\n')
+
+        _log(f"✓ Starting Waitress on port {port}")
+        serve(app, host='0.0.0.0', port=port, threads=10)
+
+    except Exception as e:
+        import traceback
+        err = f"ERROR: {e}\n{traceback.format_exc()}"
+        _log(err)
+        print(f'\n❌ {err}')
+        print(f'\nLog: {log_path}')
+        input('\nPress Enter to exit...')
+        sys.exit(1)
+
+
+if __name__ == '__main__':
+    main()
+
+
+# Legacy code - not used
+class LBDTrackerApp(object):
+    def __init__(self):
+        super().__init__()
+        self.backend_thread = None
+        self.flask_runner = None
+        self.web_view = None
+        self.status_label = None
+        self.backend_ready = False
+        self.check_timer = None
+        self.timeout_timer = None
+        self.init_ui()
+        self.start_backend()
+    
+    def init_ui(self):
+        """Initialize UI"""
+        self.setWindowTitle('LBD Tracker')
+        self.setGeometry(100, 100, 1400, 900)
+        
+        try:
+            icon_path = os.path.join(os.path.dirname(__file__), 'icon.png')
+            if os.path.exists(icon_path):
+                from PyQt5.QtGui import QIcon
+                self.setWindowIcon(QIcon(icon_path))
+        except:
+            pass
+        
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        layout = QVBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.status_label = QLabel('Starting LBD Tracker...')
+        self.status_label.setAlignment(Qt.AlignCenter)
+        font = self.status_label.font()
+        font.setPointSize(12)
+        self.status_label.setFont(font)
+        self.status_label.setStyleSheet("color: #666; font-weight: bold;")
+        
+        layout.addWidget(self.status_label)
+        central_widget.setLayout(layout)
+    
+    def start_backend(self):
+        """Start Flask backend in thread"""
+        self.flask_runner = FlaskRunner()
+        self.flask_runner.error.connect(self.on_backend_error)
+        
+        # Start Flask in a daemon thread
+        self.backend_thread = threading.Thread(target=self.flask_runner.run_flask, daemon=True)
+        self.backend_thread.start()
+        
+        self.check_timer = QTimer()
+        self.check_timer.timeout.connect(self.check_backend)
+        self.check_timer.start(1000)  # Check every 1 second
+        
+        # Set a 15 second timeout
+        self.timeout_timer = QTimer()
+        self.timeout_timer.timeout.connect(self.on_backend_timeout)
+        self.timeout_timer.start(15000)  # 15 second timeout
+    
+    def check_backend(self):
+        """Check if backend is responding"""
+        if self.backend_ready:
+            return
+            
+        try:
+            response = requests.get('http://localhost:5000', timeout=2)
+            if response.status_code == 200:
+                self.check_timer.stop()
+                self.timeout_timer.stop()
+                self.check_timer.disconnect()
+                self.on_backend_started()
+        except:
+            pass
+    
+    def on_backend_timeout(self):
+        """Called if backend takes too long"""
+        self.timeout_timer.stop()
+        if not self.backend_ready:
+            self.on_backend_error("Backend failed to start - check error message above")
+    
+    def on_backend_started(self):
+        """Called when backend is ready"""
+        if self.backend_ready:
+            return
+        
+        self.backend_ready = True
+        
+        if self.status_label:
+            self.status_label.setText('Loading interface...')
+        
+        # Small delay to let UI update
+        time.sleep(0.5)
+        
+        self.web_view = QWebEngineView()
+        self.web_view.load(QUrl('http://localhost:5000'))
+        
+        central_widget = self.centralWidget()
+        while central_widget.layout().count():
+            central_widget.layout().takeAt(0).widget().deleteLater()
+        central_widget.layout().addWidget(self.web_view)
+        
+        self.status_label = None
+    
+    def on_backend_error(self, error):
+        """Handle backend error"""
+        if self.status_label:
+            # Show first 500 chars of error, wrap text
+            error_short = error[:500] if len(error) > 500 else error
+            self.status_label.setText(f'❌ Backend Error:\n\n{error_short}')
+            self.status_label.setStyleSheet("color: #d32f2f; font-weight: bold; white-space: pre-wrap; word-wrap: break-word;")
+    
+    def closeEvent(self, event):
+        """Handle window close"""
+        if self.check_timer:
+            self.check_timer.stop()
+        if self.timeout_timer:
+            self.timeout_timer.stop()
+        # Daemon thread will automatically exit when app closes
+        event.accept()
+
+
+def main():
+    # Exit early if this is a subprocess (prevents PyInstaller re-execution issues)
+    if os.environ.get('LBD_BACKEND_MODE') == '1':
+        return
+    
+    # Prevent multiple instances
+    multiprocessing.freeze_support()
+    
+    # Only create QApplication if one doesn't exist
+    app = QApplication.instance() or QApplication(sys.argv)
+    
+    # Only create one window
+    if not hasattr(app, 'lbd_window'):
+        window = LBDTrackerApp()
+        app.lbd_window = window
+        window.show()
+    
+    sys.exit(app.exec_())
+
+
+if __name__ == '__main__':
+    main()
+

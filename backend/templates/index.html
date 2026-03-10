@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LBD Tracker</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ range(10000,99999) | random }}">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.4/socket.io.min.js"></script>
+</head>
+<body>
+
+<!-- ── Login Overlay ─────────────────────────────────────────────────────── -->
+<div id="login-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.82);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);z-index:99999;align-items:center;justify-content:center;">
+  <div style="background:linear-gradient(140deg,#0d1030 0%,#07091a 100%);border:1px solid rgba(255,255,255,0.13);border-radius:22px;padding:40px 44px;width:390px;max-width:93vw;box-shadow:0 32px 90px rgba(0,0,0,0.85),0 0 60px rgba(0,212,255,0.06);">
+    <div style="text-align:center;margin-bottom:24px;">
+      <img src="{{ url_for('static', filename='Logo.png') }}" alt="Logo" style="height:70px;width:auto;object-fit:contain;margin:0 auto 14px;display:block;filter:drop-shadow(0 0 18px rgba(0,212,255,0.25));" />
+      <h2 style="margin:0 0 4px;font-size:22px;font-weight:800;color:#eef2ff;font-family:Inter,sans-serif;letter-spacing:-0.3px;">LBD Tracker</h2>
+      <div style="color:#8892b0;font-size:13px;font-family:Inter,sans-serif;">Sign in to check off your work</div>
+    </div>
+    <!-- Tabs -->
+    <div style="display:flex;border-bottom:1px solid rgba(255,255,255,0.09);margin-bottom:20px;gap:4px;">
+      <button id="tab-signin-btn" onclick="switchLoginTab('signin')" style="flex:1;background:none;border:none;border-bottom:2px solid #00d4ff;margin-bottom:-1px;padding:9px 0;font-size:12px;font-weight:700;color:#00d4ff;cursor:pointer;font-family:Inter,sans-serif;letter-spacing:0.3px;text-transform:uppercase;">Sign In</button>
+      <button id="tab-register-btn" onclick="switchLoginTab('register')" style="flex:1;background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-1px;padding:9px 0;font-size:12px;font-weight:700;color:#4a5568;cursor:pointer;font-family:Inter,sans-serif;letter-spacing:0.3px;text-transform:uppercase;">Create Account</button>
+    </div>
+    <!-- Error -->
+    <div id="login-error" style="display:none;background:rgba(255,76,106,0.12);border:1px solid rgba(255,76,106,0.3);color:#ff8fa3;border-radius:8px;padding:10px 13px;font-size:12px;margin-bottom:14px;font-family:Inter,sans-serif;"></div>
+    <!-- Name -->
+    <div style="margin-bottom:13px;">
+      <label style="font-size:10px;font-weight:700;color:#8892b0;letter-spacing:1px;text-transform:uppercase;display:block;margin-bottom:6px;font-family:Inter,sans-serif;">Your Name</label>
+      <input id="login-name" type="text" placeholder="e.g. John Smith" autocomplete="off"
+        style="width:100%;box-sizing:border-box;background:rgba(255,255,255,0.06);border:1.5px solid rgba(255,255,255,0.1);border-radius:8px;padding:11px 14px;font-size:14px;outline:none;color:#eef2ff;font-family:Inter,sans-serif;transition:border-color 0.2s;"
+        onfocus="this.style.borderColor='#00d4ff';this.style.boxShadow='0 0 0 3px rgba(0,212,255,0.1)'"
+        onblur="this.style.borderColor='rgba(255,255,255,0.1)';this.style.boxShadow='none'"
+        onkeydown="if(event.key==='Enter')document.getElementById('login-pin').focus()" />
+    </div>
+    <!-- PIN -->
+    <div style="margin-bottom:24px;">
+      <label style="font-size:10px;font-weight:700;color:#8892b0;letter-spacing:1px;text-transform:uppercase;display:block;margin-bottom:6px;font-family:Inter,sans-serif;">4-Digit PIN</label>
+      <input id="login-pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="••••"
+        autocomplete="off"
+        style="width:100%;box-sizing:border-box;background:rgba(255,255,255,0.06);border:1.5px solid rgba(255,255,255,0.1);border-radius:8px;padding:12px 14px;font-size:28px;letter-spacing:14px;text-align:center;outline:none;color:#eef2ff;font-family:'JetBrains Mono',monospace;transition:border-color 0.2s;"
+        onfocus="this.style.borderColor='#00d4ff';this.style.boxShadow='0 0 0 3px rgba(0,212,255,0.1)'"
+        onblur="this.style.borderColor='rgba(255,255,255,0.1)';this.style.boxShadow='none'"
+        onkeydown="if(event.key==='Enter')submitLogin()" />
+    </div>
+    <!-- Button -->
+    <button id="login-submit-btn" onclick="submitLogin()"
+      style="width:100%;background:linear-gradient(135deg,#00d4ff,#009abc);color:#000;border:none;border-radius:8px;padding:14px;font-size:14px;font-weight:800;cursor:pointer;margin-bottom:10px;font-family:Inter,sans-serif;letter-spacing:0.2px;transition:all 0.2s;"
+      onmouseover="this.style.boxShadow='0 0 24px rgba(0,212,255,0.4)';this.style.transform='translateY(-1px)'"
+      onmouseout="this.style.boxShadow='none';this.style.transform='none'">
+      Sign In
+    </button>
+    <button onclick="document.getElementById('login-overlay').style.display='none'"
+      style="width:100%;background:transparent;color:#4a5568;border:1px solid rgba(255,255,255,0.09);border-radius:8px;padding:10px;font-size:13px;cursor:pointer;font-family:Inter,sans-serif;transition:all 0.2s;"
+      onmouseover="this.style.borderColor='rgba(255,255,255,0.18)';this.style.color='#8892b0'"
+      onmouseout="this.style.borderColor='rgba(255,255,255,0.09)';this.style.color='#4a5568'">
+      Continue as Guest — view only
+    </button>
+    <div style="font-size:11px;color:#4a5568;text-align:center;margin-top:16px;line-height:1.7;font-family:Inter,sans-serif;">
+      Admin? Use name <strong style="color:#8892b0;">Admin</strong> with the admin PIN.</div>
+  </div>
+</div>
+    <div id="app">
+        <!-- Navigation -->
+        <nav class="navbar">
+            <div class="navbar-container">
+                <div class="navbar-brand"><img src="{{ url_for('static', filename='Logo.png') }}" alt="Logo" style="height:28px;width:auto;object-fit:contain;vertical-align:middle;margin-right:8px;filter:drop-shadow(0 0 8px rgba(0,212,255,0.3));" /><span class="brand-dot"></span>LBD <span style="color:var(--cyan)">Tracker</span></div>
+                <ul class="nav-menu">
+                    <li><a href="#" onclick="showPage('dashboard')">Dashboard</a></li>
+                    <li><a href="#" onclick="showPage('upload')">Upload PDF</a></li>
+                    <li><a href="#" onclick="showPage('blocks')">Power Blocks</a></li>
+                    <li><a href="#" onclick="showPage('sitemap')">Site Map</a></li>
+                    <li><a href="#" onclick="showPage('admin')" class="admin-only">Admin</a></li>
+                </ul>
+                <div id="user-info" style="display:flex;align-items:center;gap:8px;margin-left:12px;"></div>
+            </div>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="app-main">
+            <!-- Dashboard Page -->
+            <div id="page-dashboard" class="page active">
+                <div class="container">
+                    <h1 class="section-title">Dashboard</h1>
+                    
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-icon">📦</div>
+                            <div class="stat-content">
+                                <div class="stat-label">Power Blocks</div>
+                                <div class="stat-value" id="stat-blocks">0</div>
+                                <div class="stat-subtext" id="stat-blocks-complete">0 completed</div>
+                            </div>
+                        </div>
+                        
+                        <div class="stat-card">
+                            <div class="stat-icon">🔌</div>
+                            <div class="stat-content">
+                                <div class="stat-label">Total LBDs</div>
+                                <div class="stat-value" id="stat-lbds">0</div>
+                                <div class="stat-subtext" id="stat-lbds-progress">0% complete</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="action-section">
+                        <h2 class="section-subtitle">Quick Actions</h2>
+                        <div class="action-buttons">
+                            <button class="btn btn-primary" onclick="showPage('upload')">📤 Upload PDF</button>
+                            <button class="btn btn-primary" onclick="showPage('blocks')">📋 Manage Blocks</button>
+                            <button class="btn btn-primary" onclick="showPage('sitemap')">🗺️ View Site Map</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Upload Page -->
+            <div id="page-upload" class="page">
+                <div class="container">
+                    <h1 class="section-title">Upload & Extract PDF</h1>
+                    
+                    <div class="form-section">
+                        <div class="form-group">
+                            <label>Select PDF File</label>
+                            <input type="file" id="pdf-file" accept=".pdf" />
+                        </div>
+                        <button class="btn btn-success" onclick="uploadPDF()" id="upload-btn">Upload PDF</button>
+                        
+                        <div id="upload-status" class="alert hidden"></div>
+                    </div>
+
+                    <div id="scan-lbd-section" class="hidden">
+                        <h2 class="section-subtitle">Scan for Power Blocks & LBDs</h2>
+                        <p>Click the button below to automatically scan the PDF and extract power blocks and LBDs</p>
+                        <button class="btn btn-primary" onclick="scanPDFForLBDs()" id="scan-btn">Scan PDF for LBDs</button>
+                        <div id="scan-status" class="alert hidden"></div>
+                    </div>
+
+                    <div id="map-upload-section" class="hidden">
+                        <h2 class="section-subtitle">Upload Array Map Image</h2>
+                        <p>Upload a map image showing the power block layout for interactive visualization</p>
+                        <div class="form-group">
+                            <label>Map Image (.png, .jpg, .gif)</label>
+                            <input type="file" id="map-file" accept=".jpg,.jpeg,.png,.gif" />
+                        </div>
+                        <button class="btn btn-primary" onclick="uploadMap()" id="map-upload-btn">Upload Map</button>
+                        <div id="map-upload-status" class="alert hidden"></div>
+                    </div>
+
+                    <div id="page-selector" class="hidden">
+                        <h2 class="section-subtitle">Select Pages to Extract</h2>
+                        
+                        <div class="range-input-section">
+                            <div class="form-group">
+                                <label>Or Enter Page Range (e.g., 1-50, 52-75, 100)</label>
+                                <input type="text" id="page-range-input" placeholder="1-50, 52-75, 100" />
+                            </div>
+                            <button class="btn btn-secondary" onclick="applyPageRange()">Apply Range</button>
+                            <button class="btn btn-secondary" onclick="clearAllPages()">Clear All</button>
+                        </div>
+                        
+                        <div id="pages-list" class="pages-selector"></div>
+                        <button class="btn btn-success" onclick="extractPages()" id="extract-btn">Extract Pages</button>
+                    </div>
+
+                    <div id="extracted-pages" class="hidden">
+                        <h2 class="section-subtitle">Extracted Pages</h2>
+                        <div id="extracted-list" class="extracted-list"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Power Blocks Page -->
+            <div id="page-blocks" class="page">
+                <div class="container">
+                    <h1 class="section-title">Power Blocks & LBDs</h1>
+                    <div id="blocks-list" class="blocks-grid"></div>
+                </div>
+            </div>
+
+            <!-- Site Map Page -->
+            <div id="page-sitemap" class="page">
+
+                <!-- Upload section (shown when no map) -->
+                <div id="sitemap-upload-section" style="padding:60px 20px;max-width:500px;margin:0 auto;text-align:center;">
+                    <h1 class="section-title">Site Map</h1>
+                    <div class="form-section">
+                        <p style="margin-bottom:15px;color:#8892b0;font-size:14px;line-height:1.7;">Upload a site map image to place power blocks and track LBD statuses interactively.</p>
+                        <div class="form-group">
+                            <label>Map Image (.png, .jpg, .gif)</label>
+                            <input type="file" id="sitemap-file" accept=".jpg,.jpeg,.png,.gif" />
+                        </div>
+                        <button class="btn btn-success" onclick="uploadSiteMap()" id="sitemap-upload-btn">Upload Map</button>
+                        <div id="sitemap-upload-status" class="alert hidden"></div>
+                    </div>
+                </div>
+
+                <!-- Full-screen map view (shown once map uploaded) -->
+                <div id="sitemap-display" class="hidden" style="display:flex;flex-direction:column;height:calc(100vh - 56px);">
+
+                    <!-- Toolbar -->
+                    <div style="padding:8px 16px;background:rgba(7,9,26,0.97);border-bottom:1px solid rgba(255,255,255,0.09);display:flex;align-items:center;gap:8px;flex-shrink:0;flex-wrap:wrap;">
+                        <strong style="font-size:14px;font-weight:700;font-family:Inter,sans-serif;color:#eef2ff;letter-spacing:-0.2px;">Site Map</strong>
+                        <div style="flex:1;"></div>
+                        <button id="edit-mode-btn" class="btn btn-secondary admin-only" onclick="toggleMapEditMode()" style="font-size:12px;padding:5px 12px;">✏️ Edit Positions</button>
+                        <button id="snap-place-btn" class="btn btn-secondary admin-only" onclick="toggleSnapPlace()" style="font-size:12px;padding:5px 12px;" title="Click inside black outlines on the map to snap-place PBs to their exact shape">🎯 Snap Place</button>
+                        <button id="moveall-btn" class="btn btn-secondary admin-only" onclick="toggleMoveAll()" style="font-size:12px;padding:5px 12px;" title="Drag to move all PBs and labels at once">✥ Move All</button>
+                        <button class="btn btn-secondary" onclick="toggleWhiteBg()" style="font-size:12px;padding:5px 12px;" title="Toggle map image on/off">🖼️ Toggle Map</button>
+                        <button class="btn btn-secondary admin-only" onclick="showScaleSlider()" style="font-size:12px;padding:5px 12px;" title="Resize the entire layout">↔️ Scale Layout</button>
+                        <button class="btn btn-secondary admin-only" onclick="showFontSizeSlider()" style="font-size:12px;padding:5px 12px;" title="Change PB label font size">🔤 PB Font</button>
+                        <input type="color" id="text-label-color" value="#ffffff" title="Label text color" class="admin-only" style="width:28px;height:28px;padding:2px;border:1px solid rgba(255,255,255,0.2);border-radius:6px;background:rgba(7,9,26,0.6);cursor:pointer;vertical-align:middle;">
+                        <button class="btn btn-secondary admin-only" onclick="addTextLabel()" style="font-size:12px;padding:5px 12px;" title="Add a text label to the map">🏷️ Add Label</button>
+                        <button id="restore-hidden-btn" class="btn btn-warning admin-only" onclick="restoreHiddenPBs()" style="font-size:12px;padding:5px 12px;display:none;" title="Restore all hidden PB boxes">👁 Show Hidden</button>
+                        <button class="btn btn-secondary admin-only" onclick="document.getElementById('sitemap-replace-file').click()" style="font-size:12px;padding:5px 12px;">🔄 Replace Map</button>
+                        <input type="file" id="sitemap-replace-file" accept=".jpg,.jpeg,.png,.gif" style="display:none" onchange="replaceSiteMap()">
+                    </div>
+
+                    <!-- Snap-place status bar (hidden until snap mode active) -->
+                    <div id="snap-place-bar" style="display:none;padding:6px 16px;background:linear-gradient(90deg,rgba(0,212,255,0.08),rgba(124,108,252,0.08));border-bottom:1px solid rgba(0,212,255,0.2);align-items:center;gap:8px;flex-shrink:0;flex-wrap:wrap;font-family:Inter,sans-serif;"></div>
+
+                    <!-- Map + Panel -->
+                    <div style="display:flex;flex:1;overflow:hidden;">
+
+                        <!-- Scrollable map area -->
+                        <div id="map-outer" style="flex:1;overflow:auto;background:#1a1a2e;position:relative;">
+                            <div id="map-container" style="position:relative;display:inline-block;">
+                                <img id="sitemap-image" src="" alt="Site Map"
+                                     style="display:block;width:100%;"
+                                     onload="onMapImageLoaded()" />
+                                <div id="pb-markers" style="position:absolute;top:0;left:0;"></div>
+                                <div id="text-labels" style="position:absolute;top:0;left:0;"></div>
+                                <div id="scan-region-overlays" style="position:absolute;top:0;left:0;pointer-events:none;"></div>
+                                <!-- Floating legend overlay -->
+                                <div id="map-legend" style="position:absolute;top:10px;right:10px;background:rgba(7,9,26,0.92);border:1px solid rgba(255,255,255,0.12);border-radius:8px;padding:8px 12px;display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:11px;color:#eef2ff;cursor:grab;z-index:50;box-shadow:0 2px 8px rgba(0,0,0,0.4);user-select:none;min-width:100px;">
+                                    <div id="legend-items" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;"></div>
+                                    <!-- Resize edges -->
+                                    <div class="legend-edge" data-edge="top" style="position:absolute;top:-3px;left:6px;right:6px;height:6px;cursor:ns-resize;"></div>
+                                    <div class="legend-edge" data-edge="bottom" style="position:absolute;bottom:-3px;left:6px;right:6px;height:6px;cursor:ns-resize;"></div>
+                                    <div class="legend-edge" data-edge="left" style="position:absolute;left:-3px;top:6px;bottom:6px;width:6px;cursor:ew-resize;"></div>
+                                    <div class="legend-edge" data-edge="right" style="position:absolute;right:-3px;top:6px;bottom:6px;width:6px;cursor:ew-resize;"></div>
+                                    <div class="legend-edge" data-edge="br" style="position:absolute;right:-3px;bottom:-3px;width:10px;height:10px;cursor:nwse-resize;"></div>
+                                    <div class="legend-edge" data-edge="tl" style="position:absolute;left:-3px;top:-3px;width:10px;height:10px;cursor:nwse-resize;"></div>
+                                    <div class="legend-edge" data-edge="tr" style="position:absolute;right:-3px;top:-3px;width:10px;height:10px;cursor:nesw-resize;"></div>
+                                    <div class="legend-edge" data-edge="bl" style="position:absolute;left:-3px;bottom:-3px;width:10px;height:10px;cursor:nesw-resize;"></div>
+                                </div>
+                            </div>
+                            <div id="map-edit-hint" style="display:none;position:absolute;top:12px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,rgba(0,212,255,0.15),rgba(124,108,252,0.15));backdrop-filter:blur(10px);border:1px solid rgba(0,212,255,0.3);color:#00d4ff;padding:7px 18px;border-radius:100px;font-size:12px;font-weight:600;pointer-events:none;z-index:200;white-space:nowrap;">
+                                ✏️ Drag markers to reposition • Click "Done Editing" when finished
+                            </div>
+                            <div id="snap-place-hint" style="display:none;position:absolute;top:12px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,rgba(255,193,7,0.18),rgba(0,212,255,0.15));backdrop-filter:blur(10px);border:1px solid rgba(255,193,7,0.35);color:#ffc107;padding:7px 18px;border-radius:100px;font-size:12px;font-weight:600;pointer-events:none;z-index:200;white-space:nowrap;">
+                                🎯 Click inside a black outline to snap-place the next PB
+                            </div>
+                        </div>
+
+                        <!-- LBD side panel (slides in when a PB is clicked) -->
+                        <div id="lbd-panel" style="width:520px;background:linear-gradient(180deg,#0d1030 0%,#07091a 100%);border-left:1px solid rgba(255,255,255,0.09);display:none;flex-direction:column;overflow:hidden;flex-shrink:0;">
+                            <div style="padding:14px 18px;background:rgba(255,255,255,0.04);border-bottom:1px solid rgba(255,255,255,0.09);display:flex;align-items:center;gap:8px;">
+                                <div style="flex:1;">
+                                    <div id="lbd-panel-title" style="font-size:17px;font-weight:700;"></div>
+                                    <div id="lbd-panel-stats" style="font-size:12px;color:#666;margin-top:2px;"></div>
+                                    <div id="lbd-panel-bar" style="margin-top:6px;height:6px;background:#e0e0e0;border-radius:3px;overflow:hidden;">
+                                        <div id="lbd-panel-bar-fill" style="height:100%;background:#28a745;width:0%;transition:width 0.3s;"></div>
+                                    </div>
+                                </div>
+                                <button onclick="closePBPanel()" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:50%;width:28px;height:28px;font-size:16px;cursor:pointer;color:#8892b0;line-height:1;padding:0;display:flex;align-items:center;justify-content:center;transition:all 0.2s;">&#xd7;</button>
+                            </div>
+                            <!-- Grid header + bulk + list -->
+                            <div id="lbd-grid-header" style="padding:8px 12px 0;"></div>
+                            <div id="lbd-panel-list" style="overflow-y:auto;flex:1;padding:4px 12px 12px;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            </div><!-- /page-sitemap -->
+
+            <!-- Admin Page -->
+            <div id="page-admin" class="page">
+              <div class="container" style="max-width:880px;">
+                <h1 class="section-title">Admin Controls</h1>
+                <div id="admin-alert" class="alert hidden"></div>
+
+                <!-- Tabs -->
+                <div style="display:flex;gap:4px;border-bottom:1px solid rgba(255,255,255,0.09);margin-bottom:24px;flex-wrap:wrap;">
+                  <button class="btn admin-tab active" id="atab-colors" onclick="switchAdminTab('colors')">🎨 Colors</button>
+                  <button class="btn admin-tab" id="atab-names" onclick="switchAdminTab('names')">🏷️ Column Names</button>
+                  <button class="btn admin-tab" id="atab-columns" onclick="switchAdminTab('columns')">📊 Columns</button>
+                  <button class="btn admin-tab" id="atab-maplabels" onclick="switchAdminTab('maplabels')">🗺️ Map Labels</button>
+                  <button class="btn admin-tab" id="atab-updates" onclick="switchAdminTab('updates')">🔄 Updates</button>
+                </div>
+
+                <!-- Colors Tab -->
+                <div id="admin-tab-colors" class="admin-tab-content">
+                  <h2 class="section-subtitle">Status Colors</h2>
+                  <p style="color:#777;font-size:13px;margin-bottom:18px;">Click a swatch to change the color for each status column.</p>
+                  <div id="admin-color-rows" style="display:flex;flex-direction:column;gap:12px;margin-bottom:20px;"></div>
+                  <button class="btn btn-primary" onclick="saveAdminColors()">Save Colors</button>
+                </div>
+
+                <!-- Names Tab -->
+                <div id="admin-tab-names" class="admin-tab-content" style="display:none;">
+                  <h2 class="section-subtitle">Column Display Names</h2>
+                  <p style="color:#777;font-size:13px;margin-bottom:18px;">Rename how each status column appears throughout the app.</p>
+                  <div id="admin-name-rows" style="display:flex;flex-direction:column;gap:10px;margin-bottom:20px;"></div>
+                  <button class="btn btn-primary" onclick="saveAdminNames()">Save Names</button>
+                </div>
+
+                <!-- Columns Tab -->
+                <div id="admin-tab-columns" class="admin-tab-content" style="display:none;">
+                  <h2 class="section-subtitle">Status Columns</h2>
+                  <div id="admin-columns-list" style="margin-bottom:24px;"></div>
+                  <div style="border:2px dashed #ccc;border-radius:10px;padding:18px;background:#fafafa;">
+                    <h3 style="margin:0 0 14px;font-size:15px;">Add New Column</h3>
+                    <div class="form-row">
+                      <div class="form-group">
+                        <label>Key (no spaces, e.g. torque_check)</label>
+                        <input type="text" id="new-col-key" placeholder="column_key" oninput="this.value=this.value.toLowerCase().replace(/ /g,'_')" />
+                      </div>
+                      <div class="form-group">
+                        <label>Display Label</label>
+                        <input type="text" id="new-col-label" placeholder="Column Label" />
+                      </div>
+                      <div class="form-group">
+                        <label>Color</label>
+                        <div style="display:flex;align-items:center;gap:8px;">
+                          <input type="color" id="new-col-color" value="#888888" style="width:44px;height:36px;border:none;border-radius:6px;cursor:pointer;" oninput="document.getElementById('new-col-color-hex').textContent=this.value" />
+                          <span id="new-col-color-hex" style="font-family:monospace;font-size:13px;color:#555;">#888888</span>
+                        </div>
+                      </div>
+                    </div>
+                    <button class="btn btn-success" onclick="addAdminColumn()">Add Column</button>
+                  </div>
+                </div>
+
+                <!-- Map Labels Tab -->
+                <div id="admin-tab-maplabels" class="admin-tab-content" style="display:none;">
+                  <h2 class="section-subtitle">Power Block Label Font Size (Map View)</h2>
+                  <p style="color:#777;font-size:13px;margin-bottom:18px;">Controls the default font size for PB labels on the site map. Individual areas can override this.</p>
+                  <div style="display:flex;flex-direction:column;gap:14px;max-width:480px;margin-bottom:22px;">
+                    <label style="font-size:15px;">Font Size: <strong id="admin-font-size-display">14</strong>px</label>
+                    <input type="range" id="admin-font-size" min="8" max="72" value="14"
+                      oninput="document.getElementById('admin-font-size-display').textContent=this.value;updateFontSizePreview(this.value)"
+                      style="accent-color:#2c3e50;" />
+                    <div id="admin-font-preview" style="background:#2c3e50;color:#fff;padding:16px 24px;border-radius:8px;font-weight:bold;text-align:center;font-size:14px;">PB-01</div>
+                  </div>
+                  <button class="btn btn-primary" onclick="saveAdminFontSize()">Save Font Size</button>
+                </div>
+
+                <!-- Updates Tab -->
+                <div id="admin-tab-updates" class="admin-tab-content" style="display:none;">
+                  <h2 class="section-subtitle">🔄 Over-the-Air EXE Update</h2>
+                  <p style="color:#777;font-size:13px;margin-bottom:20px;">
+                    Upload a new <code>LBDTracker.exe</code> here. Every time the EXE is launched it checks this server
+                    and automatically downloads &amp; installs the new version.
+                  </p>
+
+                  <div id="update-current-version" style="background:#f5f5f5;border-radius:8px;padding:14px 18px;margin-bottom:22px;font-size:14px;"></div>
+
+                  <div style="border:2px dashed #ccc;border-radius:10px;padding:20px;background:#fafafa;max-width:480px;">
+                    <div class="form-group" style="margin-bottom:14px;">
+                      <label style="font-weight:600;">New Version Number</label>
+                      <input type="text" id="update-new-version" placeholder="e.g. 1.0.1" style="margin-top:6px;" />
+                    </div>
+                    <div class="form-group" style="margin-bottom:16px;">
+                      <label style="font-weight:600;">LBDTracker.exe file</label>
+                      <input type="file" id="update-exe-file" accept=".exe" style="margin-top:6px;display:block;" />
+                    </div>
+                    <button class="btn btn-success" onclick="uploadNewEXE()">⬆ Upload &amp; Publish</button>
+                    <div id="update-upload-status" style="margin-top:12px;font-size:13px;"></div>
+                  </div>
+
+                  <div style="margin-top:28px;background:#fff8e1;border:1px solid #ffe082;border-radius:8px;padding:14px 18px;font-size:13px;color:#795548;max-width:480px;">
+                    <strong>How it works</strong><br>
+                    1. Build the new EXE with PyInstaller (bump <code>version.txt</code> first)<br>
+                    2. Upload it here<br>
+                    3. Anyone running the old EXE will be updated automatically next time they open it<br>
+                    4. Make sure <code>update_url</code> in their <code>config.ini</code> points to this site
+                  </div>
+                </div>
+            </div><!-- /page-admin -->
+
+        </main>
+    </div>
+
+    <!-- Modal for Block Details -->
+    <div id="block-modal" class="modal hidden" onclick="closeModal()">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <span class="modal-close" onclick="closeModal()">&times;</span>
+            <div id="modal-body"></div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}?v={{ range(10000,99999) | random }}"></script>
+</body>
+</html>

@@ -1,0 +1,29 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# LBD Tracker  —  config.ini
+# Place this file in the same folder as LBDTracker.exe on the USB drive.
+# If this file is missing the app uses a local SQLite database on that PC.
+# ─────────────────────────────────────────────────────────────────────────────
+
+[database]
+# Paste your Railway PostgreSQL URL here to share one database across all devices.
+# Get this from: Railway dashboard → your project → PostgreSQL plugin → Connect tab.
+# Leave blank to use a local SQLite database on this PC instead.
+url = 
+
+[app]
+# TCP port for the local server (default 5000).
+port = 5000
+# Secret key for session encryption — change this to something random & private.
+secret_key = change-me-to-a-long-random-string
+# URL of your Railway/hosted site — used for automatic EXE update checks.
+# Leave blank to disable update checks.
+update_url = https://your-app.railway.app
+# CLOUD MODE: set this to your hosted server URL so the EXE does NOT start a
+# local server.  Instead it opens the cloud site in a native app window.
+# Everyone (EXE users + web users) will see the same live data.
+# Leave blank to run a local server instead.
+server_url = 
+
+[admin]
+# 4-digit PIN for the Admin account.  Change this before deploying!
+pin = 1234

@@ -1,0 +1,27 @@
+﻿Image: 10800x7200
+Detected 33 unique tall rects
+  Rect 0: pos=(6346,1374) size=(128,163) top30_mean=215 std=69 min=0 max=255
+  Rect 1: pos=(6756,1718) size=(138,354) top30_mean=192 std=45 min=1 max=255
+  Rect 2: pos=(3482,1802) size=(92,208) top30_mean=137 std=82 min=0 max=255
+  Rect 3: pos=(6756,2086) size=(138,354) top30_mean=194 std=41 min=0 max=255
+  Rect 4: pos=(3774,2412) size=(148,158) top30_mean=173 std=95 min=0 max=255
+  Rect 5: pos=(4760,2506) size=(302,310) top30_mean=230 std=71 min=0 max=255
+  Rect 6: pos=(3544,2664) size=(316,372) top30_mean=226 std=71 min=0 max=255
+  Rect 7: pos=(4160,2856) size=(160,208) top30_mean=144 std=92 min=0 max=255
+  Rect 8: pos=(4930,2914) size=(142,356) top30_mean=200 std=23 min=12 max=255
+  Rect 9: pos=(5092,3020) size=(136,168) top30_mean=193 std=83 min=0 max=255
+  Rect 10: pos=(3246,3282) size=(293,406) top30_mean=169 std=56 min=0 max=255
+  Rect 11: pos=(3863,3316) size=(138,360) top30_mean=189 std=36 min=0 max=255
+  Rect 12: pos=(6428,3320) size=(136,354) top30_mean=190 std=38 min=2 max=254
+  Rect 13: pos=(7050,3628) size=(110,410) top30_mean=188 std=12 min=172 max=246
+  Rect 14: pos=(7172,3628) size=(128,416) top30_mean=174 std=47 min=0 max=248
+  Rect 15: pos=(6566,3682) size=(156,365) top30_mean=207 std=42 min=0 max=255
+  Rect 16: pos=(3252,3689) size=(144,362) top30_mean=195 std=30 min=0 max=255
+  Rect 17: pos=(6735,3689) size=(124,352) top30_mean=190 std=31 min=0 max=255
+  Rect 18: pos=(7313,3689) size=(136,350) top30_mean=191 std=27 min=0 max=255
+  Rect 19: pos=(7464,3689) size=(136,354) top30_mean=191 std=20 min=7 max=255
+
+=== TILED OCR ===
+Splitting image into tiles and running Tesseract on each...
+  Tile (0,0): 0-3780 x 0-3120, total unique nums so far: 18
+  Tile (0,1): 1620-6480 x 0-3120, total unique nums so far: 40

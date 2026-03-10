@@ -1,0 +1,12 @@
+{
+  "name": "lbd-tracker",
+  "version": "1.0.0",
+  "description": "Load Break Device Tracker - PDF to Interactive Site Map",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": ["lbd", "tracker", "pdf", "site-map"],
+  "author": "",
+  "license": "MIT"
+}
