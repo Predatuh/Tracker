@@ -2043,9 +2043,42 @@ function renderTextLabels() {
     el.title = mapEditMode ? 'Drag to move • Right-click to edit/delete' : lbl.text;
 
     if (mapEditMode) {
+      // Font-size resize handle (bottom-right corner)
+      const resizeHandle = document.createElement('div');
+      resizeHandle.title = 'Drag to resize text';
+      resizeHandle.style.cssText = [
+        'position:absolute', 'right:-6px', 'bottom:-6px',
+        'width:12px', 'height:12px', 'background:#0d6efd',
+        'border:2px solid #fff', 'border-radius:3px',
+        'cursor:nwse-resize', 'z-index:50',
+        'box-shadow:0 1px 4px rgba(0,0,0,.4)'
+      ].join(';');
+      el.style.position = 'absolute'; // ensure relative positioning for handle
+      resizeHandle.addEventListener('mousedown', e => {
+        e.preventDefault();
+        e.stopPropagation();
+        const startX = e.clientX;
+        const origSize = lbl.fontSize || 14;
+        function onMove(ev) {
+          const dx = ev.clientX - startX;
+          const newSize = Math.max(6, Math.min(120, Math.round(origSize + dx * 0.4)));
+          lbl.fontSize = newSize;
+          el.style.fontSize = newSize + 'px';
+        }
+        function onUp() {
+          document.removeEventListener('mousemove', onMove);
+          document.removeEventListener('mouseup', onUp);
+          saveTextLabels(labels);
+        }
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+      });
+      el.appendChild(resizeHandle);
+
       // Drag to move
       el.addEventListener('mousedown', e => {
         if (e.button !== 0) return;
+        if (e.target === resizeHandle) return;
         e.preventDefault();
         const container = document.getElementById('map-container');
         const cW = container.offsetWidth;
