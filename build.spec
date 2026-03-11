@@ -51,6 +51,7 @@ a = Analysis(
         'requests',
         'werkzeug',
         'waitress',
+        'pytz',
         'h11',
         'bidict',
         'tkinter',
