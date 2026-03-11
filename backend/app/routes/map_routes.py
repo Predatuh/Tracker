@@ -37,24 +37,28 @@ def register_existing_map():
             name = fname
         else:
             # Look for map_* files in upload folder (from pdf_routes)
-            file_path = None
+            # Sort by modification time newest-first so the most recently uploaded map wins
+            candidates = []
             for fname in os.listdir(upload_folder):
                 if fname.startswith('map_') and fname.lower().endswith(('.png', '.jpg', '.jpeg', '.gif')):
-                    src = os.path.join(upload_folder, fname)
-                    dest = os.path.join(maps_folder, fname)
-                    if not os.path.exists(dest):
-                        shutil.copy2(src, dest)
-                    file_path = dest
-                    name = fname
-                    break
-
-            if not file_path:
+                    fp = os.path.join(upload_folder, fname)
+                    candidates.append((os.path.getmtime(fp), fname, fp))
+            if not candidates:
                 return jsonify({'error': 'No map file found in uploads. Upload a map first.'}), 404
+            candidates.sort(reverse=True)  # newest first
+            _, name, src = candidates[0]
+            dest = os.path.join(maps_folder, name)
+            if not os.path.exists(dest):
+                shutil.copy2(src, dest)
+            file_path = dest
 
-        # Check if already registered
-        existing = SiteMap.query.filter_by(name=name).first()
+        # Update existing record if present, otherwise create new
+        existing = SiteMap.query.first()
         if existing:
-            return jsonify({'success': True, 'data': existing.to_dict(), 'message': 'already registered'}), 200
+            existing.name = name
+            existing.file_path = file_path
+            db.session.commit()
+            return jsonify({'success': True, 'data': existing.to_dict(), 'message': 'updated'}), 200
 
         site_map = SiteMap(name=name, file_path=file_path)
         db.session.add(site_map)
