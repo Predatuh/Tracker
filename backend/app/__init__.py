@@ -100,6 +100,7 @@ def create_app():
     with app.app_context():
         db.create_all()
         _migrate_schema(app)
+        _recover_custom_columns(app)
         _seed_admin()
 
     # Start the nightly report scheduler (9 PM CST)
@@ -164,6 +165,41 @@ def _add_col(cur, table, col, dtype):
             cur.execute(f"ALTER TABLE {table} ADD COLUMN {col} {dtype}")
     except Exception:
         pass
+
+
+def _recover_custom_columns(app):
+    """Detect custom status columns stored in status_colors or lbd_statuses
+    but missing from the custom_columns admin setting, and restore them."""
+    from app.models.admin_settings import AdminSettings
+    from app.models.status import LBDStatus
+    import json
+
+    builtins = set(LBDStatus.STATUS_TYPES)
+    existing_custom = AdminSettings.get('custom_columns') or []
+    if existing_custom:
+        return  # already populated, nothing to recover
+
+    # Collect all non-builtin status types from lbd_statuses table
+    try:
+        rows = db.session.execute(
+            db.text('SELECT DISTINCT status_type FROM lbd_statuses')
+        ).fetchall()
+        db_types = {r[0] for r in rows}
+    except Exception:
+        db_types = set()
+
+    # Also check status_colors for additional keys
+    color_keys = set()
+    stored_colors = AdminSettings.get('status_colors')
+    if isinstance(stored_colors, dict):
+        color_keys = set(stored_colors.keys())
+
+    all_known = db_types | color_keys
+    custom = [k for k in all_known if k not in builtins]
+
+    if custom:
+        AdminSettings.set('custom_columns', custom)
+        app.logger.info(f'Recovered custom columns: {custom}')
 
 
 # -- Nightly report scheduler (9 PM CST) -----------------------------------

@@ -140,6 +140,8 @@ function showPage(pageName) {
   if (pageName === 'blocks') loadBlocks();
   if (pageName === 'sitemap') loadSiteMap();
   if (pageName === 'admin') loadAdminPage();
+  if (pageName === 'worklog') loadWorkLogPage();
+  if (pageName === 'reports') loadReportsPage();
 }
 
 // Modal functions
@@ -2582,6 +2584,394 @@ function showStatus(elementId, message, type) {
   }
   element.textContent = message;
 }
+
+// ============================================================
+// WORK LOG PAGE
+// ============================================================
+let wl_workers = [];
+let wl_blocks = [];
+let wl_selectedWorkers = [];
+let wl_selectedTask = '';
+let wl_selectedBlocks = new Set();
+let wl_date = new Date().toISOString().slice(0, 10);
+
+async function loadWorkLogPage() {
+  const el = document.getElementById('worklog-content');
+  if (!el) return;
+
+  el.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:20px;">
+      <!-- Date picker -->
+      <div class="form-section" style="padding:16px 20px;">
+        <label style="font-size:12px;font-weight:700;color:#8892b0;text-transform:uppercase;letter-spacing:0.5px;">Date</label>
+        <input type="date" id="wl-date" value="${wl_date}" onchange="wl_date=this.value; wl_loadEntries()"
+          style="margin-left:10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:#eef2ff;border-radius:6px;padding:6px 12px;font-family:Inter,sans-serif;" />
+      </div>
+
+      <!-- Workers -->
+      <div class="form-section" style="padding:16px 20px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <label style="font-size:12px;font-weight:700;color:#8892b0;text-transform:uppercase;letter-spacing:0.5px;">👷 Workers</label>
+          <button onclick="wl_addWorker()" style="background:linear-gradient(135deg,#00d4ff,#009abc);color:#000;border:none;border-radius:6px;padding:5px 14px;font-size:11px;font-weight:700;cursor:pointer;">+ Add Worker</button>
+        </div>
+        <div id="wl-workers" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+      </div>
+
+      <!-- Tasks -->
+      <div class="form-section" style="padding:16px 20px;">
+        <label style="font-size:12px;font-weight:700;color:#8892b0;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px;display:block;">🔧 Task</label>
+        <div id="wl-tasks" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+      </div>
+
+      <!-- Power Blocks -->
+      <div class="form-section" style="padding:16px 20px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <label style="font-size:12px;font-weight:700;color:#8892b0;text-transform:uppercase;letter-spacing:0.5px;">⚡ Power Blocks</label>
+          <div style="display:flex;gap:6px;">
+            <button onclick="wl_selectAllBlocks()" style="background:rgba(0,212,255,0.12);color:#00d4ff;border:1px solid rgba(0,212,255,0.3);border-radius:5px;padding:4px 10px;font-size:10px;font-weight:700;cursor:pointer;">All</button>
+            <button onclick="wl_clearBlocks()" style="background:rgba(255,76,106,0.1);color:#ff4c6a;border:1px solid rgba(255,76,106,0.3);border-radius:5px;padding:4px 10px;font-size:10px;font-weight:700;cursor:pointer;">None</button>
+          </div>
+        </div>
+        <div id="wl-blocks" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(70px,1fr));gap:6px;"></div>
+      </div>
+
+      <!-- Submit -->
+      <div style="display:flex;gap:12px;align-items:center;">
+        <button onclick="wl_submit()" style="background:linear-gradient(135deg,#00e87a,#00b35f);color:#000;border:none;border-radius:8px;padding:12px 32px;font-size:14px;font-weight:800;cursor:pointer;">✓ Log Work</button>
+        <span id="wl-status" style="font-size:13px;color:#8892b0;"></span>
+      </div>
+
+      <!-- Today's entries -->
+      <div class="form-section" style="padding:16px 20px;">
+        <label style="font-size:12px;font-weight:700;color:#8892b0;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px;display:block;">📝 Entries for <span id="wl-entries-date"></span></label>
+        <div id="wl-entries"></div>
+      </div>
+    </div>`;
+
+  // Load data
+  try {
+    const [workersRes, blocksRes] = await Promise.all([
+      api.call('/workers'),
+      api.call('/tracker/power-blocks')
+    ]);
+    wl_workers = (workersRes.data || []).filter(w => w.is_active);
+    wl_blocks = Array.isArray(blocksRes.data) ? blocksRes.data : [];
+  } catch(e) { console.error('WorkLog load error:', e); }
+
+  wl_renderWorkers();
+  wl_renderTasks();
+  wl_renderBlocks();
+  wl_loadEntries();
+}
+
+function wl_renderWorkers() {
+  const el = document.getElementById('wl-workers');
+  if (!el) return;
+  el.innerHTML = wl_workers.map(w => {
+    const sel = wl_selectedWorkers.includes(w.id);
+    return `<button onclick="wl_toggleWorker(${w.id})" style="padding:6px 14px;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;border:1.5px solid ${sel ? '#00d4ff' : 'rgba(255,255,255,0.12)'};background:${sel ? 'rgba(0,212,255,0.15)' : 'rgba(255,255,255,0.04)'};color:${sel ? '#00d4ff' : '#8892b0'};">${w.name}</button>`;
+  }).join('');
+}
+
+function wl_toggleWorker(id) {
+  const idx = wl_selectedWorkers.indexOf(id);
+  if (idx >= 0) wl_selectedWorkers.splice(idx, 1);
+  else wl_selectedWorkers.push(id);
+  wl_renderWorkers();
+}
+
+async function wl_addWorker() {
+  const name = prompt('Worker name:');
+  if (!name || !name.trim()) return;
+  try {
+    await api.call('/workers', { method: 'POST', body: JSON.stringify({ name: name.trim() }) });
+    const r = await api.call('/workers');
+    wl_workers = (r.data || []).filter(w => w.is_active);
+    wl_renderWorkers();
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+function wl_renderTasks() {
+  const el = document.getElementById('wl-tasks');
+  if (!el) return;
+  const tasks = LBD_STATUS_TYPES;
+  el.innerHTML = tasks.map(t => {
+    const sel = wl_selectedTask === t;
+    const color = STATUS_COLORS[t] || '#888';
+    const label = STATUS_LABELS[t] || t.replace(/_/g, ' ');
+    return `<button onclick="wl_selectedTask='${t}';wl_renderTasks()" style="padding:6px 14px;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;border:1.5px solid ${sel ? color : 'rgba(255,255,255,0.12)'};background:${sel ? color + '22' : 'rgba(255,255,255,0.04)'};color:${sel ? color : '#8892b0'};">${label}</button>`;
+  }).join('');
+}
+
+function wl_renderBlocks() {
+  const el = document.getElementById('wl-blocks');
+  if (!el) return;
+  el.innerHTML = wl_blocks.map(b => {
+    const sel = wl_selectedBlocks.has(b.id);
+    return `<button onclick="wl_toggleBlock(${b.id})" style="padding:6px 4px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;text-align:center;border:1.5px solid ${sel ? '#00d4ff' : 'rgba(255,255,255,0.1)'};background:${sel ? 'rgba(0,212,255,0.15)' : 'rgba(255,255,255,0.03)'};color:${sel ? '#00d4ff' : '#8892b0'};">${b.name}</button>`;
+  }).join('');
+}
+
+function wl_toggleBlock(id) {
+  if (wl_selectedBlocks.has(id)) wl_selectedBlocks.delete(id);
+  else wl_selectedBlocks.add(id);
+  wl_renderBlocks();
+}
+
+function wl_selectAllBlocks() { wl_blocks.forEach(b => wl_selectedBlocks.add(b.id)); wl_renderBlocks(); }
+function wl_clearBlocks() { wl_selectedBlocks.clear(); wl_renderBlocks(); }
+
+async function wl_submit() {
+  const statusEl = document.getElementById('wl-status');
+  if (wl_selectedWorkers.length === 0) { statusEl.textContent = '⚠ Select at least one worker'; return; }
+  if (!wl_selectedTask) { statusEl.textContent = '⚠ Select a task'; return; }
+  if (wl_selectedBlocks.size === 0) { statusEl.textContent = '⚠ Select at least one power block'; return; }
+
+  statusEl.textContent = 'Logging...';
+  try {
+    const entries = [];
+    for (const wid of wl_selectedWorkers) {
+      for (const bid of wl_selectedBlocks) {
+        entries.push({ worker_id: wid, power_block_id: bid, task_type: wl_selectedTask, work_date: wl_date });
+      }
+    }
+    await api.call('/work-entries', { method: 'POST', body: JSON.stringify({ entries }) });
+    statusEl.textContent = `✓ Logged ${entries.length} entries`;
+    wl_loadEntries();
+  } catch(e) { statusEl.textContent = '✗ ' + e.message; }
+}
+
+async function wl_loadEntries() {
+  const dateEl = document.getElementById('wl-entries-date');
+  const el = document.getElementById('wl-entries');
+  if (!el) return;
+  if (dateEl) dateEl.textContent = wl_date;
+  try {
+    const r = await api.call(`/work-entries?date=${wl_date}`);
+    const entries = r.data || [];
+    if (entries.length === 0) {
+      el.innerHTML = '<p style="color:#4a5568;text-align:center;padding:20px;">No entries for this date</p>';
+      return;
+    }
+    // Group by worker
+    const grouped = {};
+    entries.forEach(e => {
+      const key = e.worker_name || 'Unknown';
+      if (!grouped[key]) grouped[key] = [];
+      grouped[key].push(e);
+    });
+    let html = '';
+    for (const [worker, wEntries] of Object.entries(grouped)) {
+      html += `<div style="margin-bottom:12px;">
+        <div style="font-weight:700;color:#eef2ff;font-size:13px;margin-bottom:6px;">👷 ${worker}</div>`;
+      wEntries.forEach(e => {
+        const color = STATUS_COLORS[e.task_type] || '#888';
+        const label = STATUS_LABELS[e.task_type] || e.task_type;
+        html += `<div style="display:flex;align-items:center;gap:8px;padding:4px 8px;margin-bottom:3px;">
+          <span style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0;"></span>
+          <span style="color:#a0aec0;font-size:12px;">${label}</span>
+          <span style="color:#4a5568;font-size:11px;">→ ${e.power_block_name || 'PB ' + e.power_block_id}</span>
+          <button onclick="wl_deleteEntry(${e.id})" style="margin-left:auto;background:none;border:none;color:#4a5568;cursor:pointer;font-size:11px;" title="Remove">✕</button>
+        </div>`;
+      });
+      html += '</div>';
+    }
+    el.innerHTML = html;
+  } catch(e) { el.innerHTML = `<p style="color:#ff4c6a;">Error loading entries: ${e.message}</p>`; }
+}
+
+async function wl_deleteEntry(id) {
+  try {
+    await api.call(`/work-entries/${id}`, { method: 'DELETE' });
+    wl_loadEntries();
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+
+// ============================================================
+// REPORTS PAGE
+// ============================================================
+let rp_viewMode = 'list';  // 'list' | 'calendar'
+
+async function loadReportsPage() {
+  const el = document.getElementById('reports-content');
+  if (!el) return;
+
+  el.innerHTML = `
+    <div style="display:flex;gap:10px;margin-bottom:20px;">
+      <button id="rp-tab-list" onclick="rp_switchView('list')" style="padding:8px 20px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid #00d4ff;background:rgba(0,212,255,0.15);color:#00d4ff;">List</button>
+      <button id="rp-tab-calendar" onclick="rp_switchView('calendar')" style="padding:8px 20px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.04);color:#8892b0;">Calendar</button>
+      <button onclick="rp_generate()" style="margin-left:auto;background:linear-gradient(135deg,#00d4ff,#009abc);color:#000;border:none;border-radius:6px;padding:8px 20px;font-size:12px;font-weight:700;cursor:pointer;">Generate Today's Report</button>
+    </div>
+    <div id="rp-body"></div>`;
+
+  rp_switchView(rp_viewMode);
+}
+
+function rp_switchView(mode) {
+  rp_viewMode = mode;
+  // Update tab styles
+  ['list', 'calendar'].forEach(m => {
+    const btn = document.getElementById('rp-tab-' + m);
+    if (btn) {
+      const active = m === mode;
+      btn.style.borderColor = active ? '#00d4ff' : 'rgba(255,255,255,0.12)';
+      btn.style.background = active ? 'rgba(0,212,255,0.15)' : 'rgba(255,255,255,0.04)';
+      btn.style.color = active ? '#00d4ff' : '#8892b0';
+    }
+  });
+  if (mode === 'list') rp_loadList();
+  else rp_loadCalendar();
+}
+
+async function rp_generate() {
+  try {
+    await api.call('/reports/generate', { method: 'POST', body: JSON.stringify({}) });
+    rp_switchView(rp_viewMode);
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function rp_loadList() {
+  const el = document.getElementById('rp-body');
+  if (!el) return;
+  el.innerHTML = '<p style="color:#8892b0;">Loading...</p>';
+  try {
+    const r = await api.call('/reports');
+    const reports = r.data || [];
+    if (reports.length === 0) {
+      el.innerHTML = '<p style="color:#4a5568;text-align:center;padding:40px;">No reports yet. Generate one or log work entries first.</p>';
+      return;
+    }
+    let html = '';
+    reports.sort((a, b) => b.report_date.localeCompare(a.report_date));
+    reports.forEach(rpt => {
+      const d = new Date(rpt.report_date + 'T12:00:00');
+      const dateStr = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+      const workers = rpt.total_workers || 0;
+      const tasks = rpt.total_tasks || 0;
+      html += `<div onclick="rp_showDetail('${rpt.report_date}')" style="padding:14px 18px;margin-bottom:8px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:8px;cursor:pointer;transition:border-color 0.2s;" onmouseover="this.style.borderColor='rgba(0,212,255,0.3)'" onmouseout="this.style.borderColor='rgba(255,255,255,0.08)'">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <div>
+            <div style="font-weight:700;color:#eef2ff;font-size:14px;">${dateStr}</div>
+            <div style="color:#8892b0;font-size:12px;margin-top:2px;">${workers} worker${workers !== 1 ? 's' : ''} · ${tasks} task-block entries</div>
+          </div>
+          <span style="color:#4a5568;font-size:18px;">›</span>
+        </div>
+      </div>`;
+    });
+    el.innerHTML = html;
+  } catch(e) { el.innerHTML = `<p style="color:#ff4c6a;">Error: ${e.message}</p>`; }
+}
+
+async function rp_loadCalendar() {
+  const el = document.getElementById('rp-body');
+  if (!el) return;
+  el.innerHTML = '<p style="color:#8892b0;">Loading...</p>';
+  try {
+    const r = await api.call('/reports');
+    const reports = r.data || [];
+    const reportDates = new Set(reports.map(rp => rp.report_date));
+
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const monthName = now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+    let html = `<div style="text-align:center;font-weight:700;color:#eef2ff;font-size:16px;margin-bottom:14px;">${monthName}</div>`;
+    html += '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center;">';
+    ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].forEach(d => {
+      html += `<div style="font-size:10px;font-weight:700;color:#4a5568;padding:6px 0;">${d}</div>`;
+    });
+
+    for (let i = 0; i < firstDay; i++) html += '<div></div>';
+    for (let day = 1; day <= daysInMonth; day++) {
+      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const hasReport = reportDates.has(dateStr);
+      const isToday = day === now.getDate();
+      html += `<div onclick="${hasReport ? "rp_showDetail('" + dateStr + "')" : ''}" style="padding:8px 4px;border-radius:6px;cursor:${hasReport ? 'pointer' : 'default'};background:${isToday ? 'rgba(0,212,255,0.1)' : 'rgba(255,255,255,0.02)'};border:1px solid ${isToday ? 'rgba(0,212,255,0.3)' : 'transparent'};">
+        <div style="font-size:13px;color:${isToday ? '#00d4ff' : '#eef2ff'};font-weight:${isToday ? '700' : '400'};">${day}</div>
+        ${hasReport ? '<div style="width:6px;height:6px;border-radius:50%;background:#00e87a;margin:4px auto 0;"></div>' : ''}
+      </div>`;
+    }
+    html += '</div>';
+    html += '<div id="rp-detail" style="margin-top:20px;"></div>';
+    el.innerHTML = html;
+  } catch(e) { el.innerHTML = `<p style="color:#ff4c6a;">Error: ${e.message}</p>`; }
+}
+
+async function rp_showDetail(dateStr) {
+  let detailEl = document.getElementById('rp-detail');
+  // If inside list view, append detail area
+  if (!detailEl) {
+    const body = document.getElementById('rp-body');
+    body.insertAdjacentHTML('beforeend', '<div id="rp-detail" style="margin-top:20px;"></div>');
+    detailEl = document.getElementById('rp-detail');
+  }
+  detailEl.innerHTML = '<p style="color:#8892b0;">Loading report...</p>';
+  try {
+    const r = await api.call(`/reports/date/${dateStr}`);
+    const rpt = r.data;
+    if (!rpt) { detailEl.innerHTML = '<p style="color:#4a5568;">No report for this date.</p>'; return; }
+
+    const data = rpt.data || {};
+    const d = new Date(dateStr + 'T12:00:00');
+    const dateTitle = d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+
+    let html = `<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:20px;">
+      <h3 style="color:#eef2ff;margin:0 0 16px;font-size:16px;">📊 Report — ${dateTitle}</h3>`;
+
+    // By worker
+    const byWorker = data.by_worker || {};
+    if (Object.keys(byWorker).length > 0) {
+      html += '<div style="margin-bottom:16px;"><div style="font-size:11px;font-weight:700;color:#8892b0;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">By Worker</div>';
+      for (const [worker, tasks] of Object.entries(byWorker)) {
+        html += `<div style="margin-bottom:8px;padding:8px 12px;background:rgba(255,255,255,0.02);border-radius:6px;">
+          <div style="font-weight:600;color:#eef2ff;font-size:13px;margin-bottom:4px;">👷 ${worker}</div>`;
+        if (typeof tasks === 'object') {
+          for (const [task, blocks] of Object.entries(tasks)) {
+            const color = STATUS_COLORS[task] || '#888';
+            const label = STATUS_LABELS[task] || task;
+            const blockList = Array.isArray(blocks) ? blocks.join(', ') : blocks;
+            html += `<div style="display:flex;align-items:center;gap:6px;margin-left:8px;margin-bottom:2px;">
+              <span style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0;"></span>
+              <span style="color:#a0aec0;font-size:12px;">${label}:</span>
+              <span style="color:#8892b0;font-size:11px;">${blockList}</span>
+            </div>`;
+          }
+        }
+        html += '</div>';
+      }
+      html += '</div>';
+    }
+
+    // By task
+    const byTask = data.by_task || {};
+    if (Object.keys(byTask).length > 0) {
+      html += '<div><div style="font-size:11px;font-weight:700;color:#8892b0;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">By Task</div>';
+      for (const [task, workers] of Object.entries(byTask)) {
+        const color = STATUS_COLORS[task] || '#888';
+        const label = STATUS_LABELS[task] || task;
+        html += `<div style="margin-bottom:6px;padding:6px 12px;background:rgba(255,255,255,0.02);border-radius:6px;">
+          <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};margin-right:6px;"></span>
+          <span style="font-weight:600;color:#eef2ff;font-size:13px;">${label}</span>`;
+        if (typeof workers === 'object') {
+          for (const [w, blocks] of Object.entries(workers)) {
+            const blockList = Array.isArray(blocks) ? blocks.join(', ') : blocks;
+            html += `<div style="margin-left:22px;color:#8892b0;font-size:11px;">${w}: ${blockList}</div>`;
+          }
+        }
+        html += '</div>';
+      }
+      html += '</div>';
+    }
+
+    html += '</div>';
+    detailEl.innerHTML = html;
+  } catch(e) { detailEl.innerHTML = `<p style="color:#ff4c6a;">Error: ${e.message}</p>`; }
+}
+
 
 // Keyboard shortcuts
 document.addEventListener('DOMContentLoaded', () => {
