@@ -159,6 +159,8 @@ def _migrate_schema(app):
     _add_col(cur, 'site_areas', 'polygon_points', 'TEXT')
     _add_col(cur, 'users', 'role', "VARCHAR(20) DEFAULT 'user'")
     _add_col(cur, 'users', 'permissions', "TEXT DEFAULT '[]'")
+    _add_col(cur, 'site_maps', 'image_data', 'BLOB')
+    _add_col(cur, 'site_maps', 'image_mime', 'VARCHAR(50)')
     conn.commit()
     conn.close()
 

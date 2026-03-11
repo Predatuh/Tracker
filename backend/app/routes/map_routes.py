@@ -97,11 +97,19 @@ def upload_sitemap():
             with open(map_path, 'r') as f:
                 svg_content = f.read()
         
+        # Read image data for blob storage
+        import mimetypes
+        mime = mimetypes.guess_type(filename)[0] or 'image/png'
+        with open(map_path, 'rb') as f:
+            image_data = f.read()
+        
         # Create SiteMap record
         site_map = SiteMap(
             name=request.form.get('name', filename),
             file_path=map_path,
-            svg_content=svg_content
+            svg_content=svg_content,
+            image_data=image_data,
+            image_mime=mime
         )
         db.session.add(site_map)
         db.session.commit()

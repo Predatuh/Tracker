@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify, current_app, send_from_directory
+from flask import Blueprint, request, jsonify, current_app, send_from_directory, Response
 from werkzeug.utils import secure_filename
 import os
 import logging
@@ -13,6 +13,28 @@ logger = logging.getLogger(__name__)
 bp = Blueprint('pdf', __name__, url_prefix='/api/pdf')
 
 ALLOWED_EXTENSIONS = {'pdf'}
+
+
+def _store_map_blob(file_path, filename):
+    """Store a map image in the DB as a blob so it survives container redeploys."""
+    try:
+        from app.models import SiteMap
+        import mimetypes
+        mime = mimetypes.guess_type(filename)[0] or 'image/png'
+        with open(file_path, 'rb') as f:
+            data = f.read()
+        # Update existing or create
+        sm = SiteMap.query.first()
+        if sm:
+            sm.image_data = data
+            sm.image_mime = mime
+        else:
+            sm = SiteMap(name=filename, file_path=file_path, image_data=data, image_mime=mime)
+            db.session.add(sm)
+        db.session.commit()
+    except Exception as e:
+        logger.error(f"Failed to store map blob: {e}")
+
 
 # Global progress tracking for scanning
 scan_progress = {
@@ -99,8 +121,12 @@ def upload_map():
         filename = secure_filename(file.filename)
         map_filename = f"map_{filename}"
         map_path = os.path.join(current_app.config['UPLOAD_FOLDER'], map_filename)
+        os.makedirs(os.path.dirname(map_path), exist_ok=True)
         file.save(map_path)
         logger.info(f"Map saved to {map_path}")
+        
+        # Also store in DB as blob so it survives container redeploys
+        _store_map_blob(map_path, map_filename)
         
         # Return a URL, not a file path
         map_url = f'/api/pdf/serve-map/{map_filename}'
@@ -117,16 +143,30 @@ def upload_map():
 
 @bp.route('/serve-map/<filename>', methods=['GET'])
 def serve_map(filename):
-    """Serve uploaded map images - checks maps/ subfolder first, then root uploads/"""
+    """Serve uploaded map images - checks file system first, then DB blob"""
     upload_folder = current_app.config['UPLOAD_FOLDER']
     maps_folder = os.path.join(upload_folder, 'maps')
     try:
         if os.path.exists(os.path.join(maps_folder, filename)):
             return send_from_directory(maps_folder, filename)
-        return send_from_directory(upload_folder, filename)
+        if os.path.exists(os.path.join(upload_folder, filename)):
+            return send_from_directory(upload_folder, filename)
+    except Exception:
+        pass
+    # Fall back to DB blob
+    try:
+        from app.models import SiteMap
+        site_map = SiteMap.query.filter(SiteMap.image_data.isnot(None)).first()
+        if site_map and site_map.image_data:
+            # Also restore to disk for future requests
+            os.makedirs(maps_folder, exist_ok=True)
+            restore_path = os.path.join(maps_folder, site_map.name)
+            with open(restore_path, 'wb') as f:
+                f.write(site_map.image_data)
+            return Response(site_map.image_data, mimetype=site_map.image_mime or 'image/png')
     except Exception as e:
-        logger.error(f"Error serving map {filename}: {str(e)}")
-        return jsonify({'error': 'Map not found'}), 404
+        logger.error(f"Error serving map blob: {e}")
+    return jsonify({'error': 'Map not found'}), 404
 
 @bp.route('/get-map', methods=['GET'])
 def get_map():
@@ -144,6 +184,15 @@ def get_map():
                         'success': True,
                         'map_url': f'/api/pdf/serve-map/{fname}'
                     }), 200
+
+        # Fall back to DB blob
+        from app.models import SiteMap
+        site_map = SiteMap.query.filter(SiteMap.image_data.isnot(None)).first()
+        if site_map:
+            return jsonify({
+                'success': True,
+                'map_url': f'/api/pdf/serve-map/{site_map.name}'
+            }), 200
 
         return jsonify({'success': False, 'map_url': None}), 200
     except Exception as e:

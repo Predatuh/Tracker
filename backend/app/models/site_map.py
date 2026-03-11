@@ -8,6 +8,8 @@ class SiteMap(db.Model):
     name = db.Column(db.String(100), nullable=False)
     file_path = db.Column(db.String(255), nullable=False)
     svg_content = db.Column(db.Text)  # Store SVG content if it's an SVG file
+    image_data = db.Column(db.LargeBinary)  # Map image stored as blob (survives redeploys)
+    image_mime = db.Column(db.String(50))   # e.g. 'image/png'
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
