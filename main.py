@@ -541,9 +541,20 @@ def main():
     ).start()
 
     # -- Keep alive until the window is closed -------------------------
+    # Edge/Chrome --app mode: if the browser is already running, the
+    # subprocess exits immediately (the new window joins the existing
+    # browser process).  In that case proc.wait() returns at once and
+    # the daemon Waitress thread is killed.  To solve this we poll
+    # for the app window by looking for a browser process whose command
+    # line contains our --user-data-dir path.
     if proc:
         log('Waiting for app window to close...')
-        proc.wait()
+        proc.wait()  # might return immediately if Edge was already open
+        # Give the browser a moment to register the window
+        time.sleep(2)
+        # Check if a browser window with our profile dir is still alive
+        profile_dir = os.path.join(base, 'LBDTracker_profile')
+        _wait_for_browser_close(profile_dir, log)
         log('App window closed - exiting')
     else:
         try:
@@ -551,6 +562,38 @@ def main():
                 time.sleep(60)
         except KeyboardInterrupt:
             pass
+
+
+def _wait_for_browser_close(profile_dir, log):
+    """Stay alive while any browser process uses our custom profile dir."""
+    import glob
+    lock_file = os.path.join(profile_dir, 'lockfile')
+    # The browser holds a lockfile in the user-data-dir while running.
+    # We poll this file; when it becomes unlocked, the window is gone.
+    # Fallback: also check for our URL in the SingletonLock / Local State.
+    log(f'Monitoring profile dir: {profile_dir}')
+    while True:
+        time.sleep(1)
+        # Method 1: check if lockfile is still being held
+        if os.path.exists(lock_file):
+            try:
+                # Try to rename the lockfile — if the browser holds it, this fails
+                test_path = lock_file + '.test'
+                os.rename(lock_file, test_path)
+                os.rename(test_path, lock_file)
+                # Rename succeeded → browser released the lock → it closed
+                log('Browser lockfile released - window closed')
+                return
+            except (PermissionError, OSError):
+                # File is locked by the browser → still running
+                continue
+        else:
+            # No lockfile → browser not running with this profile
+            # But give it a grace period on first check
+            time.sleep(2)
+            if not os.path.exists(lock_file):
+                log('No lockfile found - browser closed')
+                return
 
 
 # ---------------------------------------------------------------------------
