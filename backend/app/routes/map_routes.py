@@ -225,10 +225,27 @@ def snap_outline(map_id):
             return jsonify({'error': 'Could not read map image'}), 500
 
         h_img, w_img = img.shape[:2]
-        click_x = int(click_x_pct / 100 * w_img)
-        click_y = int(click_y_pct / 100 * h_img)
 
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        # ── Downscale large images for reliable contour detection ──
+        # High-res images have thin lines with sub-pixel gaps that prevent
+        # contour closure.  Downscaling effectively thickens lines and
+        # closes those gaps, making detection far more reliable.
+        MAX_DIM = 2000
+        if max(w_img, h_img) > MAX_DIM:
+            scale = MAX_DIM / max(w_img, h_img)
+            proc_w = int(w_img * scale)
+            proc_h = int(h_img * scale)
+            proc_img = cv2.resize(img, (proc_w, proc_h),
+                                  interpolation=cv2.INTER_AREA)
+        else:
+            proc_w, proc_h = w_img, h_img
+            proc_img = img
+
+        # Click coords in the processing image space
+        click_x = int(click_x_pct / 100 * proc_w)
+        click_y = int(click_y_pct / 100 * proc_h)
+
+        gray = cv2.cvtColor(proc_img, cv2.COLOR_BGR2GRAY)
 
         # ── Multi-pass: try several threshold approaches ──
         candidate_contours = []
@@ -239,10 +256,9 @@ def snap_outline(map_id):
             )
             for cnt in contours:
                 area = cv2.contourArea(cnt)
-                if area < 100:  # skip tiny noise
+                if area < 80:
                     continue
-                # Skip contours that are almost the full image
-                if area > (h_img * w_img * 0.8):
+                if area > (proc_h * proc_w * 0.8):
                     continue
                 if cv2.pointPolygonTest(cnt, (click_x, click_y), False) >= 0:
                     candidate_contours.append(cnt)
@@ -328,21 +344,21 @@ def snap_outline(map_id):
         epsilon = 0.005 * peri   # tight simplification
         approx = cv2.approxPolyDP(best, epsilon, True)
 
-        # Convert to percentage coordinates
+        # Convert to percentage coordinates (using proc image dimensions)
         polygon = []
         for pt in approx:
             polygon.append({
-                'x_pct': round(float(pt[0][0]) / w_img * 100, 3),
-                'y_pct': round(float(pt[0][1]) / h_img * 100, 3),
+                'x_pct': round(float(pt[0][0]) / proc_w * 100, 3),
+                'y_pct': round(float(pt[0][1]) / proc_h * 100, 3),
             })
 
         # Also compute bounding box in %
         x, y, w, h = cv2.boundingRect(approx)
         bbox = {
-            'x_pct': round(x / w_img * 100, 3),
-            'y_pct': round(y / h_img * 100, 3),
-            'w_pct': round(w / w_img * 100, 3),
-            'h_pct': round(h / h_img * 100, 3),
+            'x_pct': round(x / proc_w * 100, 3),
+            'y_pct': round(y / proc_h * 100, 3),
+            'w_pct': round(w / proc_w * 100, 3),
+            'h_pct': round(h / proc_h * 100, 3),
         }
 
         return jsonify({
