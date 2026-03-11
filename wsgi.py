@@ -8,8 +8,8 @@ _backend = os.path.join(os.path.dirname(__file__), 'backend')
 if _backend not in sys.path:
     sys.path.insert(0, _backend)
 
-import eventlet
-eventlet.monkey_patch()
+# Use threading mode on Railway (eventlet is unreliable in containerized envs)
+os.environ.setdefault('SOCKETIO_ASYNC_MODE', 'threading')
 
 from app import create_app, socketio
 
