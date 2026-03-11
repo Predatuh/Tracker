@@ -118,10 +118,14 @@ def _seed_admin():
     """Create the built-in admin account on first run if it does not exist."""
     from app.models.user import User
     admin_pin = os.environ.get('ADMIN_PIN', '9067')
-    if not User.query.filter_by(username='admin').first():
-        admin = User(name='Admin', username='admin', is_admin=True)
+    admin = User.query.filter_by(username='admin').first()
+    if not admin:
+        admin = User(name='Admin', username='admin', is_admin=True, role='admin')
         admin.set_pin(admin_pin)
         db.session.add(admin)
+        db.session.commit()
+    elif not admin.role or admin.role != 'admin':
+        admin.role = 'admin'
         db.session.commit()
 
 
@@ -153,6 +157,8 @@ def _migrate_schema(app):
     _add_col(cur, 'site_areas', 'bbox_h', 'REAL')
     _add_col(cur, 'site_areas', 'label_font_size', 'INTEGER')
     _add_col(cur, 'site_areas', 'polygon_points', 'TEXT')
+    _add_col(cur, 'users', 'role', "VARCHAR(20) DEFAULT 'user'")
+    _add_col(cur, 'users', 'permissions', "TEXT DEFAULT '[]'")
     conn.commit()
     conn.close()
 

@@ -130,6 +130,19 @@ const api = {
 
 // Page navigation
 function showPage(pageName) {
+  // Enforce permission checks for restricted pages
+  const isAdmin = !!(currentUser && currentUser.is_admin);
+  const role = currentUser ? (currentUser.role || 'user') : 'user';
+  const perms = currentUser ? (currentUser.permissions || []) : [];
+  const isAssistant = role === 'assistant_admin';
+
+  if (pageName === 'upload' && !isAdmin && !(isAssistant && perms.includes('upload_pdf'))) {
+    return;  // block access
+  }
+  if (pageName === 'admin' && !isAdmin && !(isAssistant && perms.includes('admin_settings'))) {
+    return;
+  }
+
   // Hide all pages
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   // Show selected page
@@ -748,17 +761,44 @@ async function checkAuth() {
 
 function _applyRoleUI() {
   const isAdmin = !!(currentUser && currentUser.is_admin);
+  const role = currentUser ? (currentUser.role || 'user') : 'user';
+  const perms = currentUser ? (currentUser.permissions || []) : [];
+  const isAssistant = role === 'assistant_admin';
+
+  // Full admins see everything with .admin-only
   document.querySelectorAll('.admin-only').forEach(el => {
+    const requiredPerm = el.dataset.perm; // e.g. data-perm="upload_pdf"
+    if (isAdmin) {
+      el.style.display = '';
+    } else if (isAssistant && requiredPerm && perms.includes(requiredPerm)) {
+      el.style.display = '';
+    } else if (isAssistant && !requiredPerm) {
+      // assistant admins see generic admin-only items only if they have any perms
+      el.style.display = '';
+    } else {
+      el.style.display = 'none';
+    }
+  });
+
+  // Items that ONLY the main admin can see (not assistant admins)
+  document.querySelectorAll('.main-admin-only').forEach(el => {
     el.style.display = isAdmin ? '' : 'none';
   });
+
   const ui = document.getElementById('user-info');
   if (ui) {
     if (currentUser) {
       const initials = currentUser.name.split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase();
+      let badge = '';
+      if (isAdmin) {
+        badge = `<span style="font-size:9px;background:rgba(0,212,255,0.15);color:#00d4ff;border:1px solid rgba(0,212,255,0.3);border-radius:4px;padding:1px 6px;font-weight:700;letter-spacing:0.5px;">ADMIN</span>`;
+      } else if (isAssistant) {
+        badge = `<span style="font-size:9px;background:rgba(124,108,252,0.15);color:#7c6cfc;border:1px solid rgba(124,108,252,0.3);border-radius:4px;padding:1px 6px;font-weight:700;letter-spacing:0.5px;">ASST ADMIN</span>`;
+      }
       ui.innerHTML = `<div style="display:flex;align-items:center;gap:8px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:100px;padding:4px 12px 4px 6px;">`
         + `<div style="width:26px;height:26px;background:linear-gradient(135deg,#00d4ff,#7c6cfc);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#000;flex-shrink:0;">${initials}</div>`
         + `<span style="font-size:12px;color:#eef2ff;font-weight:500;">${currentUser.name}</span>`
-        + (isAdmin ? `<span style="font-size:9px;background:rgba(0,212,255,0.15);color:#00d4ff;border:1px solid rgba(0,212,255,0.3);border-radius:4px;padding:1px 6px;font-weight:700;letter-spacing:0.5px;">ADMIN</span>` : '')
+        + badge
         + `<button onclick="logout()" style="font-size:11px;background:none;color:#4a5568;border:none;cursor:pointer;padding:2px 4px;margin-left:2px;transition:color 0.2s;" onmouseover="this.style.color='#ff4c6a'" onmouseout="this.style.color='#4a5568'">&#x2715;</button>`
         + `</div>`;
     } else {
@@ -3015,6 +3055,7 @@ function switchAdminTab(tabKey) {
   const btn = document.getElementById('atab-' + tabKey);
   if (btn) btn.classList.add('active');
   if (tabKey === 'updates') loadUpdateTab();
+  if (tabKey === 'users') loadUsersTab();
 }
 
 function renderAdminColorRows(colors, columns, names) {
@@ -3586,5 +3627,111 @@ async function uploadNewEXE() {
     }
   } catch(e) {
     if (statusEl) statusEl.textContent = '❌ Network error: ' + e.message;
+  }
+}
+
+// ── User Role Management (Admin Only) ─────────────────────────
+const PRIVILEGE_LABELS = {
+  upload_pdf: '📤 Upload PDF',
+  edit_map: '🗺️ Edit Map',
+  manage_blocks: '📦 Manage Blocks',
+  manage_workers: '👷 Manage Workers',
+  view_reports: '📊 View Reports',
+  admin_settings: '⚙️ Admin Settings',
+};
+
+async function loadUsersTab() {
+  const container = document.getElementById('admin-users-list');
+  if (!container) return;
+  container.innerHTML = '<p style="color:#777;">Loading users…</p>';
+  try {
+    const res = await fetch('/api/auth/users', {credentials:'include'});
+    if (!res.ok) { container.innerHTML = '<p style="color:#ff4c6a;">Failed to load users.</p>'; return; }
+    const data = await res.json();
+    const users = data.users || [];
+    const allPrivs = data.all_privileges || Object.keys(PRIVILEGE_LABELS);
+
+    if (!users.length) { container.innerHTML = '<p style="color:#777;">No users found.</p>'; return; }
+
+    container.innerHTML = users.map(u => {
+      const isMainAdmin = u.username === 'admin';
+      const role = u.role || (u.is_admin ? 'admin' : 'user');
+      const perms = u.permissions || [];
+
+      let roleBadge = '';
+      if (isMainAdmin) {
+        roleBadge = '<span style="font-size:10px;background:rgba(0,212,255,0.15);color:#00d4ff;border:1px solid rgba(0,212,255,0.3);border-radius:4px;padding:2px 8px;font-weight:700;">ADMIN</span>';
+      } else if (role === 'assistant_admin') {
+        roleBadge = '<span style="font-size:10px;background:rgba(124,108,252,0.15);color:#7c6cfc;border:1px solid rgba(124,108,252,0.3);border-radius:4px;padding:2px 8px;font-weight:700;">ASST ADMIN</span>';
+      } else {
+        roleBadge = '<span style="font-size:10px;background:rgba(255,255,255,0.05);color:#888;border:1px solid rgba(255,255,255,0.1);border-radius:4px;padding:2px 8px;font-weight:600;">USER</span>';
+      }
+
+      let controls = '';
+      if (!isMainAdmin) {
+        controls = `
+          <div style="margin-top:10px;display:flex;flex-wrap:wrap;align-items:center;gap:8px;">
+            <label style="font-size:12px;color:#aaa;">Role:</label>
+            <select id="role-select-${u.id}" onchange="onRoleChange(${u.id})" style="font-size:12px;padding:4px 8px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:rgba(7,9,26,0.8);color:#eef2ff;">
+              <option value="user" ${role==='user'?'selected':''}>User</option>
+              <option value="assistant_admin" ${role==='assistant_admin'?'selected':''}>Assistant Admin</option>
+            </select>
+          </div>
+          <div id="perms-${u.id}" style="margin-top:8px;display:${role==='assistant_admin'?'flex':'none'};flex-wrap:wrap;gap:6px;">
+            ${allPrivs.map(p => {
+              const checked = perms.includes(p) ? 'checked' : '';
+              const label = PRIVILEGE_LABELS[p] || p;
+              return `<label style="font-size:11px;display:flex;align-items:center;gap:4px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:6px;padding:4px 10px;cursor:pointer;">
+                <input type="checkbox" data-user="${u.id}" data-perm="${p}" ${checked} onchange="saveUserRole(${u.id})" style="accent-color:#7c6cfc;"> ${label}
+              </label>`;
+            }).join('')}
+          </div>`;
+      }
+
+      return `<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:14px 18px;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <strong style="font-size:14px;color:#eef2ff;">${u.name}</strong>
+          ${roleBadge}
+          <span style="font-size:11px;color:#555;margin-left:auto;">@${u.username}</span>
+        </div>
+        ${controls}
+      </div>`;
+    }).join('');
+  } catch(e) {
+    container.innerHTML = '<p style="color:#ff4c6a;">Error: ' + e.message + '</p>';
+  }
+}
+
+function onRoleChange(userId) {
+  const sel = document.getElementById('role-select-' + userId);
+  const permsDiv = document.getElementById('perms-' + userId);
+  if (sel && permsDiv) {
+    permsDiv.style.display = sel.value === 'assistant_admin' ? 'flex' : 'none';
+  }
+  saveUserRole(userId);
+}
+
+async function saveUserRole(userId) {
+  const sel = document.getElementById('role-select-' + userId);
+  if (!sel) return;
+  const role = sel.value;
+  const perms = [];
+  document.querySelectorAll(`#perms-${userId} input[type="checkbox"]`).forEach(cb => {
+    if (cb.checked) perms.push(cb.dataset.perm);
+  });
+
+  try {
+    const res = await fetch(`/api/auth/users/${userId}/role`, {
+      method: 'PUT',
+      headers: {'Content-Type':'application/json'},
+      credentials: 'include',
+      body: JSON.stringify({ role, permissions: perms })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data.error || 'Failed to update role');
+    }
+  } catch(e) {
+    alert('Network error: ' + e.message);
   }
 }

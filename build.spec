@@ -12,16 +12,24 @@ except Exception:
     fitz_datas = []
     fitz_binaries = []
 
+# Collect OpenCV binaries (opencv-python-headless)
+try:
+    cv2_datas = collect_data_files('cv2')
+    cv2_binaries = collect_dynamic_libs('cv2')
+except Exception:
+    cv2_datas = []
+    cv2_binaries = []
+
 a = Analysis(
     ['main.py'],
     pathex=[],
-    binaries=[] + fitz_binaries,
+    binaries=[] + fitz_binaries + cv2_binaries,
     datas=[
         ('backend/templates', 'backend/templates'),
         ('backend/static', 'backend/static'),
         ('backend/app', 'backend/app'),
         ('version.txt', '.'),
-    ] + fitz_datas,
+    ] + fitz_datas + cv2_datas,
     hiddenimports=[
         # flask / socketio
         'flask',
@@ -56,6 +64,8 @@ a = Analysis(
         'bidict',
         'tkinter',
         'tkinter.messagebox',
+        'cv2',
+        'numpy',
     ],
     hookspath=[],
     hooksconfig={},
