@@ -208,3 +208,39 @@ def bulk_complete():
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
+
+
+# ------------------------------------------------------------------ #
+# One-time dedup: remove duplicate LBDs (TEMP - remove after use)
+# ------------------------------------------------------------------ #
+@bp.route('/dedup-lbds', methods=['POST'])
+def dedup_lbds():
+    """Delete duplicate LBDs keeping the one with the lowest id."""
+    try:
+        from app.models import LBD, PowerBlock
+
+        blocks = PowerBlock.query.all()
+        total_deleted = 0
+
+        for block in blocks:
+            lbds = LBD.query.filter_by(power_block_id=block.id).order_by(LBD.id).all()
+            seen = {}
+            for lbd in lbds:
+                key = (block.id, lbd.name)
+                if key in seen:
+                    # This is a duplicate – delete it (and its statuses via cascade)
+                    db.session.delete(lbd)
+                    total_deleted += 1
+                else:
+                    seen[key] = lbd.id
+
+        db.session.commit()
+        remaining = LBD.query.count()
+        return jsonify({
+            'success': True,
+            'deleted': total_deleted,
+            'remaining': remaining
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
