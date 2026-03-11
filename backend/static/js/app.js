@@ -1397,7 +1397,10 @@ async function snapPlaceClick(e) {
     // Advance queue
     snapPlaceQueue.shift();
 
-    showSnapFeedback(`✅ ${pb.name} placed!`, 'ok');
+    const msg = result.fallback
+      ? `📍 ${pb.name} placed (no outline detected — default box used)`
+      : `✅ ${pb.name} placed!`;
+    showSnapFeedback(msg, result.fallback ? 'warn' : 'ok');
 
     // Re-render
     renderPBMarkers();

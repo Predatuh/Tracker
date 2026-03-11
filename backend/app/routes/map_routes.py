@@ -239,14 +239,17 @@ def snap_outline(map_id):
             )
             for cnt in contours:
                 area = cv2.contourArea(cnt)
-                if area < 200:  # skip tiny noise
+                if area < 100:  # skip tiny noise
+                    continue
+                # Skip contours that are almost the full image
+                if area > (h_img * w_img * 0.8):
                     continue
                 if cv2.pointPolygonTest(cnt, (click_x, click_y), False) >= 0:
                     candidate_contours.append(cnt)
 
         # Pass 1: Adaptive threshold (good for black outlines on varied bg)
-        for block in [11, 15, 21, 31]:
-            for C in [2, 4, 8]:
+        for block in [11, 15, 21, 31, 51]:
+            for C in [2, 4, 8, 12]:
                 binary = cv2.adaptiveThreshold(
                     gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                     cv2.THRESH_BINARY_INV, block, C
@@ -257,24 +260,65 @@ def snap_outline(map_id):
                 _find_enclosing(binary)
 
         # Pass 2: Simple threshold for strong black lines
-        for thresh in [80, 100, 120, 140]:
+        for thresh in [60, 80, 100, 120, 140, 160, 180]:
             _, binary = cv2.threshold(gray, thresh, 255, cv2.THRESH_BINARY_INV)
             kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
             binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel, iterations=2)
             _find_enclosing(binary)
 
-        # Pass 3: Canny edge-based
-        for lo, hi in [(30, 100), (50, 150)]:
+        # Pass 3: Canny edge-based with dilation to close gaps
+        for lo, hi in [(20, 80), (30, 100), (50, 150), (80, 200)]:
             edges = cv2.Canny(gray, lo, hi)
             kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-            closed = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel, iterations=3)
+            closed = cv2.dilate(edges, kernel, iterations=2)
+            closed = cv2.morphologyEx(closed, cv2.MORPH_CLOSE, kernel, iterations=3)
             _find_enclosing(closed)
 
+        # Pass 4: Color-based detection — look for dark lines on any background
+        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+        # Detect dark pixels (low value channel)
+        for v_thresh in [60, 80, 100, 120]:
+            dark_mask = cv2.inRange(hsv, (0, 0, 0), (180, 255, v_thresh))
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+            dark_mask = cv2.morphologyEx(dark_mask, cv2.MORPH_CLOSE, kernel, iterations=3)
+            _find_enclosing(dark_mask)
+
+        # Pass 5: Inverted — light outlines on dark background
+        _, inv_binary = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+        inv_binary = cv2.morphologyEx(inv_binary, cv2.MORPH_CLOSE, kernel, iterations=2)
+        _find_enclosing(inv_binary)
+
+        # Pass 6: Otsu's method — auto-determined threshold
+        _, otsu = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+        otsu = cv2.morphologyEx(otsu, cv2.MORPH_CLOSE, kernel, iterations=2)
+        _find_enclosing(otsu)
+
         if not candidate_contours:
+            # Fallback: create a default rectangular region around the click
+            # so the user can still place power blocks even without detectable outlines
+            default_w_pct = 4.0  # default width as % of image
+            default_h_pct = 4.0  # default height as % of image
+            bx = max(0, click_x_pct - default_w_pct / 2)
+            by = max(0, click_y_pct - default_h_pct / 2)
+            bw = min(default_w_pct, 100 - bx)
+            bh = min(default_h_pct, 100 - by)
+            polygon = [
+                {'x_pct': round(bx, 3), 'y_pct': round(by, 3)},
+                {'x_pct': round(bx + bw, 3), 'y_pct': round(by, 3)},
+                {'x_pct': round(bx + bw, 3), 'y_pct': round(by + bh, 3)},
+                {'x_pct': round(bx, 3), 'y_pct': round(by + bh, 3)},
+            ]
+            bbox = {'x_pct': round(bx, 3), 'y_pct': round(by, 3),
+                    'w_pct': round(bw, 3), 'h_pct': round(bh, 3)}
             return jsonify({
-                'success': False,
-                'error': 'No outline found at that position. Try clicking inside a black-outlined area.'
-            }), 404
+                'success': True,
+                'polygon': polygon,
+                'bbox': bbox,
+                'point_count': 4,
+                'fallback': True,
+            }), 200
 
         # Pick the smallest enclosing contour (tightest fit)
         best = min(candidate_contours, key=cv2.contourArea)
