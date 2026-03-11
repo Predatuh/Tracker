@@ -1105,14 +1105,36 @@ document.addEventListener('mouseup', () => {
   dragState.marker.style.cursor = 'grab';
   dragState.marker.style.zIndex = '20';
   const pbId = dragState.pbId;
+  const newX = parseFloat(dragState.marker.style.left);
+  const newY = parseFloat(dragState.marker.style.top);
+  const newW = parseFloat(dragState.marker.style.width);
+  const newH = parseFloat(dragState.marker.style.height);
+
   const bboxes = JSON.parse(localStorage.getItem('pb_bboxes') || '{}');
-  bboxes[String(pbId)] = {
-    x: parseFloat(dragState.marker.style.left),
-    y: parseFloat(dragState.marker.style.top),
-    w: parseFloat(dragState.marker.style.width),
-    h: parseFloat(dragState.marker.style.height)
-  };
+  bboxes[String(pbId)] = { x: newX, y: newY, w: newW, h: newH };
   localStorage.setItem('pb_bboxes', JSON.stringify(bboxes));
+
+  // Shift/scale the snap polygon to stay in sync with the moved bbox
+  const key = String(pbId);
+  if (pbPolygons[key]) {
+    if (dragState.mode === 'move') {
+      const dx = newX - dragState.origX;
+      const dy = newY - dragState.origY;
+      pbPolygons[key] = pbPolygons[key].map(pt => ({
+        x_pct: pt.x_pct + dx,
+        y_pct: pt.y_pct + dy
+      }));
+    } else if (dragState.mode === 'resize') {
+      const ox = dragState.origX, oy = dragState.origY;
+      const ow = dragState.origW, oh = dragState.origH;
+      pbPolygons[key] = pbPolygons[key].map(pt => ({
+        x_pct: newX + (pt.x_pct - ox) / ow * newW,
+        y_pct: newY + (pt.y_pct - oy) / oh * newH
+      }));
+    }
+    localStorage.setItem('pb_polygons', JSON.stringify(pbPolygons));
+  }
+
   dragState = null;
 });
 

@@ -235,7 +235,11 @@ def snap_outline(map_id):
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
         # ── Multi-pass: try several threshold approaches ──
+        # Only detect genuinely dark/black lines (not gray).
+        # Gray lines are typically pixel value 100-200; black lines are 0-80.
         candidate_contours = []
+        # Minimum area: scales with image size to skip tiny gray-bounded cells
+        min_area = max(500, w_img * h_img // 4000)
 
         def _find_enclosing(binary):
             contours, hierarchy = cv2.findContours(
@@ -243,32 +247,32 @@ def snap_outline(map_id):
             )
             for cnt in contours:
                 area = cv2.contourArea(cnt)
-                if area < 200:  # skip tiny noise
+                if area < min_area:  # skip noise and tiny gray-bounded cells
                     continue
                 if cv2.pointPolygonTest(cnt, (click_x, click_y), False) >= 0:
                     candidate_contours.append(cnt)
 
-        # Pass 1: Adaptive threshold (good for black outlines on varied bg)
+        # Pass 1: Adaptive threshold — high C to skip near-gray lines
         for block in [11, 15, 21, 31]:
-            for C in [2, 4, 8]:
+            for C in [6, 10, 14]:
                 binary = cv2.adaptiveThreshold(
                     gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                     cv2.THRESH_BINARY_INV, block, C
                 )
-                # Close small gaps in outlines
                 kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
                 binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel, iterations=2)
                 _find_enclosing(binary)
 
-        # Pass 2: Simple threshold for strong black lines
-        for thresh in [80, 100, 120, 140]:
+        # Pass 2: Simple threshold — only for truly dark (black) pixels
+        # Gray lines at value ~150 are excluded; black lines at 0-80 are detected
+        for thresh in [60, 80]:
             _, binary = cv2.threshold(gray, thresh, 255, cv2.THRESH_BINARY_INV)
             kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
             binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel, iterations=2)
             _find_enclosing(binary)
 
-        # Pass 3: Canny edge-based
-        for lo, hi in [(30, 100), (50, 150)]:
+        # Pass 3: Canny — higher thresholds favour strong (black) edges over weak (gray)
+        for lo, hi in [(50, 150), (80, 200)]:
             edges = cv2.Canny(gray, lo, hi)
             kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
             closed = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel, iterations=3)
