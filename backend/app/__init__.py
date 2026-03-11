@@ -86,7 +86,7 @@ def create_app():
 
     # Register blueprints
     from app.routes import pdf_routes, tracker_routes, map_routes, lbd_routes
-    from app.routes import admin_routes, auth_routes, update_routes
+    from app.routes import admin_routes, auth_routes, update_routes, report_routes
     app.register_blueprint(pdf_routes.bp)
     app.register_blueprint(tracker_routes.bp)
     app.register_blueprint(map_routes.bp)
@@ -94,12 +94,16 @@ def create_app():
     app.register_blueprint(admin_routes.bp)
     app.register_blueprint(auth_routes.bp)
     app.register_blueprint(update_routes.bp)
+    app.register_blueprint(report_routes.bp)
 
     # Create / migrate tables, then seed admin
     with app.app_context():
         db.create_all()
         _migrate_schema(app)
         _seed_admin()
+
+    # Start the nightly report scheduler (9 PM CST)
+    _start_report_scheduler(app)
 
     @app.route('/')
     def index():
@@ -160,3 +164,33 @@ def _add_col(cur, table, col, dtype):
             cur.execute(f"ALTER TABLE {table} ADD COLUMN {col} {dtype}")
     except Exception:
         pass
+
+
+# -- Nightly report scheduler (9 PM CST) -----------------------------------
+def _start_report_scheduler(app):
+    """Spawn a daemon thread that generates a DailyReport at 9 PM CST each day."""
+    import threading
+    import time
+    try:
+        import pytz
+        CST = pytz.timezone('America/Chicago')
+    except ImportError:
+        return   # pytz not available; skip scheduler
+
+    def _scheduler():
+        triggered_date = None
+        while True:
+            try:
+                now_cst = __import__('datetime').datetime.now(CST)
+                # Trigger once per day at 21:00 CST
+                if now_cst.hour == 21 and triggered_date != now_cst.date():
+                    triggered_date = now_cst.date()
+                    with app.app_context():
+                        from app.routes.report_routes import _get_or_generate_report
+                        _get_or_generate_report(triggered_date)
+            except Exception:
+                pass
+            time.sleep(60)   # check every minute
+
+    t = threading.Thread(target=_scheduler, daemon=True)
+    t.start()

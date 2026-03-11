@@ -7,6 +7,9 @@ Reads config.ini next to the EXE, then either:
   - LOCAL MODE  (server_url is blank) -> boots a local Waitress+Flask server on
     localhost and opens it in a native-looking app window.
 
+On every launch the EXE checks GitHub Releases for a newer version and silently
+auto-updates before opening the app.
+
 No CMD window is ever shown (console=False in PyInstaller spec + CREATE_NO_WINDOW
 for every subprocess call).
 """
@@ -21,6 +24,7 @@ import urllib.error
 import json
 import subprocess
 import shutil
+import tempfile
 from pathlib import Path
 
 # Windows constant - hides any child CMD windows
@@ -63,6 +67,164 @@ def _parse_version(v):
         return tuple(int(x) for x in str(v).strip().split('.'))
     except Exception:
         return (0, 0, 0)
+
+
+# ---------------------------------------------------------------------------
+# GitHub Releases auto-update  (runs at startup, blocks until done)
+# ---------------------------------------------------------------------------
+
+def _github_auto_update(github_repo, base, log):
+    """
+    Check the latest GitHub Release for *github_repo* (e.g. 'Predatuh/Tracker').
+    If a newer version is found with an attached .exe asset, download it and
+    restart.  Shows a small Tkinter progress window during the download.
+    """
+    if not github_repo or not getattr(sys, 'frozen', False):
+        return  # skip in dev mode or if not configured
+
+    local_version = _read_local_version(base)
+    log(f'Auto-update: local version {local_version}')
+
+    # --- Fetch latest release from GitHub ---
+    api_url = f'https://api.github.com/repos/{github_repo}/releases/latest'
+    try:
+        req = urllib.request.Request(
+            api_url,
+            headers={
+                'User-Agent': 'LBDTracker-Updater/1.0',
+                'Accept': 'application/vnd.github+json',
+            },
+        )
+        with urllib.request.urlopen(req, timeout=10) as r:
+            release = json.loads(r.read().decode())
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            log('Auto-update: no releases found yet')
+        else:
+            log(f'Auto-update: GitHub API error {e.code}')
+        return
+    except Exception as e:
+        log(f'Auto-update: network error: {e}')
+        return
+
+    # --- Compare versions ---
+    tag = release.get('tag_name', '').lstrip('vV')
+    if not tag:
+        log('Auto-update: release has no tag')
+        return
+
+    if _parse_version(tag) <= _parse_version(local_version):
+        log(f'Auto-update: up to date ({local_version} >= {tag})')
+        return
+
+    # --- Find the .exe asset ---
+    exe_asset = None
+    for asset in release.get('assets', []):
+        if asset.get('name', '').lower().endswith('.exe'):
+            exe_asset = asset
+            break
+
+    if not exe_asset:
+        log('Auto-update: new release found but no .exe asset attached')
+        return
+
+    download_url = exe_asset['browser_download_url']
+    file_size = exe_asset.get('size', 0)
+    log(f'Auto-update: downloading v{tag} ({file_size / 1024 / 1024:.1f} MB)')
+
+    # --- Download with progress window ---
+    try:
+        tmp_path = _download_with_progress(download_url, file_size, tag, base, log)
+    except Exception as e:
+        log(f'Auto-update: download failed: {e}')
+        return
+
+    if not tmp_path:
+        log('Auto-update: download cancelled or failed')
+        return
+
+    # --- Swap the EXE via a batch script and restart ---
+    log('Auto-update: applying update and restarting...')
+    _apply_update(tmp_path, base, log)
+
+
+def _download_with_progress(url, total_size, version, base, log):
+    """Download file from *url*, showing a Tkinter progress bar. Returns temp path."""
+    tmp = os.path.join(base, 'LBDTracker_update.exe')
+
+    try:
+        import tkinter as tk
+        from tkinter import ttk
+
+        root = tk.Tk()
+        root.title('LBD Tracker')
+        root.geometry('400x120')
+        root.resizable(False, False)
+        # Center the window
+        root.update_idletasks()
+        x = (root.winfo_screenwidth() // 2) - 200
+        y = (root.winfo_screenheight() // 2) - 60
+        root.geometry(f'+{x}+{y}')
+
+        tk.Label(root, text=f'Updating to v{version}...', font=('Segoe UI', 11)).pack(pady=(15, 5))
+        progress = ttk.Progressbar(root, length=350, mode='determinate' if total_size else 'indeterminate')
+        progress.pack(pady=5)
+        status_label = tk.Label(root, text='Connecting...', font=('Segoe UI', 9))
+        status_label.pack()
+
+        if not total_size:
+            progress.start(15)
+
+        download_done = [False]
+        download_error = [None]
+
+        def do_download():
+            try:
+                req = urllib.request.Request(url, headers={'User-Agent': 'LBDTracker-Updater/1.0'})
+                with urllib.request.urlopen(req, timeout=120) as resp:
+                    downloaded = 0
+                    with open(tmp, 'wb') as f:
+                        while True:
+                            chunk = resp.read(65536)
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            if total_size:
+                                pct = int(downloaded / total_size * 100)
+                                progress['value'] = pct
+                                mb_done = downloaded / 1024 / 1024
+                                mb_total = total_size / 1024 / 1024
+                                status_label.config(text=f'{mb_done:.1f} / {mb_total:.1f} MB  ({pct}%)')
+                download_done[0] = True
+            except Exception as e:
+                download_error[0] = e
+                download_done[0] = True
+
+        threading.Thread(target=do_download, daemon=True).start()
+
+        while not download_done[0]:
+            root.update()
+            time.sleep(0.05)
+
+        root.destroy()
+
+        if download_error[0]:
+            raise download_error[0]
+        return tmp
+
+    except ImportError:
+        # No tkinter — download silently
+        log('Auto-update: tkinter unavailable, downloading silently')
+        req = urllib.request.Request(url, headers={'User-Agent': 'LBDTracker-Updater/1.0'})
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            with open(tmp, 'wb') as f:
+                while True:
+                    chunk = resp.read(65536)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+        return tmp
 
 
 # ---------------------------------------------------------------------------
@@ -193,18 +355,23 @@ def _show_update_dialog(remote, local, dl_url, base, log):
         log(f'Update dialog failed: {e}')
 
 
-def _apply_update(dl_url, base, log):
-    """Download new EXE, write a tiny batch file to swap it, then exit."""
+def _apply_update(dl_url_or_path, base, log):
+    """Swap the current EXE with the new one via a batch script, then restart."""
     if not getattr(sys, 'frozen', False):
         log('Dev mode - skipping self-replace')
         return
     exe = sys.executable
-    tmp = os.path.join(base, 'LBDTracker_update.exe')
-    try:
-        urllib.request.urlretrieve(dl_url, tmp)
-    except Exception as e:
-        log(f'Download failed: {e}')
-        return
+    # dl_url_or_path can be a local file path (from GitHub auto-update)
+    # or a URL (from the legacy background update check)
+    if os.path.isfile(dl_url_or_path):
+        tmp = dl_url_or_path
+    else:
+        tmp = os.path.join(base, 'LBDTracker_update.exe')
+        try:
+            urllib.request.urlretrieve(dl_url_or_path, tmp)
+        except Exception as e:
+            log(f'Download failed: {e}')
+            return
     bat = os.path.join(base, '_lbd_update.bat')
     with open(bat, 'w') as f:
         f.write(
@@ -275,6 +442,10 @@ def main():
     port       = int(cfg.get('app', 'port',       fallback='5000'))
     update_url =     cfg.get('app', 'update_url', fallback='').strip()
     server_url =     cfg.get('app', 'server_url', fallback='').strip()
+    github_repo =    cfg.get('app', 'github_repo', fallback='Predatuh/Tracker').strip()
+
+    # -- Auto-update from GitHub Releases (blocking, before app starts) -
+    _github_auto_update(github_repo, base, log)
 
     # ==================================================================
     # CLOUD MODE - EXE is just a thin wrapper around the hosted site

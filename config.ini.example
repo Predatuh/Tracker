@@ -18,6 +18,9 @@ secret_key = change-me-to-a-long-random-string
 # URL of your Railway/hosted site — used for automatic EXE update checks.
 # Leave blank to disable update checks.
 update_url = https://your-app.railway.app
+# GitHub repo (owner/repo) — used for auto-update from GitHub Releases.
+# The EXE checks this on every launch and auto-updates if a new release exists.
+github_repo = Predatuh/Tracker
 # CLOUD MODE: set this to your hosted server URL so the EXE does NOT start a
 # local server.  Instead it opens the cloud site in a native app window.
 # Everyone (EXE users + web users) will see the same live data.

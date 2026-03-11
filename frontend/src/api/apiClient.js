@@ -139,3 +139,36 @@ export const admin_api = {
     });
   }
 };
+
+export const workers_api = {
+  list: (includeInactive = false) =>
+    axios.get(`${API_BASE_URL}/workers${includeInactive ? '?all=true' : ''}`),
+  create: (name) =>
+    axios.post(`${API_BASE_URL}/workers`, { name }),
+  update: (id, data) =>
+    axios.put(`${API_BASE_URL}/workers/${id}`, data),
+  remove: (id) =>
+    axios.delete(`${API_BASE_URL}/workers/${id}`),
+};
+
+export const worklog_api = {
+  getEntries: (date) =>
+    axios.get(`${API_BASE_URL}/work-entries${date ? `?date=${date}` : ''}`),
+  logWork: (payload) =>
+    axios.post(`${API_BASE_URL}/work-entries`, payload),
+  deleteEntry: (id) =>
+    axios.delete(`${API_BASE_URL}/work-entries/${id}`),
+};
+
+export const reports_api = {
+  list: () =>
+    axios.get(`${API_BASE_URL}/reports`),
+  get: (id) =>
+    axios.get(`${API_BASE_URL}/reports/${id}`),
+  getByDate: (dateStr) =>
+    axios.get(`${API_BASE_URL}/reports/date/${dateStr}`),
+  generate: (dateStr) =>
+    axios.post(`${API_BASE_URL}/reports/generate`, dateStr ? { date: dateStr } : {}),
+  getRange: (type, params) =>
+    axios.get(`${API_BASE_URL}/reports/range`, { params: { type, ...params } }),
+};
