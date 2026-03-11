@@ -117,9 +117,13 @@ def upload_map():
 
 @bp.route('/serve-map/<filename>', methods=['GET'])
 def serve_map(filename):
-    """Serve uploaded map images"""
+    """Serve uploaded map images - checks maps/ subfolder first, then root uploads/"""
+    upload_folder = current_app.config['UPLOAD_FOLDER']
+    maps_folder = os.path.join(upload_folder, 'maps')
     try:
-        return send_from_directory(current_app.config['UPLOAD_FOLDER'], filename)
+        if os.path.exists(os.path.join(maps_folder, filename)):
+            return send_from_directory(maps_folder, filename)
+        return send_from_directory(upload_folder, filename)
     except Exception as e:
         logger.error(f"Error serving map {filename}: {str(e)}")
         return jsonify({'error': 'Map not found'}), 404
@@ -129,14 +133,18 @@ def get_map():
     """Get the current map URL if one exists"""
     try:
         upload_folder = current_app.config['UPLOAD_FOLDER']
-        # Find any map file in the uploads folder
-        for fname in os.listdir(upload_folder):
-            if fname.startswith('map_') and fname.lower().endswith(('.jpg', '.jpeg', '.png', '.gif')):
-                return jsonify({
-                    'success': True,
-                    'map_url': f'/api/pdf/serve-map/{fname}'
-                }), 200
-        
+        maps_folder = os.path.join(upload_folder, 'maps')
+        # Check maps/ subfolder first, then root
+        for search_dir in [maps_folder, upload_folder]:
+            if not os.path.isdir(search_dir):
+                continue
+            for fname in os.listdir(search_dir):
+                if fname.startswith('map_') and fname.lower().endswith(('.jpg', '.jpeg', '.png', '.gif')):
+                    return jsonify({
+                        'success': True,
+                        'map_url': f'/api/pdf/serve-map/{fname}'
+                    }), 200
+
         return jsonify({'success': False, 'map_url': None}), 200
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
