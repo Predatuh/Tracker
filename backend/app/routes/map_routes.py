@@ -334,6 +334,39 @@ def snap_outline(map_id):
         return jsonify({'error': str(e)}), 500
 
 
+@bp.route('/sync-positions', methods=['POST'])
+def sync_positions():
+    """Bulk-update area bboxes from client-side positions (keyed by power_block_id)."""
+    try:
+        data = request.get_json()
+        bboxes = data.get('bboxes', {})
+        map_id = data.get('map_id')
+
+        if not bboxes or not map_id:
+            return jsonify({'error': 'bboxes and map_id required'}), 400
+
+        # Load all areas for this map
+        areas = SiteArea.query.filter_by(site_map_id=map_id).all()
+        area_by_pb = {a.power_block_id: a for a in areas if a.power_block_id}
+
+        updated = 0
+        for pb_id_str, bbox in bboxes.items():
+            pb_id = int(pb_id_str)
+            area = area_by_pb.get(pb_id)
+            if area:
+                area.bbox_x = bbox.get('x', area.bbox_x)
+                area.bbox_y = bbox.get('y', area.bbox_y)
+                area.bbox_w = bbox.get('w', area.bbox_w)
+                area.bbox_h = bbox.get('h', area.bbox_h)
+                updated += 1
+
+        db.session.commit()
+        return jsonify({'success': True, 'updated': updated}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
 @bp.route('/map-status/<int:map_id>', methods=['GET'])
 def get_map_status(map_id):
     """Get completion status for all areas on the map (bulk queries)."""

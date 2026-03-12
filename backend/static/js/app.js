@@ -150,6 +150,9 @@ const api = {
   // ---- Snap-to-outline API ----
   snapOutline(mapId, x_pct, y_pct) {
     return this.call(`/map/snap-outline/${mapId}`, { method:'POST', body: JSON.stringify({ x_pct, y_pct }) });
+  },
+  syncPositions(mapId, bboxes) {
+    return this.call('/map/sync-positions', { method:'POST', body: JSON.stringify({ map_id: mapId, bboxes }) });
   }
 };
 
@@ -802,6 +805,8 @@ async function loadSiteMap() {
     }
 
     renderPBMarkers();
+    // Auto-sync localStorage positions to DB so mobile apps stay in sync
+    syncPositionsToServer();
   } catch (e) {
     console.error('Failed loading PBs for map:', e);
   }
@@ -1968,6 +1973,21 @@ function renderPBMarkers() {
   syncHiddenBtn();
 }
 
+async function syncPositionsToServer() {
+  const bboxes = JSON.parse(localStorage.getItem('pb_bboxes') || '{}');
+  if (Object.keys(bboxes).length === 0) return;
+  try {
+    const maps = await api.getAllSiteMaps();
+    const list = maps.data || [];
+    if (list.length === 0) return;
+    const mapId = list[0].id;
+    await api.syncPositions(mapId, bboxes);
+    console.log('Positions synced to server');
+  } catch (e) {
+    console.error('Failed to sync positions:', e);
+  }
+}
+
 function toggleMapEditMode() {
   mapEditMode = !mapEditMode;
   const btn = document.getElementById('edit-mode-btn');
@@ -1983,6 +2003,8 @@ function toggleMapEditMode() {
     btn.classList.remove('btn-success');
     btn.classList.add('btn-secondary');
     if (hint) hint.style.display = 'none';
+    // Sync positions to server so Flutter/mobile apps get correct data
+    syncPositionsToServer();
   }
   renderPBMarkers();
   renderTextLabels();
