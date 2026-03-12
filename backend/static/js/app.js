@@ -435,10 +435,12 @@ async function loadDashboard() {
 }
 
 // Blocks list
+let _blocksCache = {};  // pb_id -> block data for lazy LBD table expansion
 async function loadBlocks() {
   try {
     const response = await api.getPowerBlocks();
     const blocks = Array.isArray(response.data) ? response.data : response;
+    blocks.forEach(b => { _blocksCache[b.id] = b; });
 
     let html = '';
     if (!blocks || blocks.length === 0) {
@@ -474,44 +476,12 @@ async function loadBlocks() {
             </div>`;
         });
 
-        // Individual LBD table
+        // Individual LBD table (hidden by default for performance — toggled on tap)
         let lbdTable = '';
         if (lbds.length > 0) {
-          // Short column header labels
-          const hdrSize = parseInt(localStorage.getItem('pbHeaderSize') || '11');
-          const headerCells = cols.map(col => {
-            const color = STATUS_COLORS[col] || '#555';
-            const label = STATUS_LABELS[col] || col;
-            return `<th class="lbd-tbl-th" style="color:${color};font-size:${hdrSize}px;white-space:nowrap;" title="${label}">${label}</th>`;
-          }).join('');
-
-          const dataRows = lbds.map(lbd => {
-            // Build a quick lookup of status_type -> is_completed
-            const statusMap = {};
-            (lbd.statuses || []).forEach(s => { statusMap[s.status_type] = s.is_completed; });
-
-            const lbdAllDone = cols.every(c => statusMap[c]);
-            const cells = cols.map(col => {
-              const done = statusMap[col];
-              const color = STATUS_COLORS[col] || '#555';
-              return done
-                ? `<td class="lbd-tbl-td"><span class="lbd-dot lbd-dot--on" style="background:${color}" title="Done"></span></td>`
-                : `<td class="lbd-tbl-td"><span class="lbd-dot lbd-dot--off" title="Not done"></span></td>`;
-            }).join('');
-
-            const name = lbd.identifier || lbd.name || `LBD ${lbd.id}`;
-            return `<tr class="lbd-tbl-row${lbdAllDone ? ' lbd-tbl-row--done' : ''}">
-              <td class="lbd-tbl-name" title="${lbd.inventory_number || name}">${name}</td>${cells}
-            </tr>`;
-          }).join('');
-
           lbdTable = `
-            <div class="lbd-tbl-wrap">
-              <table class="lbd-tbl">
-                <thead><tr><th class="lbd-tbl-name-th"></th>${headerCells}</tr></thead>
-                <tbody>${dataRows}</tbody>
-              </table>
-            </div>`;
+            <div class="lbd-tbl-toggle" onclick="event.stopPropagation();toggleLbdTable(this,${block.id})">▶ Show Details</div>
+            <div class="lbd-tbl-lazy" style="display:none;" data-pb-id="${block.id}"></div>`;
         }
 
         html += `
@@ -537,6 +507,48 @@ async function loadBlocks() {
     if (sizeDisp) sizeDisp.textContent = curSize + 'px';
   } catch (err) {
     console.error('Error loading blocks:', err);
+  }
+}
+
+function toggleLbdTable(toggleEl, pbId) {
+  const wrap = toggleEl.nextElementSibling;
+  if (!wrap) return;
+  const showing = wrap.style.display === 'none';
+  wrap.style.display = showing ? 'block' : 'none';
+  toggleEl.textContent = showing ? '▼ Hide Details' : '▶ Show Details';
+  // Lazily render the table on first open
+  if (showing && !wrap.dataset.loaded) {
+    wrap.dataset.loaded = '1';
+    const block = _blocksCache[pbId];
+    if (!block) return;
+    const cols = LBD_STATUS_TYPES;
+    const lbds = block.lbds || [];
+    const hdrSize = parseInt(localStorage.getItem('pbHeaderSize') || '11');
+    const headerCells = cols.map(col => {
+      const color = STATUS_COLORS[col] || '#555';
+      const label = STATUS_LABELS[col] || col;
+      return `<th class="lbd-tbl-th" style="color:${color};font-size:${hdrSize}px;white-space:nowrap;" title="${label}">${label}</th>`;
+    }).join('');
+    const dataRows = lbds.map(lbd => {
+      const statusMap = {};
+      (lbd.statuses || []).forEach(s => { statusMap[s.status_type] = s.is_completed; });
+      const lbdAllDone = cols.every(c => statusMap[c]);
+      const cells = cols.map(col => {
+        const done = statusMap[col];
+        const color = STATUS_COLORS[col] || '#555';
+        return done
+          ? `<td class="lbd-tbl-td"><span class="lbd-dot lbd-dot--on" style="background:${color}"></span></td>`
+          : `<td class="lbd-tbl-td"><span class="lbd-dot lbd-dot--off"></span></td>`;
+      }).join('');
+      const name = lbd.identifier || lbd.name || `LBD ${lbd.id}`;
+      return `<tr class="lbd-tbl-row${lbdAllDone ? ' lbd-tbl-row--done' : ''}">
+        <td class="lbd-tbl-name" title="${lbd.inventory_number || name}">${name}</td>${cells}
+      </tr>`;
+    }).join('');
+    wrap.innerHTML = `<div class="lbd-tbl-wrap"><table class="lbd-tbl">
+      <thead><tr><th class="lbd-tbl-name-th"></th>${headerCells}</tr></thead>
+      <tbody>${dataRows}</tbody>
+    </table></div>`;
   }
 }
 
@@ -979,8 +991,9 @@ function _initSocket() {
             ).length;
         }
       }
+      // Targeted marker color update instead of full rebuild
+      _updateMarkerColor(pb);
     }
-    renderPBMarkers();
     // If panel is open for this PB, refresh the button + stats
     if (activePBId === data.pb_id) {
       const btn = document.getElementById(`status-btn-${data.lbd_id}-${data.status_type}`);
@@ -997,7 +1010,7 @@ function _initSocket() {
     api.getPowerBlock(data.pb_id).then(r => {
       const i = mapPBs.findIndex(p => p.id === data.pb_id);
       if (i >= 0) mapPBs[i] = r.data;
-      renderPBMarkers();
+      _updateMarkerColor(r.data);
       if (activePBId === data.pb_id) showPBPanel(r.data);
     }).catch(() => {});
   });

@@ -3,7 +3,7 @@
    Design: Deep Space Navy � Neon Cyan � Electric Green � Glass Cards
 ------------------------------------------------------------------- */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&display=swap');
+/* Fonts loaded via <link> in HTML for non-blocking performance */
 
 /* -- Reset ------------------------------------------------------ */
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
@@ -52,6 +52,7 @@ body {
   min-height: 100vh;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
+  touch-action: manipulation;  /* eliminate 300ms tap delay on mobile */
 }
 
 ::-webkit-scrollbar              { width: 6px; height: 6px; }
@@ -451,4 +452,34 @@ code { background: rgba(0,212,255,0.1); color: var(--cyan); padding: 2px 6px; bo
   .navbar-brand { font-size: 13px; }
   #lbd-panel { height: 75vh; }
   .modal-content { padding: 20px 16px; }
+}
+
+/* -- LBD table toggle button --------------------------------------- */
+.lbd-tbl-toggle {
+  font-size: 11px; color: var(--cyan); cursor: pointer; padding: 4px 0;
+  font-weight: 600; user-select: none;
+}
+.lbd-tbl-toggle:hover { text-decoration: underline; }
+
+/* -- Mobile performance overrides ---------------------------------- */
+@media (max-width: 1024px) {
+  /* Kill expensive backdrop-filter on mobile/tablet */
+  .navbar { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; background: rgba(7,9,26,0.98) !important; }
+  #map-legend { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+
+  /* Kill hover transforms and complex shadows */
+  .block-card:hover { transform: none; box-shadow: var(--shadow-card); }
+  .stat-card:hover { transform: none; box-shadow: none; }
+
+  /* Simplify transitions — only transition opacity and background */
+  .block-card, .block-card::before, .stat-card, .btn, .page-option, .extracted-item { transition: background 0.15s ease, opacity 0.15s ease !important; }
+
+  /* Remove glow from status dots — saves thousands of box-shadow paints */
+  .lbd-dot--on { box-shadow: none !important; }
+
+  /* Reduce progress bar transitions */
+  .pb-overall-bar-fill, .pb-status-bar-fill, .progress-bar { transition: none !important; }
+
+  /* Disable pulsing dot animation */
+  .navbar-brand .brand-dot { animation: none; }
 }
