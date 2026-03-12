@@ -1357,6 +1357,13 @@ function updateSnapPlaceBar() {
     html += `<span style="color:#28a745;font-size:13px;margin-left:12px;">All PBs placed!</span>`;
   }
 
+  // Jump to PB # input
+  html += `<span style="margin-left:12px;display:inline-flex;align-items:center;gap:4px;">`;
+  html += `<label style="color:#8892b0;font-size:11px;">Go to PB #</label>`;
+  html += `<input id="snap-place-goto" type="number" min="1" style="width:60px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.2);color:#eef2ff;border-radius:6px;padding:3px 6px;font-size:12px;text-align:center;" onkeydown="if(event.key==='Enter')snapPlaceGoto()">`;
+  html += `<button onclick="snapPlaceGoto()" style="background:rgba(0,212,255,0.15);border:1px solid rgba(0,212,255,0.3);color:#00d4ff;border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer;">Go</button>`;
+  html += `</span>`;
+
   // Skip button
   if (currentPb) {
     html += `<button onclick="snapPlaceSkip()" style="margin-left:12px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);color:#8892b0;border-radius:6px;padding:4px 12px;font-size:11px;cursor:pointer;">Skip ⏭</button>`;
@@ -1467,6 +1474,41 @@ function snapPlaceSkip() {
     snapPlaceQueue.push(snapPlaceQueue.shift());
     updateSnapPlaceBar();
   }
+}
+
+function snapPlaceGoto() {
+  const input = document.getElementById('snap-place-goto');
+  if (!input) return;
+  const num = parseInt(input.value);
+  if (!num || num < 1) return;
+
+  // Find the PB in the queue whose number matches
+  const idx = snapPlaceQueue.findIndex(id => {
+    const pb = mapPBs.find(p => p.id === id);
+    if (!pb) return false;
+    const pbNum = parseInt(pb.power_block_number || pb.name.replace(/\D/g, '')) || 0;
+    return pbNum === num;
+  });
+
+  if (idx === -1) {
+    // Not in queue — might already be placed or doesn't exist
+    const pb = mapPBs.find(p => {
+      const pbNum = parseInt(p.power_block_number || p.name.replace(/\D/g, '')) || 0;
+      return pbNum === num;
+    });
+    if (!pb) {
+      showSnapFeedback(`⚠ PB ${num} not found`, 'warn');
+    } else {
+      showSnapFeedback(`⚠ PB ${num} already placed`, 'warn');
+    }
+    return;
+  }
+
+  // Rotate queue so the target PB is at the front
+  const before = snapPlaceQueue.splice(0, idx);
+  snapPlaceQueue.push(...before);
+  updateSnapPlaceBar();
+  showSnapFeedback(`➡ Jumped to PB ${num}`, 'ok');
 }
 
 function snapPlaceUndo() {
