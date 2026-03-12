@@ -99,7 +99,7 @@
             <!-- Dashboard Page -->
             <div id="page-dashboard" class="page active">
                 <div class="container">
-                    <h1 class="section-title">Dashboard</h1>
+                    <h1 class="section-title" id="dashboard-title"><span class="crown-wrap">&#x1F451;</span>Princess <span class="title-accent">Trackers</span></h1>
                     
                     <div class="stats-grid">
                         <div class="stat-card">
@@ -317,6 +317,7 @@
                   <button class="btn admin-tab" id="atab-columns" onclick="switchAdminTab('columns')">📊 Columns</button>
                   <button class="btn admin-tab" id="atab-trackers" onclick="switchAdminTab('trackers')">📋 Trackers</button>
                   <button class="btn admin-tab" id="atab-maplabels" onclick="switchAdminTab('maplabels')">🗺️ Map Labels</button>
+                  <button class="btn admin-tab" id="atab-zones" onclick="switchAdminTab('zones')">🗾 Zones</button>
                   <button class="btn admin-tab main-admin-only" id="atab-users" onclick="switchAdminTab('users')">👥 Users</button>
                   <button class="btn admin-tab" id="atab-updates" onclick="switchAdminTab('updates')">🔄 Updates</button>
                 </div>
@@ -426,6 +427,21 @@
                     Deleting a label removes it from the map view but does not affect block data.
                   </p>
                   <div id="admin-maplabels-list"></div>
+                </div>
+
+                <!-- Zones Tab -->
+                <div id="admin-tab-zones" class="admin-tab-content" style="display:none;">
+                  <h2 class="section-subtitle">Zone Management</h2>
+                  <p style="color:var(--text-muted);font-size:13px;margin-bottom:18px;">Assign each placed map area to a zone. Zones appear as filter chips on the Site Map page.</p>
+                  <div style="display:flex;gap:8px;margin-bottom:24px;align-items:center;">
+                    <input type="text" id="new-zone-name" placeholder="Zone name, e.g. Zone A" style="flex:1;" />
+                    <button class="btn btn-success" onclick="addZoneName()" style="white-space:nowrap;">+ Add Zone</button>
+                  </div>
+                  <div id="zone-names-list" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:28px;"></div>
+                  <hr style="margin:20px 0;border-color:rgba(0,212,255,0.08);" />
+                  <h3 style="font-size:15px;margin:0 0 14px;font-family:'Orbitron',sans-serif;color:var(--cyan);">Assign Areas to Zones</h3>
+                  <p style="color:var(--text-muted);font-size:13px;margin-bottom:16px;">Set the zone for each placed map label.</p>
+                  <div id="admin-zone-assignments" style="display:flex;flex-direction:column;gap:10px;"></div>
                 </div>
 
                 <!-- Users Tab (Main Admin Only) -->

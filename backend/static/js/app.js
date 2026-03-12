@@ -3442,6 +3442,7 @@ function switchAdminTab(tabKey) {
   if (tabKey === 'users') loadUsersTab();
   if (tabKey === 'trackers') loadTrackersTab();
   if (tabKey === 'maplabels') loadMapLabelsTab();
+  if (tabKey === 'zones') loadZonesTab();
 }
 
 /* ── Trackers Admin Tab ── */
@@ -4457,6 +4458,7 @@ function startLoginAnimation() {
   function resize() {
     canvas.width = canvas.offsetWidth * (window.devicePixelRatio || 1);
     canvas.height = canvas.offsetHeight * (window.devicePixelRatio || 1);
+    ctx.setTransform(1,0,0,1,0,0);
     ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
   }
   resize();
@@ -4472,47 +4474,72 @@ function startLoginAnimation() {
   const cx = () => W() / 2;
   const cy = () => H() / 2;
 
-  function spawnBolt() {
-    const angle = Math.random() * Math.PI * 2;
-    const dist = Math.max(W(), H()) * 0.6;
-    const startX = cx() + Math.cos(angle) * dist;
-    const startY = cy() + Math.sin(angle) * dist;
-    const segments = [];
-    const steps = 8 + Math.floor(Math.random() * 8);
+  // --- Helper: create a multi-segment bolt from point to point with jitter ---
+  function makeBoltPath(x0, y0, x1, y1, steps, jitter) {
+    const pts = [];
     for (let i = 0; i <= steps; i++) {
       const t = i / steps;
-      const x = startX + (cx() - startX) * t + (Math.random() - 0.5) * 60 * (1 - t);
-      const y = startY + (cy() - startY) * t + (Math.random() - 0.5) * 60 * (1 - t);
-      segments.push({ x, y });
+      const jx = i === 0 || i === steps ? 0 : (Math.random() - 0.5) * jitter * (1 - Math.abs(t - 0.5) * 0.5);
+      const jy = i === 0 || i === steps ? 0 : (Math.random() - 0.5) * jitter * (1 - Math.abs(t - 0.5) * 0.5);
+      pts.push({ x: x0 + (x1 - x0) * t + jx, y: y0 + (y1 - y0) * t + jy });
     }
-    // Branch
-    const branches = [];
-    if (Math.random() > 0.4) {
-      const bi = Math.floor(Math.random() * (steps - 2)) + 1;
-      const bp = segments[bi];
-      const bAngle = angle + (Math.random() - 0.5) * 1.2;
-      const bLen = 40 + Math.random() * 60;
-      branches.push([
-        { x: bp.x, y: bp.y },
-        { x: bp.x + Math.cos(bAngle) * bLen * 0.5 + (Math.random() - 0.5) * 20, y: bp.y + Math.sin(bAngle) * bLen * 0.5 + (Math.random() - 0.5) * 20 },
-        { x: bp.x + Math.cos(bAngle) * bLen, y: bp.y + Math.sin(bAngle) * bLen }
-      ]);
-    }
-    return { segments, branches, life: 1.0, decay: 0.015 + Math.random() * 0.01, width: 1.5 + Math.random() * 1.5 };
+    return pts;
   }
 
-  function spawnSpark(x, y) {
-    const angle = Math.random() * Math.PI * 2;
-    const speed = 0.5 + Math.random() * 2;
-    _loginSparks.push({
-      x, y,
-      vx: Math.cos(angle) * speed,
-      vy: Math.sin(angle) * speed,
+  function spawnBolt() {
+    // Bolts come from the edges/corners and strike the center area
+    const edge = Math.floor(Math.random() * 4);
+    const w = W(), h = H();
+    let sx, sy;
+    switch(edge) {
+      case 0: sx = Math.random() * w; sy = 0; break;
+      case 1: sx = w; sy = Math.random() * h; break;
+      case 2: sx = Math.random() * w; sy = h; break;
+      default: sx = 0; sy = Math.random() * h; break;
+    }
+    // Strike target: near center with some spread
+    const tx = cx() + (Math.random() - 0.5) * w * 0.35;
+    const ty = cy() + (Math.random() - 0.5) * h * 0.35;
+    const steps = 10 + Math.floor(Math.random() * 8);
+    const jitter = 55 + Math.random() * 55;
+    const segments = makeBoltPath(sx, sy, tx, ty, steps, jitter);
+
+    // Optional branch off midpoint
+    const branches = [];
+    if (Math.random() > 0.35) {
+      const bi = Math.floor(steps * 0.3 + Math.random() * steps * 0.4);
+      const bp = segments[bi];
+      const bAngle = Math.atan2(ty - sy, tx - sx) + (Math.random() - 0.5) * 1.4;
+      const bLen = 50 + Math.random() * 90;
+      branches.push(makeBoltPath(bp.x, bp.y, bp.x + Math.cos(bAngle) * bLen, bp.y + Math.sin(bAngle) * bLen, 5, 20));
+    }
+
+    const isCyan = Math.random() > 0.4;
+    return {
+      segments, branches,
       life: 1.0,
-      decay: 0.01 + Math.random() * 0.02,
-      size: 1 + Math.random() * 2,
-      color: Math.random() > 0.5 ? '#00d4ff' : '#7c6cfc'
-    });
+      decay: 0.008 + Math.random() * 0.008,
+      width: 2.5 + Math.random() * 2.5,
+      color: isCyan ? '#00d4ff' : '#b0aaff',
+      glow: isCyan ? 'rgba(0,212,255,0.8)' : 'rgba(124,108,252,0.8)'
+    };
+  }
+
+  function spawnSpark(x, y, color) {
+    const count = 3 + Math.floor(Math.random() * 4);
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 1 + Math.random() * 3.5;
+      _loginSparks.push({
+        x, y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 1.0,
+        decay: 0.012 + Math.random() * 0.018,
+        size: 1.5 + Math.random() * 2.5,
+        color: color || (Math.random() > 0.5 ? '#00d4ff' : '#b0aaff')
+      });
+    }
   }
 
   let nextBoltTime = 0;
@@ -4523,58 +4550,102 @@ function startLoginAnimation() {
     ctx.clearRect(0, 0, w, h);
     const elapsed = (now - _loginStartTime) / 1000;
 
-    // Spawn bolts every ~800ms
-    if (now > nextBoltTime) {
-      _loginBolts.push(spawnBolt());
-      nextBoltTime = now + 600 + Math.random() * 600;
+    // Draw ambient glow beams from edges toward center
+    for (let i = 0; i < 3; i++) {
+      const angle = (elapsed * 0.3 + i * Math.PI * 2 / 3) % (Math.PI * 2);
+      const dist = Math.max(w, h) * 0.7;
+      const ex = cx() + Math.cos(angle) * dist;
+      const ey = cy() + Math.sin(angle) * dist;
+      const grd = ctx.createLinearGradient(ex, ey, cx(), cy());
+      grd.addColorStop(0, 'transparent');
+      grd.addColorStop(0.6, `rgba(0,212,255,${0.04 + Math.sin(elapsed + i) * 0.02})`);
+      grd.addColorStop(1, `rgba(0,212,255,0.06)`);
+      ctx.fillStyle = grd;
+      ctx.fillRect(0, 0, w, h);
     }
 
-    // Growing spark embers around center
-    sparkAccum += 0.3;
+    // Spawn bolts
+    if (now > nextBoltTime) {
+      const n = 1 + (Math.random() > 0.6 ? 1 : 0); // occasionally 2 at once
+      for (let i = 0; i < n; i++) _loginBolts.push(spawnBolt());
+      nextBoltTime = now + 400 + Math.random() * 500;
+    }
+
+    // More sparks from center area
+    sparkAccum += 0.6;
     while (sparkAccum >= 1) {
       sparkAccum--;
       const sa = Math.random() * Math.PI * 2;
-      const sr = 30 + Math.random() * 80;
+      const sr = 20 + Math.random() * 70;
       spawnSpark(cx() + Math.cos(sa) * sr, cy() + Math.sin(sa) * sr);
     }
 
-    // Draw charge ring
-    _loginChargePhase = (now / 2400) % 1;
-    const ringRadius = 60 + Math.sin(_loginChargePhase * Math.PI * 2) * 15;
-    ctx.save();
-    ctx.strokeStyle = `rgba(0,212,255,${0.15 + Math.sin(_loginChargePhase * Math.PI * 2) * 0.1})`;
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.arc(cx(), cy(), ringRadius, 0, Math.PI * 2);
-    ctx.stroke();
-    // Second ring
-    ctx.strokeStyle = `rgba(124,108,252,${0.1 + Math.cos(_loginChargePhase * Math.PI * 2) * 0.08})`;
-    ctx.beginPath();
-    ctx.arc(cx(), cy(), ringRadius + 20, elapsed * 0.5, elapsed * 0.5 + Math.PI * 1.5);
-    ctx.stroke();
-    ctx.restore();
+    // Charge rings (multiple, pulsing)
+    for (let ri = 0; ri < 3; ri++) {
+      const phase = ((now / (1800 - ri * 300)) + ri * 0.33) % 1;
+      const rr = 55 + ri * 28 + Math.sin(phase * Math.PI * 2) * 12;
+      const ra = 0.12 + Math.sin(phase * Math.PI * 2) * 0.08;
+      ctx.save();
+      ctx.strokeStyle = ri === 1 ? `rgba(124,108,252,${ra})` : `rgba(0,212,255,${ra})`;
+      ctx.lineWidth = 1.5 - ri * 0.3;
+      ctx.shadowColor = ri === 1 ? '#7c6cfc' : '#00d4ff';
+      ctx.shadowBlur = 10;
+      ctx.beginPath();
+      ctx.arc(cx(), cy(), rr, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
 
     // Draw bolts
     for (let i = _loginBolts.length - 1; i >= 0; i--) {
       const bolt = _loginBolts[i];
       bolt.life -= bolt.decay;
-      if (bolt.life <= 0) { _loginBolts.splice(i, 1); continue; }
+      if (bolt.life <= 0) {
+        // Spawn sparks at tip when bolt dies
+        const tip = bolt.segments[bolt.segments.length - 1];
+        spawnSpark(tip.x, tip.y, bolt.color);
+        _loginBolts.splice(i, 1);
+        continue;
+      }
 
+      const alpha = bolt.life;
       ctx.save();
-      ctx.globalAlpha = bolt.life * 0.8;
-      ctx.strokeStyle = '#00d4ff';
+      // Outer glow pass
+      ctx.globalAlpha = alpha * 0.5;
+      ctx.strokeStyle = bolt.glow;
+      ctx.lineWidth = bolt.width * 3.5 * bolt.life;
+      ctx.shadowColor = bolt.color;
+      ctx.shadowBlur = 30;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      bolt.segments.forEach((p, j) => j === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+      ctx.stroke();
+
+      // Core bright pass
+      ctx.globalAlpha = alpha * 0.95;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = bolt.width * 0.7 * Math.min(1, bolt.life * 2);
+      ctx.shadowBlur = 6;
+      ctx.beginPath();
+      bolt.segments.forEach((p, j) => j === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+      ctx.stroke();
+
+      // colored mid pass
+      ctx.globalAlpha = alpha * 0.8;
+      ctx.strokeStyle = bolt.color;
       ctx.lineWidth = bolt.width * bolt.life;
-      ctx.shadowColor = '#00d4ff';
-      ctx.shadowBlur = 12 * bolt.life;
+      ctx.shadowBlur = 16;
       ctx.beginPath();
       bolt.segments.forEach((p, j) => j === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
       ctx.stroke();
 
       // Branches
       bolt.branches.forEach(branch => {
-        ctx.lineWidth = bolt.width * bolt.life * 0.6;
-        ctx.strokeStyle = '#7c6cfc';
-        ctx.shadowColor = '#7c6cfc';
+        ctx.globalAlpha = alpha * 0.6;
+        ctx.strokeStyle = bolt.color;
+        ctx.lineWidth = bolt.width * 0.5 * bolt.life;
+        ctx.shadowBlur = 12;
         ctx.beginPath();
         branch.forEach((p, j) => j === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
         ctx.stroke();
@@ -4587,26 +4658,28 @@ function startLoginAnimation() {
       const s = _loginSparks[i];
       s.x += s.vx;
       s.y += s.vy;
-      s.vx *= 0.98;
-      s.vy *= 0.98;
+      s.vx *= 0.96;
+      s.vy *= 0.96;
       s.life -= s.decay;
       if (s.life <= 0) { _loginSparks.splice(i, 1); continue; }
       ctx.save();
-      ctx.globalAlpha = s.life * 0.7;
+      ctx.globalAlpha = s.life * 0.85;
       ctx.fillStyle = s.color;
       ctx.shadowColor = s.color;
-      ctx.shadowBlur = 6;
+      ctx.shadowBlur = 8;
       ctx.beginPath();
       ctx.arc(s.x, s.y, s.size * s.life, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
     }
 
-    // Subtle radial glow at center
-    const grd = ctx.createRadialGradient(cx(), cy(), 0, cx(), cy(), 120);
-    grd.addColorStop(0, `rgba(0,212,255,${0.03 + Math.sin(elapsed * 2) * 0.01})`);
-    grd.addColorStop(1, 'transparent');
-    ctx.fillStyle = grd;
+    // Central radial glow
+    const pulse = 0.05 + Math.sin(elapsed * 2.5) * 0.02;
+    const grd2 = ctx.createRadialGradient(cx(), cy(), 0, cx(), cy(), 160);
+    grd2.addColorStop(0, `rgba(0,212,255,${pulse})`);
+    grd2.addColorStop(0.5, `rgba(124,108,252,${pulse * 0.4})`);
+    grd2.addColorStop(1, 'transparent');
+    ctx.fillStyle = grd2;
     ctx.fillRect(0, 0, w, h);
 
     _loginAnimId = requestAnimationFrame(frame);
@@ -4874,6 +4947,7 @@ function setZoneFilter(zone) {
   activeZoneFilter = zone;
   buildZoneFilter();
   applyZoneFilter();
+  zoomToZone(zone);
 }
 
 function applyZoneFilter() {
@@ -4927,3 +5001,185 @@ document.addEventListener('DOMContentLoaded', () => {
     startLoginAnimation();
   }
 });
+
+
+// ============================================================
+// ZONE MAP ZOOM — zoom map into zone bounding box
+// ============================================================
+function zoomToZone(zone) {
+  const mapOuter = document.getElementById('map-outer');
+  const mapContainer = document.getElementById('map-container');
+  const img = document.getElementById('sitemap-image');
+  if (!mapOuter || !mapContainer || !img) return;
+
+  if (!zone) {
+    // Reset zoom/scroll
+    mapOuter.scrollTo({ left: 0, top: 0, behavior: 'smooth' });
+    mapContainer.style.transform = '';
+    mapContainer.style.transformOrigin = '';
+    return;
+  }
+
+  // Find bboxes for all areas in this zone
+  const zonePbIds = new Set();
+  loadedMapAreas.forEach(a => { if (a.zone === zone) zonePbIds.add(a.power_block_id); });
+  if (!zonePbIds.size) return;
+
+  const storedBboxes = JSON.parse(localStorage.getItem('pb_bboxes') || '{}');
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  zonePbIds.forEach(pbId => {
+    const b = storedBboxes[String(pbId)];
+    if (!b) return;
+    if (b.x < minX) minX = b.x;
+    if (b.y < minY) minY = b.y;
+    if (b.x + b.w > maxX) maxX = b.x + b.w;
+    if (b.y + b.h > maxY) maxY = b.y + b.h;
+  });
+  if (!isFinite(minX)) return;
+
+  // Add 5% padding
+  const pad = 5;
+  minX = Math.max(0, minX - pad);
+  minY = Math.max(0, minY - pad);
+  maxX = Math.min(100, maxX + pad);
+  maxY = Math.min(100, maxY + pad);
+
+  const zoneW = maxX - minX;
+  const zoneH = maxY - minY;
+  if (zoneW <= 0 || zoneH <= 0) return;
+
+  const outerW = mapOuter.clientWidth;
+  const outerH = mapOuter.clientHeight;
+  const imgW = img.offsetWidth;
+  const imgH = img.offsetHeight;
+
+  const absX = (minX / 100) * imgW;
+  const absY = (minY / 100) * imgH;
+  const absW = (zoneW / 100) * imgW;
+  const absH = (zoneH / 100) * imgH;
+
+  // Calculate scale to fit zone into the outer container
+  const scaleX = outerW / absW;
+  const scaleY = outerH / absH;
+  const scale = Math.min(scaleX, scaleY, 4); // cap at 4x
+
+  // Apply CSS scale on map-container
+  const originX = (minX + zoneW / 2) + '%';
+  const originY = (minY + zoneH / 2) + '%';
+  mapContainer.style.transformOrigin = originX + ' ' + originY;
+  mapContainer.style.transition = 'transform 0.5s cubic-bezier(0.4,0,0.2,1)';
+  mapContainer.style.transform = `scale(${scale})`;
+
+  // Scroll to center the zone
+  const centerAbsX = absX + absW / 2;
+  const centerAbsY = absY + absH / 2;
+  const scrollX = centerAbsX * scale - outerW / 2;
+  const scrollY = centerAbsY * scale - outerH / 2;
+  setTimeout(() => {
+    mapOuter.scrollTo({ left: Math.max(0, scrollX), top: Math.max(0, scrollY), behavior: 'smooth' });
+  }, 100);
+}
+
+
+// ============================================================
+// ZONE ADMIN TAB — manage zones and assign areas
+// ============================================================
+let _adminZoneNames = [];   // list of defined zone name strings
+
+async function loadZonesTab() {
+  // Load all areas for zone assignment
+  try {
+    const r = await api.getAllSiteMaps();
+    const maps = r.data || [];
+    const areas = [];
+    maps.forEach(m => { if (m.areas) m.areas.forEach(a => areas.push(a)); });
+    // Extract existing zone names from areas
+    areas.forEach(a => { if (a.zone && !_adminZoneNames.includes(a.zone)) _adminZoneNames.push(a.zone); });
+    _adminZoneNames.sort((a, b) => {
+      const na = parseInt(a.replace(/\D/g,'')) || 0, nb = parseInt(b.replace(/\D/g,'')) || 0;
+      return na - nb || a.localeCompare(b);
+    });
+    renderZoneNamesList();
+    renderZoneAssignments(areas);
+  } catch(e) {
+    const c = document.getElementById('admin-zone-assignments');
+    if (c) c.innerHTML = `<p style="color:#ff4c6a;">Failed to load: ${e.message}</p>`;
+  }
+}
+
+function renderZoneNamesList() {
+  const container = document.getElementById('zone-names-list');
+  if (!container) return;
+  if (_adminZoneNames.length === 0) {
+    container.innerHTML = '<span style="color:var(--text-muted);font-size:13px;">No zones defined yet. Add one above.</span>';
+    return;
+  }
+  container.innerHTML = _adminZoneNames.map(z =>
+    `<span class="zone-name-chip">${z}<button onclick="removeZoneName('${z.replace(/'/g,"\\'")}')">✕</button></span>`
+  ).join('');
+}
+
+function addZoneName() {
+  const inp = document.getElementById('new-zone-name');
+  const val = inp.value.trim();
+  if (!val) return;
+  if (_adminZoneNames.includes(val)) { inp.value = ''; return; }
+  _adminZoneNames.push(val);
+  _adminZoneNames.sort((a, b) => {
+    const na = parseInt(a.replace(/\D/g,'')) || 0, nb = parseInt(b.replace(/\D/g,'')) || 0;
+    return na - nb || a.localeCompare(b);
+  });
+  inp.value = '';
+  renderZoneNamesList();
+  // Update all dropdowns
+  document.querySelectorAll('.zone-area-select').forEach(sel => refreshZoneSelect(sel));
+}
+
+function removeZoneName(name) {
+  _adminZoneNames = _adminZoneNames.filter(z => z !== name);
+  renderZoneNamesList();
+  document.querySelectorAll('.zone-area-select').forEach(sel => refreshZoneSelect(sel));
+}
+
+function refreshZoneSelect(sel) {
+  const currentVal = sel.value;
+  const areaId = sel.dataset.areaId;
+  sel.innerHTML = `<option value="">— No Zone —</option>` +
+    _adminZoneNames.map(z => `<option value="${z}" ${z === currentVal ? 'selected' : ''}>${z}</option>`).join('');
+}
+
+function renderZoneAssignments(areas) {
+  const container = document.getElementById('admin-zone-assignments');
+  if (!container) return;
+  if (!areas || areas.length === 0) {
+    container.innerHTML = '<p style="color:var(--text-muted);font-size:13px;">No areas placed on the map yet. Place areas via the Site Map editor first.</p>';
+    return;
+  }
+  container.innerHTML = areas.map(area => {
+    const opts = `<option value="">— No Zone —</option>` +
+      _adminZoneNames.map(z => `<option value="${z}" ${area.zone === z ? 'selected' : ''}>${z}</option>`).join('');
+    return `
+      <div class="zone-assign-row">
+        <span class="zone-assign-label">${area.name || area.power_block_id}</span>
+        <select class="zone-area-select" data-area-id="${area.id}" onchange="saveAreaZone(this)">
+          ${opts}
+        </select>
+      </div>`;
+  }).join('');
+}
+
+async function saveAreaZone(sel) {
+  const areaId = sel.dataset.areaId;
+  const zone = sel.value || null;
+  try {
+    await api.updateSiteArea(areaId, { zone });
+    // Update loadedMapAreas cache
+    const idx = loadedMapAreas.findIndex(a => a.id == areaId);
+    if (idx >= 0) loadedMapAreas[idx].zone = zone;
+    // Rebuild zone filter if map is shown
+    buildZoneFilter();
+  } catch(e) {
+    showAdminAlert('Failed to save zone: ' + e.message, 'error');
+  }
+}
+
