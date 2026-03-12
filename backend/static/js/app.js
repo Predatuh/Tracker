@@ -811,6 +811,7 @@ async function loadSiteMap() {
     }
 
     renderPBMarkers();
+    buildZoneFilter();
     // Auto-sync localStorage positions to DB so mobile apps stay in sync
     syncPositionsToServer();
   } catch (e) {
@@ -915,7 +916,7 @@ function _applyRoleUI() {
 // ── Login modal helpers ───────────────────────────────────────
 function showLoginModal() {
   const o = document.getElementById('login-overlay');
-  if (o) { o.style.display = 'flex'; }
+  if (o) { o.style.display = 'flex'; startLoginAnimation(); }
 }
 
 function switchLoginTab(tab) {
@@ -957,7 +958,11 @@ async function submitLogin() {
     const d = await r.json();
     if (!r.ok) { _loginError(d.error || 'Error'); } else {
       currentUser = d.user;
-      document.getElementById('login-overlay').style.display = 'none';
+      // Play explosion animation then hide
+      playLoginExplosion(() => {
+        document.getElementById('login-overlay').style.display = 'none';
+        stopLoginAnimation();
+      });
       _applyRoleUI();
       _initSocket();
     }
@@ -1959,8 +1964,13 @@ function renderPBMarkers() {
       });
     } else {
       // View mode: click fetches fresh data and opens panel
-      m.style.cursor = 'pointer';
+      m.style.cursor = mapDeleteMode ? 'crosshair' : 'pointer';
       m.addEventListener('click', async () => {
+        // Intercept click in delete mode
+        if (mapDeleteMode) {
+          instantDeleteArea(pb);
+          return;
+        }
         // Intercept click in snap-place clear-one mode
         if (snapClearOneMode && pbPolygons[String(pb.id)]) {
           snapClearOnePB(pb);
@@ -1981,6 +1991,7 @@ function renderPBMarkers() {
     container.appendChild(m);
   });
   syncHiddenBtn();
+  if (typeof applyZoneFilter === 'function') applyZoneFilter();
 }
 
 async function syncPositionsToServer() {
@@ -4428,3 +4439,491 @@ async function createUser() {
     errEl.classList.remove('hidden');
   }
 }
+
+// ============================================================
+// LOGIN CANVAS ANIMATION — Lightning bolts, sparks, charge rings
+// ============================================================
+let _loginAnimId = null;
+let _loginBolts = [];
+let _loginSparks = [];
+let _loginChargePhase = 0;
+let _loginStartTime = 0;
+
+function startLoginAnimation() {
+  const canvas = document.getElementById('login-canvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+
+  function resize() {
+    canvas.width = canvas.offsetWidth * (window.devicePixelRatio || 1);
+    canvas.height = canvas.offsetHeight * (window.devicePixelRatio || 1);
+    ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
+  }
+  resize();
+  window._loginResize = resize;
+  window.addEventListener('resize', resize);
+
+  _loginStartTime = performance.now();
+  _loginBolts = [];
+  _loginSparks = [];
+
+  const W = () => canvas.offsetWidth;
+  const H = () => canvas.offsetHeight;
+  const cx = () => W() / 2;
+  const cy = () => H() / 2;
+
+  function spawnBolt() {
+    const angle = Math.random() * Math.PI * 2;
+    const dist = Math.max(W(), H()) * 0.6;
+    const startX = cx() + Math.cos(angle) * dist;
+    const startY = cy() + Math.sin(angle) * dist;
+    const segments = [];
+    const steps = 8 + Math.floor(Math.random() * 8);
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const x = startX + (cx() - startX) * t + (Math.random() - 0.5) * 60 * (1 - t);
+      const y = startY + (cy() - startY) * t + (Math.random() - 0.5) * 60 * (1 - t);
+      segments.push({ x, y });
+    }
+    // Branch
+    const branches = [];
+    if (Math.random() > 0.4) {
+      const bi = Math.floor(Math.random() * (steps - 2)) + 1;
+      const bp = segments[bi];
+      const bAngle = angle + (Math.random() - 0.5) * 1.2;
+      const bLen = 40 + Math.random() * 60;
+      branches.push([
+        { x: bp.x, y: bp.y },
+        { x: bp.x + Math.cos(bAngle) * bLen * 0.5 + (Math.random() - 0.5) * 20, y: bp.y + Math.sin(bAngle) * bLen * 0.5 + (Math.random() - 0.5) * 20 },
+        { x: bp.x + Math.cos(bAngle) * bLen, y: bp.y + Math.sin(bAngle) * bLen }
+      ]);
+    }
+    return { segments, branches, life: 1.0, decay: 0.015 + Math.random() * 0.01, width: 1.5 + Math.random() * 1.5 };
+  }
+
+  function spawnSpark(x, y) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 0.5 + Math.random() * 2;
+    _loginSparks.push({
+      x, y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      life: 1.0,
+      decay: 0.01 + Math.random() * 0.02,
+      size: 1 + Math.random() * 2,
+      color: Math.random() > 0.5 ? '#00d4ff' : '#7c6cfc'
+    });
+  }
+
+  let nextBoltTime = 0;
+  let sparkAccum = 0;
+
+  function frame(now) {
+    const w = W(), h = H();
+    ctx.clearRect(0, 0, w, h);
+    const elapsed = (now - _loginStartTime) / 1000;
+
+    // Spawn bolts every ~800ms
+    if (now > nextBoltTime) {
+      _loginBolts.push(spawnBolt());
+      nextBoltTime = now + 600 + Math.random() * 600;
+    }
+
+    // Growing spark embers around center
+    sparkAccum += 0.3;
+    while (sparkAccum >= 1) {
+      sparkAccum--;
+      const sa = Math.random() * Math.PI * 2;
+      const sr = 30 + Math.random() * 80;
+      spawnSpark(cx() + Math.cos(sa) * sr, cy() + Math.sin(sa) * sr);
+    }
+
+    // Draw charge ring
+    _loginChargePhase = (now / 2400) % 1;
+    const ringRadius = 60 + Math.sin(_loginChargePhase * Math.PI * 2) * 15;
+    ctx.save();
+    ctx.strokeStyle = `rgba(0,212,255,${0.15 + Math.sin(_loginChargePhase * Math.PI * 2) * 0.1})`;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(cx(), cy(), ringRadius, 0, Math.PI * 2);
+    ctx.stroke();
+    // Second ring
+    ctx.strokeStyle = `rgba(124,108,252,${0.1 + Math.cos(_loginChargePhase * Math.PI * 2) * 0.08})`;
+    ctx.beginPath();
+    ctx.arc(cx(), cy(), ringRadius + 20, elapsed * 0.5, elapsed * 0.5 + Math.PI * 1.5);
+    ctx.stroke();
+    ctx.restore();
+
+    // Draw bolts
+    for (let i = _loginBolts.length - 1; i >= 0; i--) {
+      const bolt = _loginBolts[i];
+      bolt.life -= bolt.decay;
+      if (bolt.life <= 0) { _loginBolts.splice(i, 1); continue; }
+
+      ctx.save();
+      ctx.globalAlpha = bolt.life * 0.8;
+      ctx.strokeStyle = '#00d4ff';
+      ctx.lineWidth = bolt.width * bolt.life;
+      ctx.shadowColor = '#00d4ff';
+      ctx.shadowBlur = 12 * bolt.life;
+      ctx.beginPath();
+      bolt.segments.forEach((p, j) => j === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+      ctx.stroke();
+
+      // Branches
+      bolt.branches.forEach(branch => {
+        ctx.lineWidth = bolt.width * bolt.life * 0.6;
+        ctx.strokeStyle = '#7c6cfc';
+        ctx.shadowColor = '#7c6cfc';
+        ctx.beginPath();
+        branch.forEach((p, j) => j === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+        ctx.stroke();
+      });
+      ctx.restore();
+    }
+
+    // Draw sparks
+    for (let i = _loginSparks.length - 1; i >= 0; i--) {
+      const s = _loginSparks[i];
+      s.x += s.vx;
+      s.y += s.vy;
+      s.vx *= 0.98;
+      s.vy *= 0.98;
+      s.life -= s.decay;
+      if (s.life <= 0) { _loginSparks.splice(i, 1); continue; }
+      ctx.save();
+      ctx.globalAlpha = s.life * 0.7;
+      ctx.fillStyle = s.color;
+      ctx.shadowColor = s.color;
+      ctx.shadowBlur = 6;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.size * s.life, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // Subtle radial glow at center
+    const grd = ctx.createRadialGradient(cx(), cy(), 0, cx(), cy(), 120);
+    grd.addColorStop(0, `rgba(0,212,255,${0.03 + Math.sin(elapsed * 2) * 0.01})`);
+    grd.addColorStop(1, 'transparent');
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, 0, w, h);
+
+    _loginAnimId = requestAnimationFrame(frame);
+  }
+
+  _loginAnimId = requestAnimationFrame(frame);
+}
+
+function stopLoginAnimation() {
+  if (_loginAnimId) { cancelAnimationFrame(_loginAnimId); _loginAnimId = null; }
+  if (window._loginResize) { window.removeEventListener('resize', window._loginResize); window._loginResize = null; }
+}
+
+function playLoginExplosion(callback) {
+  const canvas = document.getElementById('login-canvas');
+  if (!canvas) { if (callback) callback(); return; }
+  const ctx = canvas.getContext('2d');
+  const w = canvas.offsetWidth, h = canvas.offsetHeight;
+  const ccx = w / 2, ccy = h / 2;
+
+  // Stop normal anim
+  if (_loginAnimId) { cancelAnimationFrame(_loginAnimId); _loginAnimId = null; }
+
+  // Explosion particles
+  const particles = [];
+  for (let i = 0; i < 120; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 3 + Math.random() * 8;
+    particles.push({
+      x: ccx, y: ccy,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      life: 1.0,
+      decay: 0.008 + Math.random() * 0.012,
+      size: 2 + Math.random() * 4,
+      color: ['#00d4ff', '#7c6cfc', '#00e87a', '#fff'][Math.floor(Math.random() * 4)]
+    });
+  }
+
+  // Shockwave rings
+  const rings = [
+    { r: 0, maxR: Math.max(w, h), speed: 12, width: 3, opacity: 0.6, color: '#00d4ff' },
+    { r: 0, maxR: Math.max(w, h), speed: 8, width: 2, opacity: 0.4, color: '#7c6cfc' }
+  ];
+
+  // Logo flash
+  const logo = document.getElementById('login-logo');
+  if (logo) { logo.style.filter = 'brightness(3) drop-shadow(0 0 40px #00d4ff)'; logo.style.transform = 'scale(1.3)'; }
+
+  let frame = 0;
+  function explodeFrame() {
+    frame++;
+    ctx.clearRect(0, 0, w, h);
+
+    // Flash overlay
+    if (frame < 8) {
+      ctx.fillStyle = `rgba(0,212,255,${0.3 * (1 - frame / 8)})`;
+      ctx.fillRect(0, 0, w, h);
+    }
+
+    // Rings
+    rings.forEach(ring => {
+      ring.r += ring.speed;
+      if (ring.r < ring.maxR) {
+        const a = ring.opacity * (1 - ring.r / ring.maxR);
+        ctx.save();
+        ctx.strokeStyle = ring.color;
+        ctx.globalAlpha = a;
+        ctx.lineWidth = ring.width;
+        ctx.beginPath();
+        ctx.arc(ccx, ccy, ring.r, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+    });
+
+    // Particles
+    let alive = 0;
+    particles.forEach(p => {
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vx *= 0.97;
+      p.vy *= 0.97;
+      p.life -= p.decay;
+      if (p.life <= 0) return;
+      alive++;
+      ctx.save();
+      ctx.globalAlpha = p.life;
+      ctx.fillStyle = p.color;
+      ctx.shadowColor = p.color;
+      ctx.shadowBlur = 8;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    });
+
+    if (alive > 0 || frame < 60) {
+      requestAnimationFrame(explodeFrame);
+    } else {
+      if (logo) { logo.style.filter = ''; logo.style.transform = ''; }
+      if (callback) callback();
+    }
+  }
+
+  requestAnimationFrame(explodeFrame);
+}
+
+
+// ============================================================
+// MAP DELETE MODE — click to instantly delete, with undo
+// ============================================================
+let mapDeleteMode = false;
+let _lastDeletedArea = null;
+
+function toggleDeleteMode() {
+  mapDeleteMode = !mapDeleteMode;
+  const btn = document.getElementById('delete-mode-btn');
+  const indicator = document.getElementById('delete-mode-indicator');
+  if (mapDeleteMode) {
+    btn.textContent = '✅ Done Deleting';
+    btn.classList.remove('btn-danger');
+    btn.classList.add('btn-success');
+    indicator.style.display = '';
+    closePBPanel();
+  } else {
+    btn.textContent = '🗑️ Delete Mode';
+    btn.classList.remove('btn-success');
+    btn.classList.add('btn-danger');
+    indicator.style.display = 'none';
+  }
+  renderPBMarkers();
+}
+
+async function instantDeleteArea(pb) {
+  const pbKey = String(pb.id);
+  // Find the area record for this PB
+  const area = loadedMapAreas.find(a => a.power_block_id === pb.id);
+  if (!area) { console.warn('No area found for PB', pb.id); return; }
+
+  // Save for undo
+  _lastDeletedArea = {
+    areaId: area.id,
+    pb: pb,
+    pbKey: pbKey,
+    bbox: JSON.parse(localStorage.getItem('pb_bboxes') || '{}')[pbKey],
+    polygon: pbPolygons[pbKey],
+    labelColor: pbLabelColors[pbKey],
+    areaData: area
+  };
+
+  // Remove from local state
+  const bboxes = JSON.parse(localStorage.getItem('pb_bboxes') || '{}');
+  delete bboxes[pbKey];
+  localStorage.setItem('pb_bboxes', JSON.stringify(bboxes));
+  delete pbPolygons[pbKey];
+  localStorage.setItem('pb_polygons', JSON.stringify(pbPolygons));
+  delete pbLabelColors[pbKey];
+  localStorage.setItem('pb_label_colors', JSON.stringify(pbLabelColors));
+  loadedMapAreas = loadedMapAreas.filter(a => a.id !== area.id);
+
+  // Remove from DOM immediately
+  const marker = document.getElementById(`pb-marker-${pb.id}`);
+  if (marker) marker.remove();
+
+  // Delete on server
+  try {
+    await api.deleteSiteArea(area.id);
+  } catch(e) { console.error('Server delete failed:', e); }
+
+  // Show undo toast
+  showUndoToast(`Deleted ${pb.name}`, async () => {
+    const saved = _lastDeletedArea;
+    if (!saved) return;
+    // Re-create on server
+    try {
+      const newArea = await api.createSiteArea({
+        site_map_id: saved.areaData.site_map_id,
+        power_block_id: saved.pb.id,
+        name: saved.areaData.name,
+        bbox_x: saved.bbox ? saved.bbox.x : 0,
+        bbox_y: saved.bbox ? saved.bbox.y : 0,
+        bbox_w: saved.bbox ? saved.bbox.w : 1.4,
+        bbox_h: saved.bbox ? saved.bbox.h : 5.0,
+        polygon_points: saved.polygon ? JSON.stringify(saved.polygon) : null,
+        label_color: saved.labelColor || null,
+        zone: saved.areaData.zone || null
+      });
+      // Restore local state
+      if (saved.bbox) {
+        const bboxes = JSON.parse(localStorage.getItem('pb_bboxes') || '{}');
+        bboxes[saved.pbKey] = saved.bbox;
+        localStorage.setItem('pb_bboxes', JSON.stringify(bboxes));
+      }
+      if (saved.polygon) {
+        pbPolygons[saved.pbKey] = saved.polygon;
+        localStorage.setItem('pb_polygons', JSON.stringify(pbPolygons));
+      }
+      if (saved.labelColor) {
+        pbLabelColors[saved.pbKey] = saved.labelColor;
+        localStorage.setItem('pb_label_colors', JSON.stringify(pbLabelColors));
+      }
+      if (newArea.data) loadedMapAreas.push(newArea.data);
+      renderPBMarkers();
+    } catch(e) { console.error('Undo failed:', e); }
+    _lastDeletedArea = null;
+  });
+}
+
+let _undoToastTimer = null;
+function showUndoToast(message, undoCallback) {
+  // Remove old toast
+  const old = document.querySelector('.undo-toast');
+  if (old) old.remove();
+  clearTimeout(_undoToastTimer);
+
+  const toast = document.createElement('div');
+  toast.className = 'undo-toast';
+  toast.innerHTML = `<span>${message}</span><button class="undo-btn" id="undo-toast-btn">UNDO</button>`;
+  document.body.appendChild(toast);
+
+  document.getElementById('undo-toast-btn').addEventListener('click', () => {
+    toast.remove();
+    clearTimeout(_undoToastTimer);
+    if (undoCallback) undoCallback();
+  });
+
+  _undoToastTimer = setTimeout(() => {
+    toast.style.opacity = '0';
+    setTimeout(() => toast.remove(), 300);
+    _lastDeletedArea = null;
+  }, 6000);
+}
+
+
+// ============================================================
+// ZONE FILTER — filter markers by zone
+// ============================================================
+let activeZoneFilter = null; // null = show all
+
+function buildZoneFilter() {
+  const bar = document.getElementById('zone-filter-bar');
+  if (!bar) return;
+
+  const zones = new Set();
+  loadedMapAreas.forEach(a => { if (a.zone) zones.add(a.zone); });
+
+  if (zones.size === 0) { bar.style.display = 'none'; return; }
+
+  bar.style.display = 'flex';
+  const sortedZones = [...zones].sort((a, b) => {
+    const na = parseInt(a.replace(/\D/g, '')) || 0;
+    const nb = parseInt(b.replace(/\D/g, '')) || 0;
+    return na - nb || a.localeCompare(b);
+  });
+
+  let html = `<span class="zone-chip ${activeZoneFilter === null ? 'active' : ''}" onclick="setZoneFilter(null)">All</span>`;
+  sortedZones.forEach(z => {
+    html += `<span class="zone-chip ${activeZoneFilter === z ? 'active' : ''}" onclick="setZoneFilter('${z.replace(/'/g, "\\'")}')">${z}</span>`;
+  });
+  bar.innerHTML = html;
+}
+
+function setZoneFilter(zone) {
+  activeZoneFilter = zone;
+  buildZoneFilter();
+  applyZoneFilter();
+}
+
+function applyZoneFilter() {
+  if (!activeZoneFilter) {
+    // Show all markers
+    document.querySelectorAll('#pb-markers > div').forEach(m => { m.style.display = ''; });
+    return;
+  }
+  // Find PB IDs that belong to the selected zone
+  const zonePbIds = new Set();
+  loadedMapAreas.forEach(a => {
+    if (a.zone === activeZoneFilter && a.power_block_id) {
+      zonePbIds.add(a.power_block_id);
+    }
+  });
+  document.querySelectorAll('#pb-markers > div').forEach(m => {
+    const pbId = parseInt(m.dataset.pbId);
+    m.style.display = zonePbIds.has(pbId) ? '' : 'none';
+  });
+}
+
+
+// ============================================================
+// FLOATING PARTICLES (subtle ambient effect on pages)
+// ============================================================
+(function initFloatingParticles() {
+  document.addEventListener('DOMContentLoaded', () => {
+    const container = document.createElement('div');
+    container.className = 'floating-particles';
+    for (let i = 0; i < 20; i++) {
+      const p = document.createElement('div');
+      p.className = 'particle';
+      p.style.left = (Math.random() * 100) + '%';
+      p.style.setProperty('--dur', (6 + Math.random() * 10) + 's');
+      p.style.setProperty('--delay', (Math.random() * 8) + 's');
+      p.style.setProperty('--max-opacity', (0.15 + Math.random() * 0.25).toFixed(2));
+      p.style.background = Math.random() > 0.6 ? '#7c6cfc' : '#00d4ff';
+      p.style.width = (1 + Math.random() * 2) + 'px';
+      p.style.height = p.style.width;
+      container.appendChild(p);
+    }
+    document.body.appendChild(container);
+  });
+})();
+
+
+// ── Auto-start login animation on DOMContentLoaded ──
+document.addEventListener('DOMContentLoaded', () => {
+  const overlay = document.getElementById('login-overlay');
+  if (overlay && overlay.style.display === 'flex') {
+    startLoginAnimation();
+  }
+});

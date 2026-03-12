@@ -20,54 +20,55 @@
 <body>
 
 <!-- ── Login Overlay ─────────────────────────────────────────────────────── -->
-<div id="login-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.82);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);z-index:99999;align-items:center;justify-content:center;">
-  <div style="background:linear-gradient(140deg,#0d1030 0%,#07091a 100%);border:1px solid rgba(255,255,255,0.13);border-radius:22px;padding:40px 44px;width:390px;max-width:93vw;box-shadow:0 32px 90px rgba(0,0,0,0.85),0 0 60px rgba(0,212,255,0.06);">
+<div id="login-overlay" style="display:none;position:fixed;inset:0;background:#03040a;z-index:99999;align-items:center;justify-content:center;">
+  <canvas id="login-canvas"></canvas>
+  <div class="login-box" style="position:relative;z-index:1;background:rgba(10,14,31,0.75);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(0,212,255,0.12);border-radius:22px;padding:40px 44px;width:390px;max-width:93vw;box-shadow:0 32px 90px rgba(0,0,0,0.85),0 0 80px rgba(0,212,255,0.06);">
     <div style="text-align:center;margin-bottom:24px;">
-      <img src="{{ url_for('static', filename='Logo.png') }}" alt="Logo" style="height:70px;width:auto;object-fit:contain;margin:0 auto 14px;display:block;filter:drop-shadow(0 0 18px rgba(0,212,255,0.25));" />
-      <h2 style="margin:0 0 4px;font-size:22px;font-weight:800;color:#eef2ff;font-family:Inter,sans-serif;letter-spacing:-0.3px;">Princess Trackers</h2>
-      <div style="color:#8892b0;font-size:13px;font-family:Inter,sans-serif;">Sign in to check off your work</div>
+      <img id="login-logo" src="{{ url_for('static', filename='Logo.png') }}" alt="Logo" style="height:70px;width:auto;object-fit:contain;margin:0 auto 14px;display:block;filter:drop-shadow(0 0 24px rgba(0,212,255,0.35));transition:all 0.3s;" />
+      <h2 style="margin:0 0 4px;font-size:22px;font-weight:800;color:#eef2ff;font-family:'Orbitron',sans-serif;letter-spacing:1px;text-shadow:0 0 20px rgba(0,212,255,0.2);">Princess Trackers</h2>
+      <div style="color:rgba(238,242,255,0.4);font-size:13px;font-family:'Space Grotesk',sans-serif;letter-spacing:0.3px;">Sign in to check off your work</div>
     </div>
     <!-- Tabs -->
-    <div style="display:flex;border-bottom:1px solid rgba(255,255,255,0.09);margin-bottom:20px;gap:4px;">
-      <button id="tab-signin-btn" onclick="switchLoginTab('signin')" style="flex:1;background:none;border:none;border-bottom:2px solid #00d4ff;margin-bottom:-1px;padding:9px 0;font-size:12px;font-weight:700;color:#00d4ff;cursor:pointer;font-family:Inter,sans-serif;letter-spacing:0.3px;text-transform:uppercase;">Sign In</button>
-      <button id="tab-register-btn" onclick="switchLoginTab('register')" style="flex:1;background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-1px;padding:9px 0;font-size:12px;font-weight:700;color:#4a5568;cursor:pointer;font-family:Inter,sans-serif;letter-spacing:0.3px;text-transform:uppercase;">Create Account</button>
+    <div style="display:flex;border-bottom:1px solid rgba(0,212,255,0.1);margin-bottom:20px;gap:4px;">
+      <button id="tab-signin-btn" onclick="switchLoginTab('signin')" style="flex:1;background:none;border:none;border-bottom:2px solid #00d4ff;margin-bottom:-1px;padding:9px 0;font-size:12px;font-weight:700;color:#00d4ff;cursor:pointer;font-family:'Space Grotesk',sans-serif;letter-spacing:0.5px;text-transform:uppercase;text-shadow:0 0 10px rgba(0,212,255,0.3);">Sign In</button>
+      <button id="tab-register-btn" onclick="switchLoginTab('register')" style="flex:1;background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-1px;padding:9px 0;font-size:12px;font-weight:700;color:rgba(238,242,255,0.3);cursor:pointer;font-family:'Space Grotesk',sans-serif;letter-spacing:0.5px;text-transform:uppercase;">Create Account</button>
     </div>
     <!-- Error -->
-    <div id="login-error" style="display:none;background:rgba(255,76,106,0.12);border:1px solid rgba(255,76,106,0.3);color:#ff8fa3;border-radius:8px;padding:10px 13px;font-size:12px;margin-bottom:14px;font-family:Inter,sans-serif;"></div>
+    <div id="login-error" style="display:none;background:rgba(255,76,106,0.1);border:1px solid rgba(255,76,106,0.3);color:#ff8fa3;border-radius:8px;padding:10px 13px;font-size:12px;margin-bottom:14px;font-family:'Space Grotesk',sans-serif;"></div>
     <!-- Name -->
     <div style="margin-bottom:13px;">
-      <label style="font-size:10px;font-weight:700;color:#8892b0;letter-spacing:1px;text-transform:uppercase;display:block;margin-bottom:6px;font-family:Inter,sans-serif;">Your Name</label>
+      <label style="font-size:10px;font-weight:700;color:rgba(238,242,255,0.4);letter-spacing:1.2px;text-transform:uppercase;display:block;margin-bottom:6px;font-family:'Space Grotesk',sans-serif;">Your Name</label>
       <input id="login-name" type="text" placeholder="e.g. John Smith" autocomplete="off"
-        style="width:100%;box-sizing:border-box;background:rgba(255,255,255,0.06);border:1.5px solid rgba(255,255,255,0.1);border-radius:8px;padding:11px 14px;font-size:14px;outline:none;color:#eef2ff;font-family:Inter,sans-serif;transition:border-color 0.2s;"
-        onfocus="this.style.borderColor='#00d4ff';this.style.boxShadow='0 0 0 3px rgba(0,212,255,0.1)'"
-        onblur="this.style.borderColor='rgba(255,255,255,0.1)';this.style.boxShadow='none'"
+        style="width:100%;box-sizing:border-box;background:rgba(255,255,255,0.04);border:1.5px solid rgba(0,212,255,0.1);border-radius:8px;padding:11px 14px;font-size:14px;outline:none;color:#eef2ff;font-family:'Space Grotesk',sans-serif;transition:all 0.25s;"
+        onfocus="this.style.borderColor='#00d4ff';this.style.boxShadow='0 0 0 3px rgba(0,212,255,0.1),0 0 20px rgba(0,212,255,0.05)'"
+        onblur="this.style.borderColor='rgba(0,212,255,0.1)';this.style.boxShadow='none'"
         onkeydown="if(event.key==='Enter')document.getElementById('login-pin').focus()" />
     </div>
     <!-- PIN -->
     <div style="margin-bottom:24px;">
-      <label style="font-size:10px;font-weight:700;color:#8892b0;letter-spacing:1px;text-transform:uppercase;display:block;margin-bottom:6px;font-family:Inter,sans-serif;">4-Digit PIN</label>
+      <label style="font-size:10px;font-weight:700;color:rgba(238,242,255,0.4);letter-spacing:1.2px;text-transform:uppercase;display:block;margin-bottom:6px;font-family:'Space Grotesk',sans-serif;">4-Digit PIN</label>
       <input id="login-pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="••••"
         autocomplete="off"
-        style="width:100%;box-sizing:border-box;background:rgba(255,255,255,0.06);border:1.5px solid rgba(255,255,255,0.1);border-radius:8px;padding:12px 14px;font-size:28px;letter-spacing:14px;text-align:center;outline:none;color:#eef2ff;font-family:'JetBrains Mono',monospace;transition:border-color 0.2s;"
-        onfocus="this.style.borderColor='#00d4ff';this.style.boxShadow='0 0 0 3px rgba(0,212,255,0.1)'"
-        onblur="this.style.borderColor='rgba(255,255,255,0.1)';this.style.boxShadow='none'"
+        style="width:100%;box-sizing:border-box;background:rgba(255,255,255,0.04);border:1.5px solid rgba(0,212,255,0.1);border-radius:8px;padding:12px 14px;font-size:28px;letter-spacing:14px;text-align:center;outline:none;color:#eef2ff;font-family:'JetBrains Mono',monospace;transition:all 0.25s;"
+        onfocus="this.style.borderColor='#00d4ff';this.style.boxShadow='0 0 0 3px rgba(0,212,255,0.1),0 0 20px rgba(0,212,255,0.05)'"
+        onblur="this.style.borderColor='rgba(0,212,255,0.1)';this.style.boxShadow='none'"
         onkeydown="if(event.key==='Enter')submitLogin()" />
     </div>
     <!-- Button -->
     <button id="login-submit-btn" onclick="submitLogin()"
-      style="width:100%;background:linear-gradient(135deg,#00d4ff,#009abc);color:#000;border:none;border-radius:8px;padding:14px;font-size:14px;font-weight:800;cursor:pointer;margin-bottom:10px;font-family:Inter,sans-serif;letter-spacing:0.2px;transition:all 0.2s;"
-      onmouseover="this.style.boxShadow='0 0 24px rgba(0,212,255,0.4)';this.style.transform='translateY(-1px)'"
+      style="width:100%;background:linear-gradient(135deg,#00d4ff,#009abc);color:#000;border:none;border-radius:8px;padding:14px;font-size:14px;font-weight:800;cursor:pointer;margin-bottom:10px;font-family:'Space Grotesk',sans-serif;letter-spacing:0.5px;transition:all 0.25s;position:relative;overflow:hidden;"
+      onmouseover="this.style.boxShadow='0 0 30px rgba(0,212,255,0.45)';this.style.transform='translateY(-1px)'"
       onmouseout="this.style.boxShadow='none';this.style.transform='none'">
       Sign In
     </button>
-    <button onclick="document.getElementById('login-overlay').style.display='none'"
-      style="width:100%;background:transparent;color:#4a5568;border:1px solid rgba(255,255,255,0.09);border-radius:8px;padding:10px;font-size:13px;cursor:pointer;font-family:Inter,sans-serif;transition:all 0.2s;"
-      onmouseover="this.style.borderColor='rgba(255,255,255,0.18)';this.style.color='#8892b0'"
-      onmouseout="this.style.borderColor='rgba(255,255,255,0.09)';this.style.color='#4a5568'">
+    <button onclick="document.getElementById('login-overlay').style.display='none';stopLoginAnimation()"
+      style="width:100%;background:transparent;color:rgba(238,242,255,0.3);border:1px solid rgba(0,212,255,0.08);border-radius:8px;padding:10px;font-size:13px;cursor:pointer;font-family:'Space Grotesk',sans-serif;transition:all 0.25s;"
+      onmouseover="this.style.borderColor='rgba(0,212,255,0.2)';this.style.color='rgba(238,242,255,0.6)'"
+      onmouseout="this.style.borderColor='rgba(0,212,255,0.08)';this.style.color='rgba(238,242,255,0.3)'">
       Continue as Guest — view only
     </button>
-    <div style="font-size:11px;color:#4a5568;text-align:center;margin-top:16px;line-height:1.7;font-family:Inter,sans-serif;">
-      Admin? Use name <strong style="color:#8892b0;">Admin</strong> with the admin PIN.</div>
+    <div style="font-size:11px;color:rgba(238,242,255,0.25);text-align:center;margin-top:16px;line-height:1.7;font-family:'Space Grotesk',sans-serif;">
+      Admin? Use name <strong style="color:rgba(238,242,255,0.5);">Admin</strong> with the admin PIN.</div>
   </div>
 </div>
     <div id="app">
@@ -224,21 +225,26 @@
                 <div id="sitemap-display" class="hidden" style="display:flex;flex-direction:column;height:calc(100vh - 56px);">
 
                     <!-- Toolbar -->
-                    <div style="padding:8px 16px;background:rgba(7,9,26,0.97);border-bottom:1px solid rgba(255,255,255,0.09);display:flex;align-items:center;gap:8px;flex-shrink:0;flex-wrap:wrap;">
-                        <strong style="font-size:14px;font-weight:700;font-family:Inter,sans-serif;color:#eef2ff;letter-spacing:-0.2px;">Site Map</strong>
+                    <div style="padding:8px 16px;background:rgba(7,9,26,0.97);border-bottom:1px solid rgba(0,212,255,0.08);display:flex;align-items:center;gap:8px;flex-shrink:0;flex-wrap:wrap;">
+                        <strong style="font-size:14px;font-weight:700;font-family:'Orbitron',sans-serif;color:#eef2ff;letter-spacing:0.5px;text-shadow:0 0 12px rgba(0,212,255,0.15);">Site Map</strong>
                         <div style="flex:1;"></div>
+                        <button id="delete-mode-btn" class="btn btn-danger admin-only" data-perm="edit_map" onclick="toggleDeleteMode()" style="font-size:12px;padding:5px 12px;">🗑️ Delete Mode</button>
+                        <span id="delete-mode-indicator" class="delete-mode-indicator" style="display:none;">DELETE MODE</span>
                         <button id="edit-mode-btn" class="btn btn-secondary admin-only" data-perm="edit_map" onclick="toggleMapEditMode()" style="font-size:12px;padding:5px 12px;">✏️ Edit Positions</button>
                         <button id="snap-place-btn" class="btn btn-secondary admin-only" data-perm="edit_map" onclick="toggleSnapPlace()" style="font-size:12px;padding:5px 12px;" title="Click inside black outlines on the map to snap-place PBs to their exact shape">🎯 Snap Place</button>
                         <button id="moveall-btn" class="btn btn-secondary admin-only" data-perm="edit_map" onclick="toggleMoveAll()" style="font-size:12px;padding:5px 12px;" title="Drag to move all PBs and labels at once">✥ Move All</button>
                         <button class="btn btn-secondary" onclick="toggleWhiteBg()" style="font-size:12px;padding:5px 12px;" title="Toggle map image on/off">🖼️ Toggle Map</button>
                         <button class="btn btn-secondary admin-only" data-perm="edit_map" onclick="showScaleSlider()" style="font-size:12px;padding:5px 12px;" title="Resize the entire layout">↔️ Scale Layout</button>
                         <button class="btn btn-secondary admin-only" data-perm="edit_map" onclick="showFontSizeSlider()" style="font-size:12px;padding:5px 12px;" title="Change PB label font size">🔤 PB Font</button>
-                        <input type="color" id="text-label-color" value="#ffffff" title="Label text color" class="admin-only" data-perm="edit_map" style="width:28px;height:28px;padding:2px;border:1px solid rgba(255,255,255,0.2);border-radius:6px;background:rgba(7,9,26,0.6);cursor:pointer;vertical-align:middle;">
+                        <input type="color" id="text-label-color" value="#ffffff" title="Label text color" class="admin-only" data-perm="edit_map" style="width:28px;height:28px;padding:2px;border:1px solid rgba(0,212,255,0.15);border-radius:6px;background:rgba(7,9,26,0.6);cursor:pointer;vertical-align:middle;">
                         <button class="btn btn-secondary admin-only" data-perm="edit_map" onclick="addTextLabel()" style="font-size:12px;padding:5px 12px;" title="Add a text label to the map">🏷️ Add Label</button>
                         <button id="restore-hidden-btn" class="btn btn-warning admin-only" data-perm="edit_map" onclick="restoreHiddenPBs()" style="font-size:12px;padding:5px 12px;display:none;" title="Restore all hidden PB boxes">👁 Show Hidden</button>
                         <button class="btn btn-secondary admin-only" data-perm="edit_map" onclick="document.getElementById('sitemap-replace-file').click()" style="font-size:12px;padding:5px 12px;">🔄 Replace Map</button>
                         <input type="file" id="sitemap-replace-file" accept=".jpg,.jpeg,.png,.gif" style="display:none" onchange="replaceSiteMap()">
                     </div>
+
+                    <!-- Zone filter bar -->
+                    <div id="zone-filter-bar" class="zone-filter-bar" style="display:none;padding:6px 16px;background:rgba(7,9,26,0.95);border-bottom:1px solid rgba(0,212,255,0.06);"></div>
 
                     <!-- Snap-place status bar (hidden until snap mode active) -->
                     <div id="snap-place-bar" style="display:none;padding:6px 16px;background:linear-gradient(90deg,rgba(0,212,255,0.08),rgba(124,108,252,0.08));border-bottom:1px solid rgba(0,212,255,0.2);align-items:center;gap:8px;flex-shrink:0;flex-wrap:wrap;font-family:Inter,sans-serif;"></div>
