@@ -1,12 +1,10 @@
-const CACHE_NAME = 'princess-trackers-v2';
+const CACHE_NAME = 'princess-trackers-v3';
 const PRECACHE = [
   '/',
-  '/static/css/style.css',
-  '/static/js/app.js',
   '/static/Logo.png'
 ];
 
-// Install: precache shell assets
+// Install: precache minimal shell, skip waiting immediately
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => cache.addAll(PRECACHE))
@@ -14,7 +12,7 @@ self.addEventListener('install', event => {
   self.skipWaiting();
 });
 
-// Activate: clean old caches
+// Activate: delete ALL old caches so users get fresh code
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys().then(keys =>
@@ -24,15 +22,18 @@ self.addEventListener('activate', event => {
   self.clients.claim();
 });
 
-// Fetch: network-first for API, cache-first for static assets
+// Fetch: network-first for everything important
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
 
   // Skip non-GET and socket.io requests
   if (event.request.method !== 'GET' || url.pathname.startsWith('/socket.io')) return;
 
-  // API calls: network-first
-  if (url.pathname.startsWith('/api/')) {
+  // JS, CSS, API, and HTML: always network-first
+  if (url.pathname.startsWith('/api/') ||
+      url.pathname.endsWith('.js') ||
+      url.pathname.endsWith('.css') ||
+      url.pathname === '/') {
     event.respondWith(
       fetch(event.request)
         .then(resp => {
@@ -45,7 +46,7 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // Static assets: cache-first
+  // Images and other assets: cache-first (safe, they rarely change)
   event.respondWith(
     caches.match(event.request).then(cached => {
       if (cached) return cached;

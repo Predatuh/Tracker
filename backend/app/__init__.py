@@ -151,10 +151,52 @@ def _seed_admin():
 
 # -- Schema migration for SQLite ---------------------------------------
 def _migrate_schema(app):
-    """Add any columns that exist in models but not yet in the SQLite tables."""
+    """Add any columns that exist in models but not yet in the DB tables."""
     db_uri = app.config['SQLALCHEMY_DATABASE_URI']
-    if not db_uri.startswith('sqlite:///'):
-        return  # PostgreSQL handles this via db.create_all()
+    if db_uri.startswith('sqlite:///'):
+        _migrate_sqlite(app, db_uri)
+    else:
+        _migrate_generic(app)
+
+
+def _migrate_generic(app):
+    """For PostgreSQL / non-SQLite: use raw SQL via SQLAlchemy engine."""
+    migrations = [
+        ('power_blocks', 'power_block_number', 'VARCHAR(255)'),
+        ('power_blocks', 'claimed_by', 'VARCHAR(100)'),
+        ('power_blocks', 'claimed_at', 'TIMESTAMP'),
+        ('power_blocks', 'last_updated_by', 'VARCHAR(100)'),
+        ('power_blocks', 'last_updated_at', 'TIMESTAMP'),
+        ('lbds', 'inventory_number', 'VARCHAR(100)'),
+        ('lbds', 'x_position', 'FLOAT'),
+        ('lbds', 'y_position', 'FLOAT'),
+        ('lbds', 'notes', 'TEXT'),
+        ('lbd_statuses', 'completed_by', 'VARCHAR(100)'),
+        ('site_areas', 'bbox_x', 'FLOAT'),
+        ('site_areas', 'bbox_y', 'FLOAT'),
+        ('site_areas', 'bbox_w', 'FLOAT'),
+        ('site_areas', 'bbox_h', 'FLOAT'),
+        ('site_areas', 'label_font_size', 'INTEGER'),
+        ('site_areas', 'polygon_points', 'TEXT'),
+        ('site_areas', 'label_color', 'VARCHAR(30)'),
+        ('site_areas', 'zone', 'VARCHAR(50)'),
+        ('users', 'role', "VARCHAR(20) DEFAULT 'user'"),
+        ('users', 'permissions', "TEXT DEFAULT '[]'"),
+        ('site_maps', 'image_data', 'BYTEA'),
+        ('site_maps', 'image_mime', 'VARCHAR(50)'),
+    ]
+    for table, col, dtype in migrations:
+        try:
+            db.session.execute(db.text(
+                f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {dtype}"
+            ))
+        except Exception:
+            db.session.rollback()
+    db.session.commit()
+
+
+def _migrate_sqlite(app, db_uri):
+    """SQLite-specific migration using PRAGMA table_info."""
     import sqlite3
     db_path = db_uri.replace('sqlite:///', '')
     if not os.path.exists(db_path):
@@ -177,6 +219,8 @@ def _migrate_schema(app):
     _add_col(cur, 'site_areas', 'bbox_h', 'REAL')
     _add_col(cur, 'site_areas', 'label_font_size', 'INTEGER')
     _add_col(cur, 'site_areas', 'polygon_points', 'TEXT')
+    _add_col(cur, 'site_areas', 'label_color', 'VARCHAR(30)')
+    _add_col(cur, 'site_areas', 'zone', 'VARCHAR(50)')
     _add_col(cur, 'users', 'role', "VARCHAR(20) DEFAULT 'user'")
     _add_col(cur, 'users', 'permissions', "TEXT DEFAULT '[]'")
     _add_col(cur, 'site_maps', 'image_data', 'BLOB')
