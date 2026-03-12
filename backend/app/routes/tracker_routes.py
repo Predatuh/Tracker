@@ -1,4 +1,5 @@
 from flask import Blueprint, request, jsonify, session
+from sqlalchemy.orm import subqueryload
 from app import db
 from app.models import PowerBlock, LBD, LBDStatus
 from datetime import datetime
@@ -30,7 +31,9 @@ bp = Blueprint('tracker', __name__, url_prefix='/api/tracker')
 def get_power_blocks():
     """Get all power blocks"""
     try:
-        blocks = PowerBlock.query.all()
+        blocks = PowerBlock.query.options(
+            subqueryload(PowerBlock.lbds).subqueryload(LBD.statuses)
+        ).all()
         return jsonify({
             'success': True,
             'data': [b.to_dict() for b in blocks]
@@ -42,7 +45,9 @@ def get_power_blocks():
 def get_power_block(block_id):
     """Get specific power block with all LBDs"""
     try:
-        block = PowerBlock.query.get_or_404(block_id)
+        block = PowerBlock.query.options(
+            subqueryload(PowerBlock.lbds).subqueryload(LBD.statuses)
+        ).get_or_404(block_id)
         return jsonify({
             'success': True,
             'data': block.to_dict()
