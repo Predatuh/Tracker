@@ -1761,28 +1761,31 @@ function renderPBMarkers() {
     }).join(' | ');
     m.title = `PB ${pb.name} — ${total} LBDs\n${statusInfo}`;
 
-    // PB number — auto-fit: shrink font if text overflows the marker
+    // PB number — centered, unaffected by "In Progress" label
     const numSpan = document.createElement('span');
     numSpan.textContent = num;
-    numSpan.style.cssText = 'white-space:nowrap;overflow:hidden;max-width:100%;text-overflow:clip;';
+    numSpan.style.cssText = 'white-space:nowrap;max-width:100%;text-overflow:clip;position:relative;z-index:1;';
     m.appendChild(numSpan);
 
-    // "In Progress" indicator
+    // "In Progress" indicator — absolutely positioned so it doesn't shift the number
     if (inProgress && !allDone) {
       const ipSpan = document.createElement('span');
       ipSpan.textContent = 'In Progress';
-      const ipFontSize = Math.max(5, Math.min(12, fontSize * 0.45));
-      ipSpan.style.cssText = `font-size:${ipFontSize}px;opacity:0.9;white-space:nowrap;margin-top:1px;letter-spacing:0.3px;max-width:100%;overflow:hidden;`;
+      const ipFontSize = Math.max(5, Math.min(10, fontSize * 0.4));
+      ipSpan.style.cssText = `position:absolute;bottom:1px;left:0;right:0;text-align:center;font-size:${ipFontSize}px;opacity:0.85;white-space:nowrap;letter-spacing:0.2px;overflow:hidden;z-index:1;`;
       m.appendChild(ipSpan);
     }
 
-    // After appending to DOM, check if text overflows and shrink to fit
+    // After appending to DOM, shrink font until number fits visible area
     requestAnimationFrame(() => { requestAnimationFrame(() => {
       if (!m.parentNode || !m.clientWidth) return;
       let fs = fontSize;
-      const maxW = m.clientWidth - 2; // account for padding
+      const maxW = m.clientWidth - 2;
       const maxH = m.clientHeight - 2;
-      while (fs > 5 && (numSpan.scrollWidth > maxW || numSpan.scrollHeight > maxH * 0.75)) {
+      // For polygon-clipped markers, allow smaller font since visible area is less than bbox
+      const hasClip = !!polyData && polyData.length >= 3 && !mapEditMode;
+      const minFs = hasClip ? 4 : 5;
+      while (fs > minFs && (numSpan.scrollWidth > maxW || numSpan.scrollHeight > maxH * 0.7)) {
         fs -= 0.5;
         m.style.fontSize = fs + 'px';
       }
