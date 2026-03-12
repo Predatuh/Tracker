@@ -13,7 +13,7 @@
     <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/icon-192.png') }}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700;800&family=Orbitron:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ range(10000,99999) | random }}">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.4/socket.io.min.js"></script>
 </head>
@@ -425,7 +425,23 @@
                 <!-- Users Tab (Main Admin Only) -->
                 <div id="admin-tab-users" class="admin-tab-content" style="display:none;">
                   <h2 class="section-subtitle">User Management</h2>
-                  <p style="color:#777;font-size:13px;margin-bottom:18px;">Assign assistant admin roles and manage permissions for each user.</p>
+                  <p style="color:var(--text-muted);font-size:13px;margin-bottom:18px;">Assign assistant admin roles and manage permissions for each user.</p>
+                  <button class="btn btn-primary" onclick="showCreateUserForm()" style="margin-bottom:16px;">➕ Create User</button>
+                  <div id="create-user-form" class="form-section hidden" style="margin-bottom:18px;">
+                    <div class="form-group">
+                      <label>Name</label>
+                      <input type="text" id="new-user-name" placeholder="User name">
+                    </div>
+                    <div class="form-group">
+                      <label>PIN (4 digits)</label>
+                      <input type="password" id="new-user-pin" maxlength="4" placeholder="0000" inputmode="numeric">
+                    </div>
+                    <div id="create-user-error" class="alert alert-error hidden"></div>
+                    <div style="display:flex;gap:8px;margin-top:12px;">
+                      <button class="btn btn-success" onclick="createUser()">Create</button>
+                      <button class="btn btn-secondary" onclick="hideCreateUserForm()">Cancel</button>
+                    </div>
+                  </div>
                   <div id="admin-users-list" style="display:flex;flex-direction:column;gap:12px;"></div>
                 </div>
 

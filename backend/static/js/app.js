@@ -4388,3 +4388,43 @@ async function saveUserRole(userId) {
     alert('Network error: ' + e.message);
   }
 }
+
+function showCreateUserForm() {
+  document.getElementById('create-user-form').classList.remove('hidden');
+  document.getElementById('new-user-name').value = '';
+  document.getElementById('new-user-pin').value = '';
+  document.getElementById('create-user-error').classList.add('hidden');
+}
+
+function hideCreateUserForm() {
+  document.getElementById('create-user-form').classList.add('hidden');
+}
+
+async function createUser() {
+  const name = document.getElementById('new-user-name').value.trim();
+  const pin = document.getElementById('new-user-pin').value.trim();
+  const errEl = document.getElementById('create-user-error');
+
+  if (!name) { errEl.textContent = 'Name is required'; errEl.classList.remove('hidden'); return; }
+  if (pin.length !== 4 || !/^\d{4}$/.test(pin)) { errEl.textContent = 'PIN must be 4 digits'; errEl.classList.remove('hidden'); return; }
+
+  try {
+    const res = await fetch('/api/auth/register', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      credentials: 'include',
+      body: JSON.stringify({ name, pin })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      errEl.textContent = data.error || 'Failed to create user';
+      errEl.classList.remove('hidden');
+      return;
+    }
+    hideCreateUserForm();
+    loadUsersTab();
+  } catch(e) {
+    errEl.textContent = 'Network error: ' + e.message;
+    errEl.classList.remove('hidden');
+  }
+}
