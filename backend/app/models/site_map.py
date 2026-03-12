@@ -22,7 +22,7 @@ class SiteMap(db.Model):
             'name': self.name,
             'file_path': self.file_path,
             'svg_content': self.svg_content,
-            'created_at': self.created_at.isoformat(),
-            'updated_at': self.updated_at.isoformat(),
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
             'areas': [a.to_dict() for a in self.areas]
         }

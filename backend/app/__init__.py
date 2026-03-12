@@ -35,6 +35,13 @@ def create_app():
             database_url = database_url.replace('postgres://', 'postgresql://', 1)
         app.config['SQLALCHEMY_DATABASE_URI'] = database_url
         app.config['UPLOAD_FOLDER'] = os.environ.get('UPLOAD_FOLDER', '/tmp/lbd_uploads')
+        # Connection pool settings for PostgreSQL over network
+        app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+            'pool_size': 5,
+            'pool_recycle': 300,
+            'pool_pre_ping': True,
+            'pool_timeout': 10,
+        }
     else:
         data_dir = os.environ.get('LBD_DATA_DIR')
         if data_dir:

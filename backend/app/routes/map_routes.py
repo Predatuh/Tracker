@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify, current_app
 from werkzeug.utils import secure_filename
 import os, shutil, json
+from sqlalchemy import func
 from app import db
 from app.models import SiteMap, SiteArea, PowerBlock
 
@@ -137,9 +138,10 @@ def get_sitemap(map_id):
 
 @bp.route('/sitemaps', methods=['GET'])
 def get_all_sitemaps():
-    """Get all site maps"""
+    """Get all site maps with eager-loaded areas"""
     try:
-        maps = SiteMap.query.all()
+        from sqlalchemy.orm import subqueryload
+        maps = SiteMap.query.options(subqueryload(SiteMap.areas)).all()
         return jsonify({
             'success': True,
             'data': [m.to_dict() for m in maps]
@@ -334,31 +336,60 @@ def snap_outline(map_id):
 
 @bp.route('/map-status/<int:map_id>', methods=['GET'])
 def get_map_status(map_id):
-    """Get completion status for all areas on the map"""
+    """Get completion status for all areas on the map (bulk queries)."""
     try:
+        from app.models import LBD, LBDStatus
+        from app.models.admin_settings import AdminSettings
+
         site_map = SiteMap.query.get_or_404(map_id)
         areas = SiteArea.query.filter_by(site_map_id=map_id).all()
-        
+
+        # Get all power blocks in one query
+        pb_ids = [a.power_block_id for a in areas if a.power_block_id]
+        blocks_map = {}
+        if pb_ids:
+            blocks = PowerBlock.query.filter(PowerBlock.id.in_(pb_ids)).all()
+            blocks_map = {b.id: b for b in blocks}
+
+        # Bulk: LBD count and completed status counts per pb
+        all_cols = AdminSettings.all_column_keys()
+        completed_counts = {}
+        lbd_counts = {}
+        if pb_ids:
+            lbd_q = db.session.query(
+                LBD.power_block_id, func.count(LBD.id)
+            ).filter(LBD.power_block_id.in_(pb_ids)).group_by(LBD.power_block_id).all()
+            lbd_counts = {row[0]: row[1] for row in lbd_q}
+
+            status_q = db.session.query(
+                LBD.power_block_id, LBDStatus.status_type, func.count(LBDStatus.id)
+            ).join(LBD, LBDStatus.lbd_id == LBD.id) \
+             .filter(LBD.power_block_id.in_(pb_ids), LBDStatus.is_completed == True) \
+             .group_by(LBD.power_block_id, LBDStatus.status_type).all()
+            for pb_id, st, cnt in status_q:
+                completed_counts.setdefault(pb_id, {})[st] = cnt
+
         status_data = []
         for area in areas:
-            if area.power_block_id:
-                block = PowerBlock.query.get(area.power_block_id)
-                if block:
-                    status_data.append({
-                        'area_id': area.id,
-                        'area_name': area.name,
-                        'svg_element_id': area.svg_element_id,
-                        'power_block_id': block.id,
-                        'block_name': block.name,
-                        'is_completed': block.is_completed,
-                        'completion_color': '#2ecc71' if block.is_completed else '#95a5a6',
-                        'lbd_summary': block._get_lbd_summary()
-                    })
-        
-        return jsonify({
-            'success': True,
-            'data': status_data
-        }), 200
+            if area.power_block_id and area.power_block_id in blocks_map:
+                block = blocks_map[area.power_block_id]
+                total = lbd_counts.get(block.id, 0)
+                summary = {'total': total}
+                pb_completed = completed_counts.get(block.id, {})
+                for col in all_cols:
+                    summary[col] = pb_completed.get(col, 0)
+                status_data.append({
+                    'area_id': area.id,
+                    'area_name': area.name,
+                    'svg_element_id': area.svg_element_id,
+                    'power_block_id': block.id,
+                    'block_name': block.name,
+                    'is_completed': block.is_completed,
+                    'completion_color': '#2ecc71' if block.is_completed else '#95a5a6',
+                    'lbd_summary': summary,
+                })
+
+        return jsonify({'success': True, 'data': status_data}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
