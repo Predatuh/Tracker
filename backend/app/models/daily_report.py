@@ -8,9 +8,14 @@ class DailyReport(db.Model):
     __tablename__ = 'daily_reports'
 
     id           = db.Column(db.Integer, primary_key=True)
-    report_date  = db.Column(db.Date, nullable=False, unique=True)   # the day this covers
-    generated_at = db.Column(db.DateTime, default=datetime.utcnow)   # when it was generated
-    _data        = db.Column('data', db.Text)                         # JSON snapshot
+    report_date  = db.Column(db.Date, nullable=False)                  # the day this covers
+    tracker_id   = db.Column(db.Integer, db.ForeignKey('trackers.id'), nullable=True)
+    generated_at = db.Column(db.DateTime, default=datetime.utcnow)    # when it was generated
+    _data        = db.Column('data', db.Text)                          # JSON snapshot
+
+    __table_args__ = (
+        db.UniqueConstraint('report_date', 'tracker_id', name='uq_report_date_tracker'),
+    )
 
     def set_data(self, obj):
         self._data = json.dumps(obj, default=str)

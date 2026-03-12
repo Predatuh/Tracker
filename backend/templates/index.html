@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LBD Tracker</title>
+    <title>Princess Trackers</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -17,7 +17,7 @@
   <div style="background:linear-gradient(140deg,#0d1030 0%,#07091a 100%);border:1px solid rgba(255,255,255,0.13);border-radius:22px;padding:40px 44px;width:390px;max-width:93vw;box-shadow:0 32px 90px rgba(0,0,0,0.85),0 0 60px rgba(0,212,255,0.06);">
     <div style="text-align:center;margin-bottom:24px;">
       <img src="{{ url_for('static', filename='Logo.png') }}" alt="Logo" style="height:70px;width:auto;object-fit:contain;margin:0 auto 14px;display:block;filter:drop-shadow(0 0 18px rgba(0,212,255,0.25));" />
-      <h2 style="margin:0 0 4px;font-size:22px;font-weight:800;color:#eef2ff;font-family:Inter,sans-serif;letter-spacing:-0.3px;">LBD Tracker</h2>
+      <h2 style="margin:0 0 4px;font-size:22px;font-weight:800;color:#eef2ff;font-family:Inter,sans-serif;letter-spacing:-0.3px;">Princess Trackers</h2>
       <div style="color:#8892b0;font-size:13px;font-family:Inter,sans-serif;">Sign in to check off your work</div>
     </div>
     <!-- Tabs -->
@@ -67,7 +67,12 @@
         <!-- Navigation -->
         <nav class="navbar">
             <div class="navbar-container">
-                <div class="navbar-brand"><img src="{{ url_for('static', filename='Logo.png') }}" alt="Logo" style="height:28px;width:auto;object-fit:contain;vertical-align:middle;margin-right:8px;filter:drop-shadow(0 0 8px rgba(0,212,255,0.3));" /><span class="brand-dot"></span>LBD <span style="color:var(--cyan)">Tracker</span></div>
+                <div class="navbar-brand"><img src="{{ url_for('static', filename='Logo.png') }}" alt="Logo" style="height:28px;width:auto;object-fit:contain;vertical-align:middle;margin-right:8px;filter:drop-shadow(0 0 8px rgba(0,212,255,0.3));" /><span class="brand-dot"></span>Princess <span style="color:var(--cyan)">Trackers</span></div>
+                <div id="tracker-selector" style="display:flex;align-items:center;gap:6px;margin-left:12px;">
+                    <select id="tracker-dropdown" onchange="switchTracker(this.value)"
+                        style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#eef2ff;padding:5px 10px;font-size:12px;font-weight:600;font-family:Inter,sans-serif;cursor:pointer;outline:none;">
+                    </select>
+                </div>
                 <ul class="nav-menu">
                     <li><a href="#" onclick="showPage('dashboard')">Dashboard</a></li>
                     <li><a href="#" onclick="showPage('upload')" class="admin-only" data-perm="upload_pdf">Upload PDF</a></li>
@@ -99,11 +104,11 @@
                         </div>
                         
                         <div class="stat-card">
-                            <div class="stat-icon">🔌</div>
+                            <div class="stat-icon" id="stat-items-icon">🔌</div>
                             <div class="stat-content">
-                                <div class="stat-label">Total LBDs</div>
+                                <div class="stat-label" id="stat-items-label">Total Items</div>
                                 <div class="stat-value" id="stat-lbds">0</div>
-                                <div class="stat-subtext" id="stat-lbds-progress">0% complete</div>
+                                <div class="stat-subtext" id="stat-lbds-progress">0 tracked</div>
                             </div>
                         </div>
                     </div>
@@ -297,6 +302,7 @@
                   <button class="btn admin-tab active" id="atab-colors" onclick="switchAdminTab('colors')">🎨 Colors</button>
                   <button class="btn admin-tab" id="atab-names" onclick="switchAdminTab('names')">🏷️ Column Names</button>
                   <button class="btn admin-tab" id="atab-columns" onclick="switchAdminTab('columns')">📊 Columns</button>
+                  <button class="btn admin-tab" id="atab-trackers" onclick="switchAdminTab('trackers')">📋 Trackers</button>
                   <button class="btn admin-tab" id="atab-maplabels" onclick="switchAdminTab('maplabels')">🗺️ Map Labels</button>
                   <button class="btn admin-tab main-admin-only" id="atab-users" onclick="switchAdminTab('users')">👥 Users</button>
                   <button class="btn admin-tab" id="atab-updates" onclick="switchAdminTab('updates')">🔄 Updates</button>
@@ -342,6 +348,47 @@
                       </div>
                     </div>
                     <button class="btn btn-success" onclick="addAdminColumn()">Add Column</button>
+                  </div>
+                </div>
+
+                <!-- Trackers Tab -->
+                <div id="admin-tab-trackers" class="admin-tab-content" style="display:none;">
+                  <h2 class="section-subtitle">Manage Trackers</h2>
+                  <p style="color:#777;font-size:13px;margin-bottom:18px;">Create, edit, or remove trackers. Each tracker has its own status columns and dashboard labels.</p>
+                  <div id="admin-trackers-list" style="display:flex;flex-direction:column;gap:14px;margin-bottom:28px;"></div>
+                  <div style="border:2px dashed #ccc;border-radius:10px;padding:18px;background:#fafafa;">
+                    <h3 style="margin:0 0 14px;font-size:15px;">Add New Tracker</h3>
+                    <div class="form-row">
+                      <div class="form-group">
+                        <label>Tracker Name</label>
+                        <input type="text" id="new-tracker-name" placeholder="e.g. Inverter DC Landing" />
+                      </div>
+                      <div class="form-group">
+                        <label>Slug (URL-friendly)</label>
+                        <input type="text" id="new-tracker-slug" placeholder="e.g. inverter-dc" oninput="this.value=this.value.toLowerCase().replace(/[^a-z0-9-]/g,'')" />
+                      </div>
+                    </div>
+                    <div class="form-row">
+                      <div class="form-group">
+                        <label>Item Name (singular)</label>
+                        <input type="text" id="new-tracker-singular" placeholder="e.g. Inverter" />
+                      </div>
+                      <div class="form-group">
+                        <label>Item Name (plural)</label>
+                        <input type="text" id="new-tracker-plural" placeholder="e.g. Inverters" />
+                      </div>
+                    </div>
+                    <div class="form-row">
+                      <div class="form-group">
+                        <label>Stat Label (dashboard)</label>
+                        <input type="text" id="new-tracker-stat" placeholder="e.g. Inverters Landed" />
+                      </div>
+                      <div class="form-group">
+                        <label>Icon (emoji)</label>
+                        <input type="text" id="new-tracker-icon" placeholder="e.g. ⚡" style="width:60px;" />
+                      </div>
+                    </div>
+                    <button class="btn btn-success" onclick="addNewTracker()">Add Tracker</button>
                   </div>
                 </div>
 

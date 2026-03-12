@@ -23,6 +23,13 @@ const api = {
     return data;
   },
 
+  // Helper: append tracker_id to a URL
+  _tq(endpoint) {
+    if (!currentTracker) return endpoint;
+    const sep = endpoint.includes('?') ? '&' : '?';
+    return `${endpoint}${sep}tracker_id=${currentTracker.id}`;
+  },
+
   uploadPDF(file) {
     const formData = new FormData();
     formData.append('file', file);
@@ -58,7 +65,7 @@ const api = {
   },
 
   getPowerBlocks() {
-    return this.call('/tracker/power-blocks');
+    return this.call(this._tq('/tracker/power-blocks'));
   },
 
   getPowerBlock(id) {
@@ -66,6 +73,7 @@ const api = {
   },
 
   createLBD(data) {
+    if (currentTracker) data.tracker_id = currentTracker.id;
     return this.call('/tracker/lbds', {
       method: 'POST',
       body: JSON.stringify(data)
@@ -79,25 +87,33 @@ const api = {
     });
   },
 
-  // ---- Admin API ----
-  getAdminSettings() { return this.call('/admin/settings'); },
+  // ---- Admin API (tracker-aware) ----
+  getAdminSettings() { return this.call(this._tq('/admin/settings')); },
   saveAdminColors(colors) {
-    return this.call('/admin/settings/colors', { method:'PUT', body: JSON.stringify({colors}) });
+    const body = { colors };
+    if (currentTracker) body.tracker_id = currentTracker.id;
+    return this.call('/admin/settings/colors', { method:'PUT', body: JSON.stringify(body) });
   },
   saveAdminNames(names) {
-    return this.call('/admin/settings/names', { method:'PUT', body: JSON.stringify({names}) });
+    const body = { names };
+    if (currentTracker) body.tracker_id = currentTracker.id;
+    return this.call('/admin/settings/names', { method:'PUT', body: JSON.stringify(body) });
   },
   addAdminColumn(key, label, color) {
-    return this.call('/admin/settings/columns', { method:'POST', body: JSON.stringify({key,label,color}) });
+    const body = { key, label, color };
+    if (currentTracker) body.tracker_id = currentTracker.id;
+    return this.call('/admin/settings/columns', { method:'POST', body: JSON.stringify(body) });
   },
   deleteAdminColumn(key) {
-    return this.call(`/admin/settings/columns/${key}`, { method:'DELETE' });
+    return this.call(this._tq(`/admin/settings/columns/${key}`), { method:'DELETE' });
   },
   saveAdminFontSize(size) {
     return this.call('/admin/settings/font-size', { method:'PUT', body: JSON.stringify({size}) });
   },
   saveColumnOrder(order) {
-    return this.call('/admin/settings/column-order', { method:'PUT', body: JSON.stringify({order}) });
+    const body = { order };
+    if (currentTracker) body.tracker_id = currentTracker.id;
+    return this.call('/admin/settings/column-order', { method:'PUT', body: JSON.stringify(body) });
   },
   bulkComplete(powerBlockId, statusTypes, isCompleted) {
     return this.call('/admin/bulk-complete', { method:'POST',
@@ -107,6 +123,12 @@ const api = {
   claimBlock(blockId, action) {
     return this.call(`/tracker/power-blocks/${blockId}/claim`, { method:'POST', body: JSON.stringify({ action }) });
   },
+
+  // ---- Tracker API ----
+  getTrackers() { return this.call('/admin/trackers'); },
+  createTracker(data) { return this.call('/admin/trackers', { method:'POST', body: JSON.stringify(data) }); },
+  updateTracker(id, data) { return this.call(`/admin/trackers/${id}`, { method:'PUT', body: JSON.stringify(data) }); },
+  deleteTracker(id) { return this.call(`/admin/trackers/${id}`, { method:'DELETE' }); },
 
   // ---- Map scan API ----
   scanMap(mapId, expectedCount) {
@@ -130,6 +152,41 @@ const api = {
     return this.call(`/map/snap-outline/${mapId}`, { method:'POST', body: JSON.stringify({ x_pct, y_pct }) });
   }
 };
+
+// ============================================================
+// TRACKER MANAGEMENT
+// ============================================================
+let allTrackers = [];
+let currentTracker = null;   // active Tracker object {id, name, slug, ...}
+
+async function loadTrackers() {
+  try {
+    const r = await api.call('/admin/trackers');
+    allTrackers = r.data || [];
+    const dd = document.getElementById('tracker-dropdown');
+    if (!dd) return;
+    dd.innerHTML = allTrackers.map(t =>
+      `<option value="${t.id}" ${currentTracker && currentTracker.id === t.id ? 'selected' : ''}>${t.icon || '📋'} ${t.name}</option>`
+    ).join('');
+    // If no tracker selected yet, pick first
+    if (!currentTracker && allTrackers.length > 0) {
+      currentTracker = allTrackers[0];
+    }
+  } catch(e) { console.warn('Failed to load trackers:', e); }
+}
+
+async function switchTracker(trackerId) {
+  const t = allTrackers.find(t => t.id == trackerId);
+  if (!t) return;
+  currentTracker = t;
+  // Reload settings for the new tracker, then reload current page
+  await loadAdminSettings();
+  const activePage = document.querySelector('.page.active');
+  if (activePage) {
+    const name = activePage.id.replace('page-', '');
+    showPage(name);
+  }
+}
 
 // Page navigation
 function showPage(pageName) {
@@ -353,18 +410,25 @@ async function loadDashboard() {
     const response = await api.getPowerBlocks();
     const blocks = response.data;
     
-    let totalLBDs = 0;
+    let totalItems = 0;
     let completedBlocks = 0;
     
     blocks.forEach(block => {
-      totalLBDs += block.lbd_count;
+      totalItems += block.lbd_count;
       if (block.is_completed) completedBlocks++;
     });
     
     document.getElementById('stat-blocks').textContent = blocks.length;
     document.getElementById('stat-blocks-complete').textContent = `${completedBlocks} completed`;
-    document.getElementById('stat-lbds').textContent = totalLBDs;
-    document.getElementById('stat-lbds-progress').textContent = `${totalLBDs} tracked`;
+    document.getElementById('stat-lbds').textContent = totalItems;
+
+    // Dynamic tracker labels
+    const statLabel = currentTracker ? currentTracker.stat_label : 'Total Items';
+    const itemPlural = currentTracker ? currentTracker.item_name_plural : 'Items';
+    const icon = currentTracker ? currentTracker.icon : '📋';
+    document.getElementById('stat-items-label').textContent = statLabel;
+    document.getElementById('stat-items-icon').textContent = icon;
+    document.getElementById('stat-lbds-progress').textContent = `${totalItems} tracked`;
   } catch (err) {
     console.error('Error loading dashboard:', err);
   }
@@ -381,6 +445,7 @@ async function loadBlocks() {
       html = '<p style="color: #999; text-align: center; padding: 40px;">No power blocks. Upload a PDF and scan it first!</p>';
     } else {
       const cols = LBD_STATUS_TYPES;
+      const itemLabel = currentTracker ? currentTracker.item_name_singular : 'Item';
 
       blocks.forEach(block => {
         const total = block.lbd_count || 0;
@@ -453,7 +518,7 @@ async function loadBlocks() {
           <div class="block-card${allDone ? ' block-card--complete' : ''}">
             <div class="pb-card-header">
               <span class="pb-card-name">${block.name}</span>
-              <span class="pb-card-meta">${total} LBD${total !== 1 ? 's' : ''}${claimed}</span>
+              <span class="pb-card-meta">${total} ${itemLabel}${total !== 1 ? 's' : ''}${claimed}</span>
             </div>
             <div class="pb-overall-bar-wrap" title="Overall: ${overallPct}% complete">
               <div class="pb-overall-bar-fill" style="width:${overallPct}%"></div>
@@ -2939,7 +3004,7 @@ async function loadWorkLogPage() {
   try {
     const [workersRes, blocksRes] = await Promise.all([
       api.call('/workers'),
-      api.call('/tracker/power-blocks')
+      api.call(api._tq('/tracker/power-blocks'))
     ]);
     wl_workers = (workersRes.data || []).filter(w => w.is_active);
     wl_blocks = Array.isArray(blocksRes.data) ? blocksRes.data : [];
@@ -3025,14 +3090,14 @@ async function wl_submit() {
 
   statusEl.textContent = 'Logging...';
   try {
-    const entries = [];
-    for (const wid of wl_selectedWorkers) {
-      for (const bid of wl_selectedBlocks) {
-        entries.push({ worker_id: wid, power_block_id: bid, task_type: wl_selectedTask, work_date: wl_date });
-      }
-    }
-    await api.call('/work-entries', { method: 'POST', body: JSON.stringify({ entries }) });
-    statusEl.textContent = `✓ Logged ${entries.length} entries`;
+    await api.call('/work-entries', { method: 'POST', body: JSON.stringify({
+      date: wl_date,
+      worker_ids: wl_selectedWorkers,
+      power_block_ids: Array.from(wl_selectedBlocks),
+      task_type: wl_selectedTask,
+      tracker_id: currentTracker ? currentTracker.id : null
+    }) });
+    statusEl.textContent = '✓ Work logged successfully';
     wl_loadEntries();
   } catch(e) { statusEl.textContent = '✗ ' + e.message; }
 }
@@ -3043,7 +3108,7 @@ async function wl_loadEntries() {
   if (!el) return;
   if (dateEl) dateEl.textContent = wl_date;
   try {
-    const r = await api.call(`/work-entries?date=${wl_date}`);
+    const r = await api.call(`/work-entries?date=${wl_date}${currentTracker ? '&tracker_id=' + currentTracker.id : ''}`);
     const entries = r.data || [];
     if (entries.length === 0) {
       el.innerHTML = '<p style="color:#4a5568;text-align:center;padding:20px;">No entries for this date</p>';
@@ -3122,7 +3187,9 @@ function rp_switchView(mode) {
 
 async function rp_generate() {
   try {
-    await api.call('/reports/generate', { method: 'POST', body: JSON.stringify({}) });
+    const body = {};
+    if (currentTracker) body.tracker_id = currentTracker.id;
+    await api.call('/reports/generate', { method: 'POST', body: JSON.stringify(body) });
     rp_switchView(rp_viewMode);
   } catch(e) { alert('Error: ' + e.message); }
 }
@@ -3132,7 +3199,7 @@ async function rp_loadList() {
   if (!el) return;
   el.innerHTML = '<p style="color:#8892b0;">Loading...</p>';
   try {
-    const r = await api.call('/reports');
+    const r = await api.call(api._tq('/reports'));
     const reports = r.data || [];
     if (reports.length === 0) {
       el.innerHTML = `<div style="text-align:center;padding:40px;">
@@ -3167,7 +3234,7 @@ async function rp_loadCalendar() {
   if (!el) return;
   el.innerHTML = '<p style="color:#8892b0;">Loading...</p>';
   try {
-    const r = await api.call('/reports');
+    const r = await api.call(api._tq('/reports'));
     const reports = r.data || [];
     const reportDates = new Set(reports.map(rp => rp.report_date));
 
@@ -3210,7 +3277,7 @@ async function rp_showDetail(dateStr) {
   }
   detailEl.innerHTML = '<p style="color:#8892b0;">Loading report...</p>';
   try {
-    const r = await api.call(`/reports/date/${dateStr}`);
+    const r = await api.call(api._tq(`/reports/date/${dateStr}`));
     const rpt = r.data;
     if (!rpt) { detailEl.innerHTML = '<p style="color:#4a5568;">No report for this date.</p>'; return; }
 
@@ -3278,7 +3345,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const submitBtn = document.getElementById('login-submit-btn');
   if (submitBtn) submitBtn._mode = 'signin';
 
-  loadAdminSettings().then(() => loadDashboard());
+  // Load trackers first, then settings + dashboard
+  loadTrackers().then(() => loadAdminSettings()).then(() => loadDashboard());
   checkAuth().then(() => {
     // If nobody logged in, show the login overlay automatically
     if (!currentUser) showLoginModal();
@@ -3315,6 +3383,185 @@ function switchAdminTab(tabKey) {
   if (btn) btn.classList.add('active');
   if (tabKey === 'updates') loadUpdateTab();
   if (tabKey === 'users') loadUsersTab();
+  if (tabKey === 'trackers') loadTrackersTab();
+}
+
+/* ── Trackers Admin Tab ── */
+async function loadTrackersTab() {
+  try {
+    const r = await api.getTrackers();
+    const trackers = r.data || [];
+    renderTrackersList(trackers);
+  } catch(e) { showAdminAlert('Failed to load trackers: ' + e.message, 'error'); }
+}
+
+function renderTrackersList(trackers) {
+  const container = document.getElementById('admin-trackers-list');
+  if (!container) return;
+  if (trackers.length === 0) {
+    container.innerHTML = '<p style="color:#8892b0;">No trackers yet. Add one below.</p>';
+    return;
+  }
+  container.innerHTML = trackers.map(t => {
+    const types = t.status_types || [];
+    const colors = t.status_colors || {};
+    const names = t.status_names || {};
+    const columnPills = types.map(k => {
+      const c = colors[k] || '#888';
+      const n = names[k] || k.replace(/_/g, ' ');
+      return `<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;color:#fff;background:${c};margin:2px;">${n}</span>`;
+    }).join('');
+    return `<div id="tracker-card-${t.id}" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:16px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <div style="font-size:15px;font-weight:700;color:#eef2ff;">${t.icon || '📋'} ${t.name} <span style="font-size:11px;color:#8892b0;font-weight:400;">(${t.slug})</span></div>
+        <div style="display:flex;gap:6px;">
+          <button class="btn btn-sm" onclick="editTrackerInline(${t.id})" style="font-size:12px;padding:4px 10px;">✏️ Edit</button>
+          <button class="btn btn-sm" onclick="deleteTrackerBtn(${t.id}, '${t.name.replace(/'/g, "\\'")}')" style="font-size:12px;padding:4px 10px;color:#ff4c6a;">🗑️</button>
+        </div>
+      </div>
+      <div style="font-size:12px;color:#a0aec0;margin-bottom:6px;">
+        Item: <strong>${t.item_name_singular || 'Item'}</strong> / <strong>${t.item_name_plural || 'Items'}</strong> &nbsp;|&nbsp; Stat label: <strong>${t.stat_label || ''}</strong>
+      </div>
+      <div style="font-size:11px;color:#8892b0;margin-bottom:4px;">Status columns:</div>
+      <div>${columnPills || '<span style="color:#8892b0;font-size:11px;">None</span>'}</div>
+    </div>`;
+  }).join('');
+}
+
+function editTrackerInline(trackerId) {
+  const t = allTrackers.find(x => x.id === trackerId);
+  if (!t) return;
+  const card = document.getElementById('tracker-card-' + trackerId);
+  if (!card) return;
+
+  const types = t.status_types || [];
+  const colors = t.status_colors || {};
+  const names = t.status_names || {};
+  let columnsHtml = types.map(k => {
+    const c = colors[k] || '#888888';
+    const n = names[k] || k.replace(/_/g, ' ');
+    return `<div class="tedit-col-row" data-key="${k}" style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+      <input type="color" class="tedit-col-color" value="${c}" style="width:32px;height:26px;border:none;border-radius:4px;cursor:pointer;">
+      <input type="text" class="tedit-col-name" value="${n}" style="width:120px;padding:3px 6px;font-size:12px;border:1px solid #555;border-radius:4px;background:#1e1e2e;color:#eef2ff;">
+      <span style="color:#8892b0;font-size:11px;">${k}</span>
+      <button onclick="this.closest('.tedit-col-row').remove()" style="background:none;border:none;color:#ff4c6a;cursor:pointer;font-size:14px;">✕</button>
+    </div>`;
+  }).join('');
+
+  card.innerHTML = `<div style="display:flex;flex-direction:column;gap:10px;">
+    <div style="font-size:13px;font-weight:700;color:#eef2ff;margin-bottom:4px;">Editing: ${t.name}</div>
+    <div class="form-row">
+      <div class="form-group"><label style="font-size:12px;">Name</label><input type="text" id="tedit-name-${trackerId}" value="${t.name}" /></div>
+      <div class="form-group"><label style="font-size:12px;">Slug</label><input type="text" id="tedit-slug-${trackerId}" value="${t.slug}" oninput="this.value=this.value.toLowerCase().replace(/[^a-z0-9-]/g,'')" /></div>
+      <div class="form-group"><label style="font-size:12px;">Icon</label><input type="text" id="tedit-icon-${trackerId}" value="${t.icon || ''}" style="width:60px;" /></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label style="font-size:12px;">Item Singular</label><input type="text" id="tedit-singular-${trackerId}" value="${t.item_name_singular || ''}" /></div>
+      <div class="form-group"><label style="font-size:12px;">Item Plural</label><input type="text" id="tedit-plural-${trackerId}" value="${t.item_name_plural || ''}" /></div>
+      <div class="form-group"><label style="font-size:12px;">Stat Label</label><input type="text" id="tedit-stat-${trackerId}" value="${t.stat_label || ''}" /></div>
+    </div>
+    <div>
+      <div style="font-size:12px;font-weight:600;color:#a0aec0;margin-bottom:6px;">Status Columns</div>
+      <div id="tedit-cols-${trackerId}">${columnsHtml}</div>
+      <div style="display:flex;gap:6px;align-items:center;margin-top:6px;">
+        <input type="text" id="tedit-newcol-key-${trackerId}" placeholder="key" style="width:100px;padding:3px 6px;font-size:12px;border:1px solid #555;border-radius:4px;background:#1e1e2e;color:#eef2ff;" oninput="this.value=this.value.toLowerCase().replace(/ /g,'_').replace(/[^a-z0-9_]/g,'')">
+        <input type="text" id="tedit-newcol-name-${trackerId}" placeholder="Label" style="width:100px;padding:3px 6px;font-size:12px;border:1px solid #555;border-radius:4px;background:#1e1e2e;color:#eef2ff;">
+        <input type="color" id="tedit-newcol-color-${trackerId}" value="#888888" style="width:32px;height:26px;border:none;border-radius:4px;cursor:pointer;">
+        <button class="btn btn-sm" onclick="addTrackerEditCol(${trackerId})" style="font-size:11px;padding:3px 8px;">+ Add</button>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:6px;">
+      <button class="btn btn-primary" onclick="saveTrackerEdit(${trackerId})" style="font-size:13px;">Save</button>
+      <button class="btn" onclick="loadTrackersTab()" style="font-size:13px;">Cancel</button>
+    </div>
+  </div>`;
+}
+
+function addTrackerEditCol(trackerId) {
+  const keyEl = document.getElementById('tedit-newcol-key-' + trackerId);
+  const nameEl = document.getElementById('tedit-newcol-name-' + trackerId);
+  const colorEl = document.getElementById('tedit-newcol-color-' + trackerId);
+  const key = (keyEl.value || '').trim();
+  const name = (nameEl.value || '').trim();
+  const color = colorEl.value || '#888888';
+  if (!key || !name) { showAdminAlert('Column key and label are required.', 'error'); return; }
+  const container = document.getElementById('tedit-cols-' + trackerId);
+  container.insertAdjacentHTML('beforeend', `<div class="tedit-col-row" data-key="${key}" style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+    <input type="color" class="tedit-col-color" value="${color}" style="width:32px;height:26px;border:none;border-radius:4px;cursor:pointer;">
+    <input type="text" class="tedit-col-name" value="${name}" style="width:120px;padding:3px 6px;font-size:12px;border:1px solid #555;border-radius:4px;background:#1e1e2e;color:#eef2ff;">
+    <span style="color:#8892b0;font-size:11px;">${key}</span>
+    <button onclick="this.closest('.tedit-col-row').remove()" style="background:none;border:none;color:#ff4c6a;cursor:pointer;font-size:14px;">✕</button>
+  </div>`);
+  keyEl.value = '';
+  nameEl.value = '';
+}
+
+async function saveTrackerEdit(trackerId) {
+  const name = document.getElementById('tedit-name-' + trackerId).value.trim();
+  const slug = document.getElementById('tedit-slug-' + trackerId).value.trim();
+  const icon = document.getElementById('tedit-icon-' + trackerId).value.trim();
+  const singular = document.getElementById('tedit-singular-' + trackerId).value.trim();
+  const plural = document.getElementById('tedit-plural-' + trackerId).value.trim();
+  const statLabel = document.getElementById('tedit-stat-' + trackerId).value.trim();
+  if (!name || !slug) { showAdminAlert('Name and slug are required.', 'error'); return; }
+
+  // Collect columns from the edit rows
+  const rows = document.querySelectorAll('#tedit-cols-' + trackerId + ' .tedit-col-row');
+  const status_types = [];
+  const status_colors = {};
+  const status_names = {};
+  rows.forEach(row => {
+    const key = row.dataset.key;
+    const color = row.querySelector('.tedit-col-color').value;
+    const label = row.querySelector('.tedit-col-name').value.trim();
+    status_types.push(key);
+    status_colors[key] = color;
+    status_names[key] = label || key.replace(/_/g, ' ');
+  });
+
+  try {
+    await api.updateTracker(trackerId, { name, slug, icon, item_name_singular: singular, item_name_plural: plural, stat_label: statLabel, status_types, status_colors, status_names, column_order: status_types });
+    showAdminAlert('Tracker updated!', 'success');
+    await loadTrackers();
+    // If this is the current tracker, refresh settings
+    if (currentTracker && currentTracker.id === trackerId) {
+      currentTracker = allTrackers.find(x => x.id === trackerId);
+      await loadAdminSettings();
+    }
+    loadTrackersTab();
+  } catch(e) { showAdminAlert('Error: ' + e.message, 'error'); }
+}
+
+async function deleteTrackerBtn(trackerId, name) {
+  if (!confirm('Delete tracker "' + name + '"? This will remove all associated data and cannot be undone.')) return;
+  try {
+    await api.deleteTracker(trackerId);
+    showAdminAlert('Tracker deleted.', 'success');
+    await loadTrackers();
+    loadTrackersTab();
+  } catch(e) { showAdminAlert('Error: ' + e.message, 'error'); }
+}
+
+async function addNewTracker() {
+  const name = (document.getElementById('new-tracker-name') || {}).value.trim();
+  const slug = (document.getElementById('new-tracker-slug') || {}).value.trim();
+  const singular = (document.getElementById('new-tracker-singular') || {}).value.trim();
+  const plural = (document.getElementById('new-tracker-plural') || {}).value.trim();
+  const statLabel = (document.getElementById('new-tracker-stat') || {}).value.trim();
+  const icon = (document.getElementById('new-tracker-icon') || {}).value.trim();
+  if (!name || !slug) { showAdminAlert('Tracker name and slug are required.', 'error'); return; }
+  try {
+    await api.createTracker({ name, slug, item_name_singular: singular, item_name_plural: plural, stat_label: statLabel, icon });
+    showAdminAlert('Tracker created!', 'success');
+    document.getElementById('new-tracker-name').value = '';
+    document.getElementById('new-tracker-slug').value = '';
+    document.getElementById('new-tracker-singular').value = '';
+    document.getElementById('new-tracker-plural').value = '';
+    document.getElementById('new-tracker-stat').value = '';
+    document.getElementById('new-tracker-icon').value = '';
+    await loadTrackers();
+    loadTrackersTab();
+  } catch(e) { showAdminAlert('Error: ' + e.message, 'error'); }
 }
 
 function renderAdminColorRows(colors, columns, names) {

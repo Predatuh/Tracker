@@ -3,6 +3,7 @@ from sqlalchemy.orm import subqueryload
 from sqlalchemy import func
 from app import db
 from app.models import PowerBlock, LBD, LBDStatus
+from app.models.tracker import Tracker
 from datetime import datetime
 import re
 
@@ -34,26 +35,42 @@ def _pb_sort_key(name):
     return int(m.group(1)) if m else 0
 
 
+def _resolve_tracker():
+    """Resolve tracker from request args."""
+    tid = request.args.get('tracker_id')
+    if tid:
+        return Tracker.query.get(int(tid))
+    return Tracker.query.filter_by(is_active=True).order_by(Tracker.sort_order, Tracker.id).first()
+
+
 bp = Blueprint('tracker', __name__, url_prefix='/api/tracker')
 
 @bp.route('/power-blocks', methods=['GET'])
 def get_power_blocks():
     """Get all power blocks with LBD dot data (3 bulk queries, no lazy loading)."""
     try:
-        from app.models.admin_settings import AdminSettings
+        tracker = _resolve_tracker()
+        tracker_id = tracker.id if tracker else None
 
         # Query 1: All power blocks
         blocks = PowerBlock.query.all()
 
-        # Query 2: All LBDs (minimal columns)
-        lbd_rows = db.session.query(
+        # Query 2: LBDs filtered by tracker
+        lbd_q = db.session.query(
             LBD.id, LBD.power_block_id, LBD.name, LBD.identifier, LBD.inventory_number
-        ).order_by(LBD.id).all()
+        )
+        if tracker_id:
+            lbd_q = lbd_q.filter(LBD.tracker_id == tracker_id)
+        lbd_rows = lbd_q.order_by(LBD.id).all()
 
-        # Query 3: All statuses (minimal columns)
-        status_rows = db.session.query(
-            LBDStatus.lbd_id, LBDStatus.status_type, LBDStatus.is_completed
-        ).all()
+        lbd_ids = [l.id for l in lbd_rows]
+
+        # Query 3: Statuses for those LBDs
+        status_rows = []
+        if lbd_ids:
+            status_rows = db.session.query(
+                LBDStatus.lbd_id, LBDStatus.status_type, LBDStatus.is_completed
+            ).filter(LBDStatus.lbd_id.in_(lbd_ids)).all()
 
         # Build lookup: lbd_id -> [{ status_type, is_completed }]
         status_by_lbd = {}
@@ -74,7 +91,7 @@ def get_power_blocks():
                 'statuses': status_by_lbd.get(l.id, [])
             })
 
-        all_cols = AdminSettings.all_column_keys()
+        all_cols = tracker.all_column_keys() if tracker else []
 
         result = []
         for b in blocks:
@@ -149,12 +166,17 @@ def update_power_block(block_id):
 
 @bp.route('/lbds', methods=['POST'])
 def create_lbd():
-    """Create a new LBD in a power block"""
+    """Create a new LBD in a power block (tracker-aware)"""
     try:
         data = request.get_json()
-        
+        tracker_id = data.get('tracker_id')
+        if not tracker_id:
+            t = Tracker.query.filter_by(is_active=True).order_by(Tracker.sort_order, Tracker.id).first()
+            tracker_id = t.id if t else None
+
         lbd = LBD(
             power_block_id=data.get('power_block_id'),
+            tracker_id=tracker_id,
             name=data.get('name'),
             identifier=data.get('identifier'),
             x_position=data.get('x_position'),
@@ -165,8 +187,10 @@ def create_lbd():
         db.session.add(lbd)
         db.session.flush()
         
-        # Create status records for each status type
-        for status_type in LBDStatus.STATUS_TYPES:
+        # Create status records from tracker's status types
+        tracker = Tracker.query.get(tracker_id) if tracker_id else None
+        status_types = tracker.get_status_types() if tracker else LBDStatus.STATUS_TYPES
+        for status_type in status_types:
             status = LBDStatus(
                 lbd_id=lbd.id,
                 status_type=status_type,
@@ -196,8 +220,6 @@ def update_lbd_status(lbd_id, status_type):
             status_type=status_type
         ).first()
         if not status:
-            if status_type not in LBDStatus.STATUS_TYPES:
-                return jsonify({'error': f'Unknown status type: {status_type}'}), 400
             status = LBDStatus(lbd_id=lbd_id, status_type=status_type, is_completed=False)
             db.session.add(status)
 

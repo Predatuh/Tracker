@@ -107,8 +107,10 @@ def create_app():
     with app.app_context():
         db.create_all()
         _migrate_schema(app)
+        _migrate_tracker_columns(app)
         _recover_custom_columns(app)
         _seed_admin()
+        _seed_trackers(app)
 
     # Start the nightly report scheduler (9 PM CST)
     _start_report_scheduler(app)
@@ -245,3 +247,133 @@ def _start_report_scheduler(app):
 
     t = threading.Thread(target=_scheduler, daemon=True)
     t.start()
+
+
+# -- Add tracker_id columns to existing tables (PostgreSQL + SQLite) ----
+def _migrate_tracker_columns(app):
+    """Add tracker_id columns to lbds, work_entries, daily_reports if missing."""
+    from sqlalchemy import inspect as sa_inspect
+    try:
+        inspector = sa_inspect(db.engine)
+
+        # lbds table
+        lbd_cols = {c['name'] for c in inspector.get_columns('lbds')}
+        if 'tracker_id' not in lbd_cols:
+            db.session.execute(db.text('ALTER TABLE lbds ADD COLUMN tracker_id INTEGER'))
+            app.logger.info('Added tracker_id to lbds table')
+
+        # work_entries table
+        we_cols = {c['name'] for c in inspector.get_columns('work_entries')}
+        if 'tracker_id' not in we_cols:
+            db.session.execute(db.text('ALTER TABLE work_entries ADD COLUMN tracker_id INTEGER'))
+            app.logger.info('Added tracker_id to work_entries table')
+
+        # daily_reports table
+        dr_cols = {c['name'] for c in inspector.get_columns('daily_reports')}
+        if 'tracker_id' not in dr_cols:
+            db.session.execute(db.text('ALTER TABLE daily_reports ADD COLUMN tracker_id INTEGER'))
+            # Drop old unique constraint on report_date if it exists (PostgreSQL)
+            db_uri = app.config['SQLALCHEMY_DATABASE_URI']
+            if 'postgresql' in db_uri:
+                try:
+                    db.session.execute(db.text(
+                        'ALTER TABLE daily_reports DROP CONSTRAINT IF EXISTS daily_reports_report_date_key'
+                    ))
+                except Exception:
+                    pass
+            app.logger.info('Added tracker_id to daily_reports table')
+
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        app.logger.warning(f'tracker_id migration: {e}')
+
+
+# -- Seed default trackers ------------------------------------------------
+def _seed_trackers(app):
+    """Create default LBD and Inverter DC Landing trackers on first run."""
+    from app.models.tracker import Tracker
+    from app.models.admin_settings import AdminSettings
+    from app.models.status import LBDStatus
+    import json
+
+    # --- LBD Tracker ---
+    lbd_tracker = Tracker.query.filter_by(slug='lbd').first()
+    if not lbd_tracker:
+        # Pull existing admin settings to populate the LBD tracker
+        stored_colors = AdminSettings.get('status_colors') or {}
+        stored_names = AdminSettings.get('status_names') or {}
+        custom = AdminSettings.get('custom_columns') or []
+        disabled = AdminSettings.get('disabled_builtins') or []
+        col_order = AdminSettings.get('column_order')
+
+        # Build full type list: builtins minus disabled + custom
+        types = [k for k in LBDStatus.STATUS_TYPES if k not in disabled]
+        for c in custom:
+            if c not in types:
+                types.append(c)
+
+        # Merge colors
+        colors = dict(LBDStatus.STATUS_COLORS)
+        colors.update(stored_colors)
+        colors = {k: v for k, v in colors.items() if k in set(types)}
+
+        # Merge names
+        from app.models.admin_settings import AdminSettings as AS
+        names = dict(AS.DEFAULT_NAMES)
+        names.update(stored_names)
+        names = {k: v for k, v in names.items() if k in set(types)}
+
+        lbd_tracker = Tracker(
+            name='LBD Tracker',
+            slug='lbd',
+            item_name_singular='LBD',
+            item_name_plural='LBDs',
+            stat_label='Total LBDs',
+            icon='🔌',
+            sort_order=0,
+        )
+        lbd_tracker.set_status_types(types)
+        lbd_tracker.set_status_colors(colors)
+        lbd_tracker.set_status_names(names)
+        if col_order:
+            lbd_tracker.set_column_order(col_order)
+        db.session.add(lbd_tracker)
+        db.session.flush()
+
+        # Assign all existing LBDs to this tracker
+        db.session.execute(
+            db.text('UPDATE lbds SET tracker_id = :tid WHERE tracker_id IS NULL'),
+            {'tid': lbd_tracker.id}
+        )
+        # Assign existing work entries
+        db.session.execute(
+            db.text('UPDATE work_entries SET tracker_id = :tid WHERE tracker_id IS NULL'),
+            {'tid': lbd_tracker.id}
+        )
+        # Assign existing daily reports
+        db.session.execute(
+            db.text('UPDATE daily_reports SET tracker_id = :tid WHERE tracker_id IS NULL'),
+            {'tid': lbd_tracker.id}
+        )
+        db.session.commit()
+        app.logger.info(f'Created LBD tracker (id={lbd_tracker.id}) and migrated existing data')
+
+    # --- Inverter DC Landing Tracker ---
+    inv_tracker = Tracker.query.filter_by(slug='inverter-dc').first()
+    if not inv_tracker:
+        inv_tracker = Tracker(
+            name='Inverter DC Landing',
+            slug='inverter-dc',
+            item_name_singular='Inverter',
+            item_name_plural='Inverters',
+            stat_label='Inverters Landed',
+            icon='⚡',
+            sort_order=1,
+        )
+        inv_tracker.set_status_types(['dc_landing'])
+        inv_tracker.set_status_colors({'dc_landing': '#FFB020'})
+        inv_tracker.set_status_names({'dc_landing': 'DC Landing'})
+        db.session.add(inv_tracker)
+        db.session.commit()
+        app.logger.info(f'Created Inverter DC Landing tracker (id={inv_tracker.id})')

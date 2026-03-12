@@ -6,6 +6,7 @@ class LBD(db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     power_block_id = db.Column(db.Integer, db.ForeignKey('power_blocks.id'), nullable=False)
+    tracker_id = db.Column(db.Integer, db.ForeignKey('trackers.id'), nullable=True)
     name = db.Column(db.String(100), nullable=False)
     identifier = db.Column(db.String(50))  # e.g., LBD-001, LBD-002
     inventory_number = db.Column(db.String(100))  # e.g., D.1.LBD.01/20B-500
@@ -22,6 +23,7 @@ class LBD(db.Model):
         return {
             'id': self.id,
             'power_block_id': self.power_block_id,
+            'tracker_id': self.tracker_id,
             'name': self.name,
             'identifier': self.identifier,
             'inventory_number': self.inventory_number,

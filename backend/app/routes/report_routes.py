@@ -17,6 +17,7 @@ from app import db
 from app.models.worker import Worker, WorkEntry
 from app.models.daily_report import DailyReport
 from app.models.admin_settings import AdminSettings
+from app.models.tracker import Tracker
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 import pytz
@@ -46,10 +47,27 @@ def _current_user_name():
         return 'Guest'
 
 
-def _build_report_data(target_date):
+def _resolve_tracker_id():
+    """Get tracker_id from request args or JSON body."""
+    tid = request.args.get('tracker_id')
+    if tid:
+        return int(tid)
+    data = request.get_json(silent=True) or {}
+    if data.get('tracker_id'):
+        return int(data['tracker_id'])
+    t = Tracker.query.filter_by(is_active=True).order_by(Tracker.sort_order, Tracker.id).first()
+    return t.id if t else None
+
+
+def _build_report_data(target_date, tracker_id=None):
     """Aggregate WorkEntry rows for *target_date* into a structured snapshot."""
-    entries = WorkEntry.query.filter_by(work_date=target_date).all()
-    col_names = AdminSettings.get_names()
+    q = WorkEntry.query.filter_by(work_date=target_date)
+    if tracker_id:
+        q = q.filter_by(tracker_id=tracker_id)
+    entries = q.all()
+
+    tracker = Tracker.query.get(tracker_id) if tracker_id else None
+    col_names = tracker.get_status_names() if tracker else AdminSettings.get_names()
 
     # Group by task_type → worker → [power_blocks]
     by_task     = defaultdict(lambda: defaultdict(list))
@@ -78,13 +96,16 @@ def _build_report_data(target_date):
     }
 
 
-def _get_or_generate_report(target_date):
+def _get_or_generate_report(target_date, tracker_id=None):
     """Return the DailyReport for *target_date*, creating/updating it if needed."""
-    report = DailyReport.query.filter_by(report_date=target_date).first()
+    q = DailyReport.query.filter_by(report_date=target_date)
+    if tracker_id:
+        q = q.filter_by(tracker_id=tracker_id)
+    report = q.first()
     if report is None:
-        report = DailyReport(report_date=target_date)
+        report = DailyReport(report_date=target_date, tracker_id=tracker_id)
         db.session.add(report)
-    report.set_data(_build_report_data(target_date))
+    report.set_data(_build_report_data(target_date, tracker_id))
     report.generated_at = datetime.utcnow()
     db.session.commit()
     return report
@@ -154,7 +175,11 @@ def list_work_entries():
     else:
         target = _cst_today()
 
-    entries = WorkEntry.query.filter_by(work_date=target).all()
+    tracker_id = _resolve_tracker_id()
+    q = WorkEntry.query.filter_by(work_date=target)
+    if tracker_id:
+        q = q.filter_by(tracker_id=tracker_id)
+    entries = q.all()
     return jsonify({'success': True, 'data': [e.to_dict() for e in entries], 'date': target.isoformat()}), 200
 
 
@@ -175,12 +200,14 @@ def log_work_entries():
     worker_ids   = data.get('worker_ids') or []
     pb_ids       = data.get('power_block_ids') or []
     task_type    = (data.get('task_type') or '').strip()
+    tracker_id   = data.get('tracker_id')
 
     if not worker_ids or not pb_ids or not task_type:
         return jsonify({'error': 'worker_ids, power_block_ids, and task_type are required'}), 400
 
-    # Validate task_type
-    valid_tasks = AdminSettings.all_column_keys()
+    # Validate task_type against tracker or global settings
+    tracker = Tracker.query.get(tracker_id) if tracker_id else None
+    valid_tasks = tracker.all_column_keys() if tracker else AdminSettings.all_column_keys()
     if task_type not in valid_tasks:
         return jsonify({'error': f'Unknown task_type "{task_type}", must be one of: {valid_tasks}'}), 400
 
@@ -205,6 +232,7 @@ def log_work_entries():
             entry = WorkEntry(
                 worker_id=wid, power_block_id=pbid,
                 task_type=task_type, work_date=target,
+                tracker_id=tracker_id,
                 logged_by=logged_by,
             )
             db.session.add(entry)
@@ -213,7 +241,7 @@ def log_work_entries():
     db.session.commit()
 
     # Regenerate today's report snapshot automatically
-    _get_or_generate_report(target)
+    _get_or_generate_report(target, tracker_id)
 
     return jsonify({'success': True, 'created': created, 'skipped': skipped}), 201
 
@@ -222,9 +250,10 @@ def log_work_entries():
 def delete_work_entry(entry_id):
     entry = WorkEntry.query.get_or_404(entry_id)
     target = entry.work_date
+    tid = entry.tracker_id
     db.session.delete(entry)
     db.session.commit()
-    _get_or_generate_report(target)   # refresh snapshot
+    _get_or_generate_report(target, tid)   # refresh snapshot
     return jsonify({'success': True}), 200
 
 
@@ -234,8 +263,12 @@ def delete_work_entry(entry_id):
 
 @bp.route('/reports', methods=['GET'])
 def list_reports():
-    """Return summary of all reports, newest first."""
-    reports = DailyReport.query.order_by(DailyReport.report_date.desc()).all()
+    """Return summary of all reports, newest first (tracker-aware)."""
+    tracker_id = _resolve_tracker_id()
+    q = DailyReport.query
+    if tracker_id:
+        q = q.filter_by(tracker_id=tracker_id)
+    reports = q.order_by(DailyReport.report_date.desc()).all()
     return jsonify({'success': True, 'data': [r.to_summary() for r in reports]}), 200
 
 
@@ -251,7 +284,11 @@ def get_report_by_date(date_str):
         target = date.fromisoformat(date_str)
     except ValueError:
         return jsonify({'error': 'Invalid date, use YYYY-MM-DD'}), 400
-    r = DailyReport.query.filter_by(report_date=target).first()
+    tracker_id = _resolve_tracker_id()
+    q = DailyReport.query.filter_by(report_date=target)
+    if tracker_id:
+        q = q.filter_by(tracker_id=tracker_id)
+    r = q.first()
     if not r:
         return jsonify({'success': True, 'data': None}), 200
     return jsonify({'success': True, 'data': r.to_dict()}), 200
@@ -262,11 +299,12 @@ def generate_report():
     """Manually generate/refresh a report for a given date (default: CST today)."""
     data = request.get_json() or {}
     date_str = (data.get('date') or '').strip()
+    tracker_id = data.get('tracker_id') or _resolve_tracker_id()
     try:
         target = date.fromisoformat(date_str) if date_str else _cst_today()
     except ValueError:
         return jsonify({'error': 'Invalid date, use YYYY-MM-DD'}), 400
-    r = _get_or_generate_report(target)
+    r = _get_or_generate_report(target, tracker_id)
     return jsonify({'success': True, 'data': r.to_dict()}), 200
 
 

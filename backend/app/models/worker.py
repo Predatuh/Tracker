@@ -29,6 +29,7 @@ class WorkEntry(db.Model):
     id             = db.Column(db.Integer, primary_key=True)
     worker_id      = db.Column(db.Integer, db.ForeignKey('workers.id'), nullable=False)
     power_block_id = db.Column(db.Integer, db.ForeignKey('power_blocks.id'), nullable=False)
+    tracker_id     = db.Column(db.Integer, db.ForeignKey('trackers.id'), nullable=True)
     task_type      = db.Column(db.String(50), nullable=False)   # e.g. 'stuff', 'term', 'ground_brackets'
     work_date      = db.Column(db.Date, nullable=False)          # local CST date
     logged_by      = db.Column(db.String(100))                   # username who submitted the entry
@@ -42,6 +43,7 @@ class WorkEntry(db.Model):
             'worker_id':      self.worker_id,
             'worker_name':    self.worker.name if self.worker else None,
             'power_block_id': self.power_block_id,
+            'tracker_id':     self.tracker_id,
             'power_block_name': self.power_block.name if self.power_block else None,
             'task_type':      self.task_type,
             'work_date':      self.work_date.isoformat() if self.work_date else None,
