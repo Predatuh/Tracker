@@ -995,6 +995,7 @@ const DEFAULT_PB_H = 5.0;
 let snapPlaceMode = false;
 let snapPlaceQueue = [];   // ordered PB ids remaining to place
 let snapPlaceMapId = null; // cached map id for snap API calls
+let snapClearOneMode = false; // click-to-clear individual PB mode
 let pbPolygons = JSON.parse(localStorage.getItem('pb_polygons') || '{}');
 
 // Snap threshold in % of map dimensions
@@ -1315,6 +1316,7 @@ async function toggleSnapPlace() {
 
   } else {
     // Exit snap-place mode
+    snapClearOneMode = false;
     if (btn) { btn.textContent = '🎯 Snap Place'; btn.classList.remove('btn-success'); btn.classList.add('btn-secondary'); }
     if (bar) bar.style.display = 'none';
     if (hint) hint.style.display = 'none';
@@ -1330,6 +1332,12 @@ async function toggleSnapPlace() {
     if (markers) markers.style.pointerEvents = '';
     const textLbls = document.getElementById('text-labels');
     if (textLbls) textLbls.style.pointerEvents = '';
+
+    // Clean up any clear-one handlers
+    document.querySelectorAll('.pb-marker[data-clear-handler]').forEach(el => {
+      el.removeEventListener('click', snapClearOneClick);
+      delete el.dataset.clearHandler;
+    });
 
     snapPlaceQueue = [];
     snapPlaceMapId = null;
@@ -1371,6 +1379,10 @@ function updateSnapPlaceBar() {
 
   // Undo button
   html += `<button onclick="snapPlaceUndo()" style="margin-left:6px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);color:#ff8fa3;border-radius:6px;padding:4px 12px;font-size:11px;cursor:pointer;">Undo ↩</button>`;
+
+  // Clear one PB toggle
+  const clearOneActive = snapClearOneMode;
+  html += `<button onclick="toggleSnapClearOne()" style="margin-left:6px;background:${clearOneActive ? 'rgba(255,76,106,0.3)' : 'rgba(255,193,7,0.12)'};border:1px solid ${clearOneActive ? 'rgba(255,76,106,0.5)' : 'rgba(255,193,7,0.3)'};color:${clearOneActive ? '#ff4c6a' : '#ffc107'};border-radius:6px;padding:4px 12px;font-size:11px;cursor:pointer;">${clearOneActive ? '❌ Cancel Clear' : '🗑 Clear One'}</button>`;
 
   // Clear all polygons
   html += `<button onclick="snapPlaceClearAll()" style="margin-left:6px;background:rgba(255,76,106,0.12);border:1px solid rgba(255,76,106,0.3);color:#ff8fa3;border-radius:6px;padding:4px 12px;font-size:11px;cursor:pointer;">Clear All</button>`;
@@ -1528,6 +1540,92 @@ function snapPlaceUndo() {
   renderPBMarkers();
   updateSnapPlaceBar();
   showSnapFeedback('↩ Undid last placement', 'ok');
+}
+
+function toggleSnapClearOne() {
+  snapClearOneMode = !snapClearOneMode;
+  const markers = document.getElementById('pb-markers');
+  const textLbls = document.getElementById('text-labels');
+  const mapImg = document.getElementById('sitemap-image');
+  const container = document.getElementById('map-container');
+
+  if (snapClearOneMode) {
+    // Enable clicking on markers, pause normal placement
+    if (markers) markers.style.pointerEvents = '';
+    if (textLbls) textLbls.style.pointerEvents = 'none';
+    if (mapImg) mapImg.removeEventListener('click', snapPlaceClick);
+    if (container) container.style.cursor = 'pointer';
+
+    // Add click handlers to placed markers
+    document.querySelectorAll('.pb-marker').forEach(el => {
+      const pbId = el.id.replace('pb-marker-', '');
+      if (pbPolygons[String(pbId)]) {
+        el.style.cursor = 'pointer';
+        el.dataset.clearHandler = 'true';
+        el.addEventListener('click', snapClearOneClick);
+      }
+    });
+    showSnapFeedback('Click a placed PB to clear it', 'ok');
+  } else {
+    // Restore normal snap-place behavior
+    if (markers) markers.style.pointerEvents = 'none';
+    if (mapImg) mapImg.addEventListener('click', snapPlaceClick);
+    if (container) container.style.cursor = 'crosshair';
+
+    document.querySelectorAll('.pb-marker[data-clear-handler]').forEach(el => {
+      el.removeEventListener('click', snapClearOneClick);
+      el.style.cursor = '';
+      delete el.dataset.clearHandler;
+    });
+  }
+  updateSnapPlaceBar();
+}
+
+function snapClearOneClick(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  const el = e.currentTarget;
+  const pbId = el.id.replace('pb-marker-', '');
+  const pb = mapPBs.find(p => String(p.id) === String(pbId));
+  if (!pb) return;
+
+  // Remove polygon
+  delete pbPolygons[String(pbId)];
+  localStorage.setItem('pb_polygons', JSON.stringify(pbPolygons));
+
+  // Put it back in the queue
+  const numId = parseInt(pbId);
+  if (!isNaN(numId) && !snapPlaceQueue.includes(numId)) {
+    // Insert in sorted position
+    const pbNum = parseInt(pb.power_block_number || pb.name.replace(/\D/g, '')) || 0;
+    let insertIdx = snapPlaceQueue.findIndex(id => {
+      const qPb = mapPBs.find(p => p.id === id);
+      const qNum = qPb ? (parseInt(qPb.power_block_number || qPb.name.replace(/\D/g, '')) || 0) : 0;
+      return qNum > pbNum;
+    });
+    if (insertIdx === -1) insertIdx = snapPlaceQueue.length;
+    snapPlaceQueue.splice(insertIdx, 0, numId);
+  }
+
+  showSnapFeedback(`🗑 Cleared ${pb.name}`, 'ok');
+
+  // Exit clear-one mode, re-render
+  snapClearOneMode = false;
+  const markers = document.getElementById('pb-markers');
+  if (markers) markers.style.pointerEvents = 'none';
+  const mapImg = document.getElementById('sitemap-image');
+  if (mapImg) mapImg.addEventListener('click', snapPlaceClick);
+  const container = document.getElementById('map-container');
+  if (container) container.style.cursor = 'crosshair';
+
+  document.querySelectorAll('.pb-marker[data-clear-handler]').forEach(el2 => {
+    el2.removeEventListener('click', snapClearOneClick);
+    el2.style.cursor = '';
+    delete el2.dataset.clearHandler;
+  });
+
+  renderPBMarkers();
+  updateSnapPlaceBar();
 }
 
 function snapPlaceClearAll() {
