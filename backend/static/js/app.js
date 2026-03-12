@@ -1628,7 +1628,8 @@ function renderPBMarkers() {
       'z-index:20',
       'text-align:center;line-height:1.1',
       'overflow:hidden',
-      'text-shadow:0 1px 2px rgba(0,0,0,0.5)'
+      'text-shadow:0 1px 2px rgba(0,0,0,0.5)',
+      'padding:1px'
     ].join(';');
 
     // Apply polygon clip-path if this PB has been snap-placed (only in view mode)
@@ -1655,10 +1656,10 @@ function renderPBMarkers() {
     }).join(' | ');
     m.title = `PB ${pb.name} — ${total} LBDs\n${statusInfo}`;
 
-    // PB number
+    // PB number — auto-fit: shrink font if text overflows the marker
     const numSpan = document.createElement('span');
     numSpan.textContent = num;
-    numSpan.style.cssText = 'white-space:nowrap;';
+    numSpan.style.cssText = 'white-space:nowrap;overflow:hidden;max-width:100%;text-overflow:clip;';
     m.appendChild(numSpan);
 
     // "In Progress" indicator
@@ -1666,9 +1667,21 @@ function renderPBMarkers() {
       const ipSpan = document.createElement('span');
       ipSpan.textContent = 'In Progress';
       const ipFontSize = Math.max(5, Math.min(12, fontSize * 0.45));
-      ipSpan.style.cssText = `font-size:${ipFontSize}px;opacity:0.9;white-space:nowrap;margin-top:1px;letter-spacing:0.3px;`;
+      ipSpan.style.cssText = `font-size:${ipFontSize}px;opacity:0.9;white-space:nowrap;margin-top:1px;letter-spacing:0.3px;max-width:100%;overflow:hidden;`;
       m.appendChild(ipSpan);
     }
+
+    // After appending to DOM, check if text overflows and shrink to fit
+    requestAnimationFrame(() => { requestAnimationFrame(() => {
+      if (!m.parentNode || !m.clientWidth) return;
+      let fs = fontSize;
+      const maxW = m.clientWidth - 2; // account for padding
+      const maxH = m.clientHeight - 2;
+      while (fs > 5 && (numSpan.scrollWidth > maxW || numSpan.scrollHeight > maxH * 0.75)) {
+        fs -= 0.5;
+        m.style.fontSize = fs + 'px';
+      }
+    }); });
 
     if (mapEditMode) {
       // Delete/hide button (top-right corner)
@@ -2294,24 +2307,42 @@ function closePBPanel() {
 }
 
 async function bulkMapColumn(pbId, statusType, complete) {
+  // Optimistic local update
+  const pb = mapPBs.find(p => p.id === pbId);
+  if (pb) {
+    (pb.lbds || []).forEach(lbd => {
+      const st = (lbd.statuses || []).find(s => s.status_type === statusType);
+      if (st) st.is_completed = complete;
+      else { lbd.statuses = lbd.statuses || []; lbd.statuses.push({ status_type: statusType, is_completed: complete }); }
+    });
+    if (pb.lbd_summary) pb.lbd_summary[statusType] = complete ? (pb.lbd_count || 0) : 0;
+    showPBPanel(pb);
+    _updateMarkerColor(pb);
+  }
+  // Fire API in background
   try {
     await api.bulkComplete(pbId, [statusType], complete);
-    const r = await api.getPowerBlock(pbId);
-    const idx = mapPBs.findIndex(p => p.id === pbId);
-    if (idx >= 0) mapPBs[idx] = r.data;
-    showPBPanel(r.data);
-    renderPBMarkers();
   } catch(e) { alert('Bulk error: ' + e.message); }
 }
 
 async function bulkMapAll(pbId, complete) {
+  // Optimistic local update
+  const pb = mapPBs.find(p => p.id === pbId);
+  if (pb) {
+    (pb.lbds || []).forEach(lbd => {
+      LBD_STATUS_TYPES.forEach(statusType => {
+        const st = (lbd.statuses || []).find(s => s.status_type === statusType);
+        if (st) st.is_completed = complete;
+        else { lbd.statuses = lbd.statuses || []; lbd.statuses.push({ status_type: statusType, is_completed: complete }); }
+      });
+    });
+    if (pb.lbd_summary) LBD_STATUS_TYPES.forEach(st => { pb.lbd_summary[st] = complete ? (pb.lbd_count || 0) : 0; });
+    showPBPanel(pb);
+    _updateMarkerColor(pb);
+  }
+  // Fire API in background
   try {
     await api.bulkComplete(pbId, LBD_STATUS_TYPES, complete);
-    const r = await api.getPowerBlock(pbId);
-    const idx = mapPBs.findIndex(p => p.id === pbId);
-    if (idx >= 0) mapPBs[idx] = r.data;
-    showPBPanel(r.data);
-    renderPBMarkers();
   } catch(e) { alert('Bulk error: ' + e.message); }
 }
 
