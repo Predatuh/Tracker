@@ -19,6 +19,7 @@ class SiteArea(db.Model):
     polygon_points = db.Column(db.Text)   # JSON string
     label_font_size = db.Column(db.Integer)  # optional per-area override
     label_color = db.Column(db.String(30))   # optional text color override e.g. '#ffffff'
+    zone = db.Column(db.String(50))          # optional zone grouping e.g. 'Zone 1'
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -52,6 +53,7 @@ class SiteArea(db.Model):
             'polygon': self.get_polygon(),
             'label_font_size': self.label_font_size,
             'label_color': self.label_color,
+            'zone': self.zone,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }

@@ -91,7 +91,7 @@ def get_settings():
         if tracker:
             colors = tracker.get_status_colors()
             names = tracker.get_status_names()
-            all_columns = tracker.all_column_keys()
+            all_columns = tracker.all_column_keys() or AdminSettings.all_column_keys()
         else:
             colors = AdminSettings.get_colors()
             names = AdminSettings.get_names()

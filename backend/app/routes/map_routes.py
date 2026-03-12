@@ -202,6 +202,8 @@ def update_site_area(area_id):
             area.label_font_size = data['label_font_size']
         if 'label_color' in data:
             area.label_color = data['label_color'] or None
+        if 'zone' in data:
+            area.zone = data['zone'] or None
         if 'polygon' in data:
             area.set_polygon(data['polygon'])
         

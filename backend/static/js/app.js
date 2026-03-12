@@ -3407,8 +3407,9 @@ async function loadAdminPage() {
     const r = await api.getAdminSettings();
     const d = r.data;
     adminSettings = d;
-    renderAdminColorRows(d.colors || {}, d.all_columns || LBD_STATUS_TYPES, d.names || {});
-    renderAdminNameRows(d.names || {}, d.all_columns || LBD_STATUS_TYPES);
+    const adminCols = (d.all_columns && d.all_columns.length) ? d.all_columns : LBD_STATUS_TYPES;
+    renderAdminColorRows(d.colors || {}, adminCols, d.names || {});
+    renderAdminNameRows(d.names || {}, adminCols);
     renderAdminColumnsList(d.custom_columns || []);
     const fs = d.pb_label_font_size || 14;
     const slider = document.getElementById('admin-font-size');
