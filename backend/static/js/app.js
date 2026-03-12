@@ -1333,11 +1333,8 @@ async function toggleSnapPlace() {
     const textLbls = document.getElementById('text-labels');
     if (textLbls) textLbls.style.pointerEvents = '';
 
-    // Clean up any clear-one handlers
-    document.querySelectorAll('.pb-marker[data-clear-handler]').forEach(el => {
-      el.removeEventListener('click', snapClearOneClick);
-      delete el.dataset.clearHandler;
-    });
+    // Clean up clear-one state
+    snapClearOneMode = false;
 
     snapPlaceQueue = [];
     snapPlaceMapId = null;
@@ -1545,58 +1542,32 @@ function snapPlaceUndo() {
 function toggleSnapClearOne() {
   snapClearOneMode = !snapClearOneMode;
   const markers = document.getElementById('pb-markers');
-  const textLbls = document.getElementById('text-labels');
   const mapImg = document.getElementById('sitemap-image');
   const container = document.getElementById('map-container');
 
   if (snapClearOneMode) {
-    // Enable clicking on markers, pause normal placement
+    // Enable clicking on markers, pause normal placement clicks
     if (markers) markers.style.pointerEvents = '';
-    if (textLbls) textLbls.style.pointerEvents = 'none';
     if (mapImg) mapImg.removeEventListener('click', snapPlaceClick);
     if (container) container.style.cursor = 'pointer';
-
-    // Add click handlers to placed markers
-    document.querySelectorAll('.pb-marker').forEach(el => {
-      const pbId = el.id.replace('pb-marker-', '');
-      if (pbPolygons[String(pbId)]) {
-        el.style.cursor = 'pointer';
-        el.dataset.clearHandler = 'true';
-        el.addEventListener('click', snapClearOneClick);
-      }
-    });
     showSnapFeedback('Click a placed PB to clear it', 'ok');
   } else {
     // Restore normal snap-place behavior
     if (markers) markers.style.pointerEvents = 'none';
     if (mapImg) mapImg.addEventListener('click', snapPlaceClick);
     if (container) container.style.cursor = 'crosshair';
-
-    document.querySelectorAll('.pb-marker[data-clear-handler]').forEach(el => {
-      el.removeEventListener('click', snapClearOneClick);
-      el.style.cursor = '';
-      delete el.dataset.clearHandler;
-    });
   }
   updateSnapPlaceBar();
 }
 
-function snapClearOneClick(e) {
-  e.preventDefault();
-  e.stopPropagation();
-  const el = e.currentTarget;
-  const pbId = el.id.replace('pb-marker-', '');
-  const pb = mapPBs.find(p => String(p.id) === String(pbId));
-  if (!pb) return;
-
+function snapClearOnePB(pb) {
   // Remove polygon
-  delete pbPolygons[String(pbId)];
+  delete pbPolygons[String(pb.id)];
   localStorage.setItem('pb_polygons', JSON.stringify(pbPolygons));
 
   // Put it back in the queue
-  const numId = parseInt(pbId);
+  const numId = parseInt(pb.id);
   if (!isNaN(numId) && !snapPlaceQueue.includes(numId)) {
-    // Insert in sorted position
     const pbNum = parseInt(pb.power_block_number || pb.name.replace(/\D/g, '')) || 0;
     let insertIdx = snapPlaceQueue.findIndex(id => {
       const qPb = mapPBs.find(p => p.id === id);
@@ -1607,9 +1578,9 @@ function snapClearOneClick(e) {
     snapPlaceQueue.splice(insertIdx, 0, numId);
   }
 
-  showSnapFeedback(`🗑 Cleared ${pb.name}`, 'ok');
+  showSnapFeedback(`\ud83d\uddd1 Cleared ${pb.name}`, 'ok');
 
-  // Exit clear-one mode, re-render
+  // Exit clear-one mode, restore normal placement
   snapClearOneMode = false;
   const markers = document.getElementById('pb-markers');
   if (markers) markers.style.pointerEvents = 'none';
@@ -1617,12 +1588,6 @@ function snapClearOneClick(e) {
   if (mapImg) mapImg.addEventListener('click', snapPlaceClick);
   const container = document.getElementById('map-container');
   if (container) container.style.cursor = 'crosshair';
-
-  document.querySelectorAll('.pb-marker[data-clear-handler]').forEach(el2 => {
-    el2.removeEventListener('click', snapClearOneClick);
-    el2.style.cursor = '';
-    delete el2.dataset.clearHandler;
-  });
 
   renderPBMarkers();
   updateSnapPlaceBar();
@@ -1900,6 +1865,11 @@ function renderPBMarkers() {
       // View mode: click fetches fresh data and opens panel
       m.style.cursor = 'pointer';
       m.addEventListener('click', async () => {
+        // Intercept click in snap-place clear-one mode
+        if (snapClearOneMode && pbPolygons[String(pb.id)]) {
+          snapClearOnePB(pb);
+          return;
+        }
         try {
           const r = await api.getPowerBlock(pb.id);
           const idx = mapPBs.findIndex(p => p.id === pb.id);
