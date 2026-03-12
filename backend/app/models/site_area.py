@@ -18,6 +18,7 @@ class SiteArea(db.Model):
     # Polygon outline: JSON list of {x_pct, y_pct} points (% of image dims)
     polygon_points = db.Column(db.Text)   # JSON string
     label_font_size = db.Column(db.Integer)  # optional per-area override
+    label_color = db.Column(db.String(30))   # optional text color override e.g. '#ffffff'
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -50,6 +51,7 @@ class SiteArea(db.Model):
             'bbox_h': self.bbox_h,
             'polygon': self.get_polygon(),
             'label_font_size': self.label_font_size,
+            'label_color': self.label_color,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }

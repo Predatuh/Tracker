@@ -200,6 +200,8 @@ def update_site_area(area_id):
             area.bbox_h = data['bbox_h']
         if 'label_font_size' in data:
             area.label_font_size = data['label_font_size']
+        if 'label_color' in data:
+            area.label_color = data['label_color'] or None
         if 'polygon' in data:
             area.set_polygon(data['polygon'])
         

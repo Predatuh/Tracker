@@ -780,6 +780,7 @@ async function loadSiteMap() {
         const maps = await api.getAllSiteMaps();
         const list = maps.data || [];
         if (list.length > 0 && list[0].areas) {
+          loadedMapAreas = list[0].areas;
           for (const area of list[0].areas) {
             if (area.power_block_id && area.bbox_x != null) {
               bboxes[String(area.power_block_id)] = {
@@ -792,6 +793,10 @@ async function loadSiteMap() {
               if (area.polygon && area.polygon.length >= 3) {
                 pbPolygons[String(area.power_block_id)] = area.polygon;
               }
+              // Load per-label color if set
+              if (area.label_color) {
+                pbLabelColors[String(area.power_block_id)] = area.label_color;
+              }
             }
           }
           if (Object.keys(bboxes).length > 0) {
@@ -800,6 +805,7 @@ async function loadSiteMap() {
           if (Object.keys(pbPolygons).length > 0) {
             localStorage.setItem('pb_polygons', JSON.stringify(pbPolygons));
           }
+          localStorage.setItem('pb_label_colors', JSON.stringify(pbLabelColors));
         }
       } catch(e) { console.log('No site areas to load:', e); }
     }
@@ -1080,6 +1086,9 @@ let snapPlaceQueue = [];   // ordered PB ids remaining to place
 let snapPlaceMapId = null; // cached map id for snap API calls
 let snapClearOneMode = false; // click-to-clear individual PB mode
 let pbPolygons = JSON.parse(localStorage.getItem('pb_polygons') || '{}');
+let pbLabelColors = JSON.parse(localStorage.getItem('pb_label_colors') || '{}'); // keyed by PB id string
+// also store all loaded areas so admin tab can list them
+let loadedMapAreas = [];
 
 // Snap threshold in % of map dimensions
 const SNAP_THRESHOLD = 1.2;
@@ -1798,6 +1807,7 @@ function renderPBMarkers() {
     // All markers are rectangles
     const pbFontOverride = parseInt(localStorage.getItem('pb_font_size') || '0');
     const fontSize = pbFontOverride > 0 ? pbFontOverride : Math.max(7, Math.min(24, bbox.w * 0.35));
+    const labelColor = pbLabelColors[key] || 'white';
     m.style.cssText = [
       'position:absolute',
       `left:${bbox.x}%`,
@@ -1809,7 +1819,7 @@ function renderPBMarkers() {
       `box-shadow:${isActive ? '0 0 0 3px #0d6efd,0 4px 14px rgba(0,0,0,.6)' : '0 2px 6px rgba(0,0,0,.3)'}`,
       'border-radius:4px',
       'display:flex;flex-direction:column;align-items:center;justify-content:center',
-      'color:white;font-weight:700',
+      `color:${labelColor};font-weight:700`,
       `font-size:${fontSize}px`,
       `cursor:${mapEditMode ? 'grab' : 'pointer'}`,
       'user-select:none',
@@ -3419,6 +3429,7 @@ function switchAdminTab(tabKey) {
   if (tabKey === 'updates') loadUpdateTab();
   if (tabKey === 'users') loadUsersTab();
   if (tabKey === 'trackers') loadTrackersTab();
+  if (tabKey === 'maplabels') loadMapLabelsTab();
 }
 
 /* ── Trackers Admin Tab ── */
@@ -3760,6 +3771,76 @@ async function saveAdminFontSize() {
     showAdminAlert('Font size saved!', 'success');
     renderPBMarkers();
   } catch(e) { showAdminAlert('Error: ' + e.message, 'error'); }
+}
+
+// ── Map Labels Admin Tab ──────────────────────────────────
+async function loadMapLabelsTab() {
+  const listEl = document.getElementById('admin-maplabels-list');
+  if (!listEl) return;
+  listEl.innerHTML = '<p style="color:#999;font-size:13px;">Loading…</p>';
+  try {
+    const maps = await api.getAllSiteMaps();
+    const areas = (maps.data && maps.data[0] && maps.data[0].areas) ? maps.data[0].areas : [];
+    loadedMapAreas = areas;
+    if (areas.length === 0) {
+      listEl.innerHTML = '<p style="color:#999;font-size:13px;">No labels placed on the map yet.</p>';
+      return;
+    }
+    listEl.innerHTML = '';
+    areas.forEach(area => {
+      const row = document.createElement('div');
+      row.id = `maplabel-row-${area.id}`;
+      row.style.cssText = 'display:flex;align-items:center;gap:10px;background:#f8f9fa;border:1px solid #ddd;border-radius:8px;padding:10px 14px;margin-bottom:8px;';
+      const color = area.label_color || '#ffffff';
+      row.innerHTML = `
+        <span style="flex:1;font-weight:600;font-size:14px;">${area.name}</span>
+        <label style="font-size:12px;color:#555;margin-bottom:0;">Label Color</label>
+        <input type="color" value="${color}" title="Change label text color"
+          style="width:36px;height:30px;border:none;border-radius:5px;cursor:pointer;padding:0;"
+          onchange="saveLabelColor(${area.id}, this.value, ${area.power_block_id})" />
+        <button onclick="deleteLabelArea(${area.id}, ${area.power_block_id})"
+          style="background:#dc3545;color:#fff;border:none;border-radius:6px;padding:5px 12px;cursor:pointer;font-size:13px;">
+          🗑 Delete
+        </button>`;
+      listEl.appendChild(row);
+    });
+  } catch(e) {
+    listEl.innerHTML = `<p style="color:red;font-size:13px;">Error: ${e.message}</p>`;
+  }
+}
+
+async function saveLabelColor(areaId, color, pbId) {
+  try {
+    await api.updateSiteArea(areaId, { label_color: color });
+    if (pbId) {
+      pbLabelColors[String(pbId)] = color;
+      localStorage.setItem('pb_label_colors', JSON.stringify(pbLabelColors));
+      renderPBMarkers();
+    }
+    showAdminAlert('Label color saved!', 'success');
+  } catch(e) { showAdminAlert('Error saving color: ' + e.message, 'error'); }
+}
+
+async function deleteLabelArea(areaId, pbId) {
+  if (!confirm('Delete this label from the map? The block data is not affected.')) return;
+  try {
+    await api.deleteSiteArea(areaId);
+    // Remove from local state
+    if (pbId) {
+      const key = String(pbId);
+      const bboxes = JSON.parse(localStorage.getItem('pb_bboxes') || '{}');
+      delete bboxes[key];
+      delete pbPolygons[key];
+      delete pbLabelColors[key];
+      localStorage.setItem('pb_bboxes', JSON.stringify(bboxes));
+      localStorage.setItem('pb_polygons', JSON.stringify(pbPolygons));
+      localStorage.setItem('pb_label_colors', JSON.stringify(pbLabelColors));
+    }
+    const row = document.getElementById(`maplabel-row-${areaId}`);
+    if (row) row.remove();
+    renderPBMarkers();
+    showAdminAlert('Label deleted.', 'success');
+  } catch(e) { showAdminAlert('Error deleting label: ' + e.message, 'error'); }
 }
 
 function showAdminAlert(msg, type) {
