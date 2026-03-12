@@ -2875,10 +2875,13 @@ let wl_selectedWorkers = [];
 let wl_selectedTask = '';
 let wl_selectedBlocks = new Set();
 let wl_date = new Date().toISOString().slice(0, 10);
+let wl_loading = false;
 
 async function loadWorkLogPage() {
   const el = document.getElementById('worklog-content');
   if (!el) return;
+  if (wl_loading) return;
+  wl_loading = true;
 
   el.innerHTML = `
     <div style="display:flex;flex-direction:column;gap:20px;">
@@ -2892,42 +2895,45 @@ async function loadWorkLogPage() {
       <!-- Workers -->
       <div class="form-section" style="padding:16px 20px;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-          <label style="font-size:12px;font-weight:700;color:#8892b0;text-transform:uppercase;letter-spacing:0.5px;">👷 Workers</label>
+          <label style="font-size:12px;font-weight:700;color:#8892b0;text-transform:uppercase;letter-spacing:0.5px;">Workers</label>
           <button onclick="wl_addWorker()" style="background:linear-gradient(135deg,#00d4ff,#009abc);color:#000;border:none;border-radius:6px;padding:5px 14px;font-size:11px;font-weight:700;cursor:pointer;">+ Add Worker</button>
         </div>
-        <div id="wl-workers" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+        <div id="wl-workers" style="display:flex;flex-wrap:wrap;gap:8px;"><span style="color:#4a5568;font-size:12px;">Loading workers...</span></div>
       </div>
 
       <!-- Tasks -->
       <div class="form-section" style="padding:16px 20px;">
-        <label style="font-size:12px;font-weight:700;color:#8892b0;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px;display:block;">🔧 Task</label>
-        <div id="wl-tasks" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+        <label style="font-size:12px;font-weight:700;color:#8892b0;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px;display:block;">Task</label>
+        <div id="wl-tasks" style="display:flex;flex-wrap:wrap;gap:8px;"><span style="color:#4a5568;font-size:12px;">Loading tasks...</span></div>
       </div>
 
       <!-- Power Blocks -->
       <div class="form-section" style="padding:16px 20px;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-          <label style="font-size:12px;font-weight:700;color:#8892b0;text-transform:uppercase;letter-spacing:0.5px;">⚡ Power Blocks</label>
+          <label style="font-size:12px;font-weight:700;color:#8892b0;text-transform:uppercase;letter-spacing:0.5px;">Power Blocks</label>
           <div style="display:flex;gap:6px;">
             <button onclick="wl_selectAllBlocks()" style="background:rgba(0,212,255,0.12);color:#00d4ff;border:1px solid rgba(0,212,255,0.3);border-radius:5px;padding:4px 10px;font-size:10px;font-weight:700;cursor:pointer;">All</button>
             <button onclick="wl_clearBlocks()" style="background:rgba(255,76,106,0.1);color:#ff4c6a;border:1px solid rgba(255,76,106,0.3);border-radius:5px;padding:4px 10px;font-size:10px;font-weight:700;cursor:pointer;">None</button>
           </div>
         </div>
-        <div id="wl-blocks" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(70px,1fr));gap:6px;"></div>
+        <div id="wl-blocks" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(70px,1fr));gap:6px;"><span style="color:#4a5568;font-size:12px;">Loading power blocks...</span></div>
       </div>
 
       <!-- Submit -->
       <div style="display:flex;gap:12px;align-items:center;">
-        <button onclick="wl_submit()" style="background:linear-gradient(135deg,#00e87a,#00b35f);color:#000;border:none;border-radius:8px;padding:12px 32px;font-size:14px;font-weight:800;cursor:pointer;">✓ Log Work</button>
+        <button onclick="wl_submit()" style="background:linear-gradient(135deg,#00e87a,#00b35f);color:#000;border:none;border-radius:8px;padding:12px 32px;font-size:14px;font-weight:800;cursor:pointer;">Log Work</button>
         <span id="wl-status" style="font-size:13px;color:#8892b0;"></span>
       </div>
 
       <!-- Today's entries -->
       <div class="form-section" style="padding:16px 20px;">
-        <label style="font-size:12px;font-weight:700;color:#8892b0;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px;display:block;">📝 Entries for <span id="wl-entries-date"></span></label>
-        <div id="wl-entries"></div>
+        <label style="font-size:12px;font-weight:700;color:#8892b0;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px;display:block;">Entries for <span id="wl-entries-date"></span></label>
+        <div id="wl-entries"><span style="color:#4a5568;font-size:12px;">Loading...</span></div>
       </div>
     </div>`;
+
+  // Render tasks immediately (uses local LBD_STATUS_TYPES)
+  wl_renderTasks();
 
   // Load data
   try {
@@ -2943,11 +2949,16 @@ async function loadWorkLogPage() {
   wl_renderTasks();
   wl_renderBlocks();
   wl_loadEntries();
+  wl_loading = false;
 }
 
 function wl_renderWorkers() {
   const el = document.getElementById('wl-workers');
   if (!el) return;
+  if (wl_workers.length === 0) {
+    el.innerHTML = '<span style="color:#4a5568;font-size:12px;font-style:italic;">No workers yet — click "+ Add Worker" to create one</span>';
+    return;
+  }
   el.innerHTML = wl_workers.map(w => {
     const sel = wl_selectedWorkers.includes(w.id);
     return `<button onclick="wl_toggleWorker(${w.id})" style="padding:6px 14px;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;border:1.5px solid ${sel ? '#00d4ff' : 'rgba(255,255,255,0.12)'};background:${sel ? 'rgba(0,212,255,0.15)' : 'rgba(255,255,255,0.04)'};color:${sel ? '#00d4ff' : '#8892b0'};">${w.name}</button>`;
@@ -2987,9 +2998,13 @@ function wl_renderTasks() {
 function wl_renderBlocks() {
   const el = document.getElementById('wl-blocks');
   if (!el) return;
+  if (wl_blocks.length === 0) {
+    el.innerHTML = '<span style="color:#4a5568;font-size:12px;font-style:italic;">No power blocks found</span>';
+    return;
+  }
   el.innerHTML = wl_blocks.map(b => {
     const sel = wl_selectedBlocks.has(b.id);
-    return `<button onclick="wl_toggleBlock(${b.id})" style="padding:6px 4px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;text-align:center;border:1.5px solid ${sel ? '#00d4ff' : 'rgba(255,255,255,0.1)'};background:${sel ? 'rgba(0,212,255,0.15)' : 'rgba(255,255,255,0.03)'};color:${sel ? '#00d4ff' : '#8892b0'};">${b.name}</button>`;
+    return `<button onclick="wl_toggleBlock(${b.id})" style="padding:6px 4px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;text-align:center;border:1.5px solid ${sel ? '#00d4ff' : 'rgba(255,255,255,0.15)'};background:${sel ? 'rgba(0,212,255,0.15)' : 'rgba(255,255,255,0.06)'};color:${sel ? '#00d4ff' : '#ccd6f6'};">${b.name}</button>`;
   }).join('');
 }
 
@@ -3120,7 +3135,10 @@ async function rp_loadList() {
     const r = await api.call('/reports');
     const reports = r.data || [];
     if (reports.length === 0) {
-      el.innerHTML = '<p style="color:#4a5568;text-align:center;padding:40px;">No reports yet. Generate one or log work entries first.</p>';
+      el.innerHTML = `<div style="text-align:center;padding:40px;">
+        <p style="color:#8892b0;font-size:14px;margin-bottom:12px;">No reports generated yet.</p>
+        <p style="color:#4a5568;font-size:12px;">Click <strong style="color:#00d4ff;">"Generate Today's Report"</strong> above to create one from today's work log entries.</p>
+      </div>`;
       return;
     }
     let html = '';
