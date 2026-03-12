@@ -2213,13 +2213,6 @@ function showPBPanel(pb) {
   // Build grid template: LBD label column + one column per status type
   const colCount = LBD_STATUS_TYPES.length;
   const gridCols = `70px repeat(${colCount}, 1fr)`;
-  const SHORT_LABELS = {
-    ground_brackets: 'B/G',
-    stuff:           'Stuffed',
-    term:            'Termed',
-    quality_check:   'QC',
-    quality_docs:    'Q. Docs'
-  };
 
   // Header row + bulk row
   const headerEl = document.getElementById('lbd-grid-header');
@@ -2227,7 +2220,7 @@ function showPBPanel(pb) {
     <div style="display:grid;grid-template-columns:${gridCols};gap:3px;align-items:end;margin-bottom:4px;">
       <div style="font-size:10px;color:#4a5568;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">LBD</div>
       ${LBD_STATUS_TYPES.map(st =>
-        `<div style="text-align:center;font-size:9px;color:#8892b0;font-weight:600;line-height:1.2;" title="${STATUS_LABELS[st]||st}">${SHORT_LABELS[st]||st}</div>`
+        `<div style="text-align:center;font-size:9px;color:#8892b0;font-weight:600;line-height:1.2;" title="${STATUS_LABELS[st]||st}">${STATUS_LABELS[st]||st}</div>`
       ).join('')}
     </div>
     <div style="display:grid;grid-template-columns:${gridCols};gap:3px;align-items:center;padding-bottom:6px;border-bottom:1px solid rgba(255,255,255,0.08);margin-bottom:4px;">
@@ -2326,63 +2319,92 @@ async function toggleMapStatus(lbdId, statusType, currentDone, btn, pbId) {
   const newDone = !currentDone;
   const col = STATUS_COLORS[statusType];
 
-  // Optimistic update
-  btn.style.background = newDone ? col : '#f7f7f7';
-  btn.style.color       = newDone ? '#fff' : '#888';
-  btn.style.border      = `1px solid ${newDone ? col : '#ddd'}`;
-  btn.textContent       = newDone ? '✓' : '·';
+  // Instant optimistic update — button
+  btn.style.background = newDone ? col : 'rgba(255,255,255,0.04)';
+  btn.style.color       = newDone ? '#000' : '#4a5568';
+  btn.style.border      = '1px solid ' + (newDone ? col : 'rgba(255,255,255,0.08)');
+  btn.style.fontWeight  = newDone ? '700' : '400';
+  btn.innerHTML         = newDone ? '\u2713' : '\u00b7';
   btn.onclick = () => toggleMapStatus(lbdId, statusType, newDone, btn, pbId);
 
+  // Update local cache instantly — no server refetch
+  const pb = mapPBs.find(p => p.id === pbId);
+  if (pb) {
+    const lbd = (pb.lbds || []).find(l => l.id === lbdId);
+    if (lbd) {
+      const st = (lbd.statuses || []).find(s => s.status_type === statusType);
+      if (st) { st.is_completed = newDone; }
+      else { lbd.statuses = lbd.statuses || []; lbd.statuses.push({ status_type: statusType, is_completed: newDone }); }
+    }
+    if (pb.lbd_summary) {
+      pb.lbd_summary[statusType] = (pb.lbds || []).filter(l =>
+        (l.statuses || []).some(s => s.status_type === statusType && s.is_completed)
+      ).length;
+    }
+    const lbds = pb.lbds || [];
+    const total = pb.lbd_count || lbds.length;
+    const done  = lbds.filter(l => isLBDComplete(l)).length;
+    const remaining = total - done;
+    const pct   = total > 0 ? Math.round(done / total * 100) : 0;
+    const statsEl = document.getElementById('lbd-panel-stats');
+    if (statsEl) statsEl.innerHTML =
+      '<span style="font-weight:600;color:#333;">' + total + '</span> total  \u00b7 ' +
+      '<span style="font-weight:700;color:#28a745;">' + done + ' complete</span>  \u00b7 ' +
+      '<span style="font-weight:600;color:#dc3545;">' + remaining + ' remaining</span>';
+    const fill = document.getElementById('lbd-panel-bar-fill');
+    if (fill) { fill.style.width = pct + '%'; fill.style.background = pct >= 100 ? '#28a745' : pct > 0 ? '#ffc107' : '#dc3545'; }
+    const updLbd = lbds.find(l => l.id === lbdId);
+    if (updLbd) {
+      const row = document.getElementById('lbd-row-' + lbdId);
+      if (row) row.style.background = isLBDComplete(updLbd) ? 'rgba(0,232,122,0.06)' : 'transparent';
+    }
+    _updateMarkerColor(pb);
+  }
+
+  // Fire API call in background — don't block the UI
   try {
     await api.updateLBDStatus(lbdId, statusType, {
       is_completed: newDone,
       completed_at: newDone ? new Date().toISOString() : null
     });
-
-    // Refresh this PB's data
-    const pbResp = await api.getPowerBlock(pbId);
-    const updPB = pbResp.data;
-
-    // Update local cache
-    const idx = mapPBs.findIndex(p => p.id === pbId);
-    if (idx >= 0) mapPBs[idx] = updPB;
-
-    // Update panel header stats + bar
-    const updLbds = updPB.lbds || [];
-    const total = updPB.lbd_count || 0;
-    const done  = updLbds.filter(l => isLBDComplete(l)).length;
-    const remaining = total - done;
-    const pct   = total > 0 ? Math.round(done / total * 100) : 0;
-    const el = document.getElementById('lbd-panel-stats');
-    if (el) el.innerHTML =
-      `<span style="font-weight:600;color:#333;">${total}</span> total  · ` +
-      `<span style="font-weight:700;color:#28a745;">${done} complete</span>  · ` +
-      `<span style="font-weight:600;color:#dc3545;">${remaining} remaining</span>`;
-    const fill = document.getElementById('lbd-panel-bar-fill');
-    if (fill) {
-      fill.style.width = pct + '%';
-      fill.style.background = pct >= 100 ? '#28a745' : pct > 0 ? '#ffc107' : '#dc3545';
-    }
-
-    // Update the specific LBD row background
-    const updLbd = updLbds.find(l => l.id === lbdId);
-    if (updLbd) {
-      const row = document.getElementById(`lbd-row-${lbdId}`);
-      if (row) row.style.background = isLBDComplete(updLbd) ? '#f0fff4' : 'transparent';
-    }
-
-    // Re-render map markers so block color reflects full status logic
-    renderPBMarkers();
-
   } catch (e) {
     console.error('Status update failed:', e);
-    // Revert
-    btn.style.background = currentDone ? col : '#f7f7f7';
-    btn.style.color       = currentDone ? '#fff' : '#888';
-    btn.textContent       = currentDone ? '✓' : '·';
+    btn.style.background = currentDone ? col : 'rgba(255,255,255,0.04)';
+    btn.style.color       = currentDone ? '#000' : '#4a5568';
+    btn.style.fontWeight  = currentDone ? '700' : '400';
+    btn.innerHTML         = currentDone ? '\u2713' : '\u00b7';
     btn.onclick = () => toggleMapStatus(lbdId, statusType, currentDone, btn, pbId);
     alert('Failed to save status. Please try again.');
   }
+}
+
+// Update a single PB marker color without rebuilding all markers
+function _updateMarkerColor(pb) {
+  const marker = document.getElementById('pb-marker-' + pb.id);
+  if (!marker) return;
+  const lbds = pb.lbds || [];
+  const total = pb.lbd_count || lbds.length || 0;
+  const summary = pb.lbd_summary || {};
+  const completedTypes = [], partialTypes = [];
+  for (const st of LBD_STATUS_TYPES) {
+    const d = summary[st] || 0;
+    if (total > 0 && d >= total) completedTypes.push(st);
+    else if (d > 0) partialTypes.push(st);
+  }
+  const allDone = total > 0 && lbds.filter(l => isLBDComplete(l)).length === total;
+  let bgStyle;
+  if (allDone) bgStyle = '#28a745';
+  else if (completedTypes.length >= 2) {
+    const colors = completedTypes.map(t => STATUS_COLORS[t] || '#999');
+    const step = 100 / colors.length;
+    bgStyle = 'linear-gradient(135deg, ' + colors.map((c, i) => c + ' ' + Math.round(i*step) + '%, ' + c + ' ' + Math.round((i+1)*step) + '%').join(', ') + ')';
+  } else if (completedTypes.length === 1) bgStyle = STATUS_COLORS[completedTypes[0]] || '#ffc107';
+  else if (partialTypes.length > 0) bgStyle = '#ffc107';
+  else bgStyle = '#6c757d';
+  const borderColor = allDone ? '#1e7e34' : (completedTypes.length > 0 || partialTypes.length > 0) ? '#d39e00' : '#555';
+  marker.style.background = bgStyle;
+  if (!marker.style.clipPath || marker.style.clipPath === 'none') marker.style.borderColor = borderColor;
+  else marker.style.filter = 'drop-shadow(0 0 1.5px ' + borderColor + ') drop-shadow(0 0 0.5px #000)';
 }
 
 function updateSelectedPages() {
