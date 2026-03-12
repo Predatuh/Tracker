@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify, session
 from sqlalchemy.orm import subqueryload
+from sqlalchemy import func
 from app import db
 from app.models import PowerBlock, LBD, LBDStatus
 from datetime import datetime
@@ -29,15 +30,59 @@ bp = Blueprint('tracker', __name__, url_prefix='/api/tracker')
 
 @bp.route('/power-blocks', methods=['GET'])
 def get_power_blocks():
-    """Get all power blocks"""
+    """Get all power blocks with aggregate counts (fast — no per-LBD data)"""
     try:
-        blocks = PowerBlock.query.options(
-            subqueryload(PowerBlock.lbds).subqueryload(LBD.statuses)
-        ).all()
-        return jsonify({
-            'success': True,
-            'data': [b.to_dict() for b in blocks]
-        }), 200
+        from app.models.admin_settings import AdminSettings
+
+        # 1. All power blocks (119 rows)
+        blocks = PowerBlock.query.all()
+
+        # 2. LBD count per block (1 query)
+        lbd_counts = db.session.query(
+            LBD.power_block_id,
+            func.count(LBD.id).label('cnt')
+        ).group_by(LBD.power_block_id).all()
+        count_map = {row.power_block_id: row.cnt for row in lbd_counts}
+
+        # 3. Completed status counts per block per status_type (1 query)
+        status_counts = db.session.query(
+            LBD.power_block_id,
+            LBDStatus.status_type,
+            func.count(LBDStatus.id).label('cnt')
+        ).join(LBD, LBDStatus.lbd_id == LBD.id) \
+         .filter(LBDStatus.is_completed == True) \
+         .group_by(LBD.power_block_id, LBDStatus.status_type).all()
+        status_map = {}
+        for row in status_counts:
+            status_map.setdefault(row.power_block_id, {})[row.status_type] = row.cnt
+
+        all_cols = AdminSettings.all_column_keys()
+
+        result = []
+        for b in blocks:
+            lbd_count = count_map.get(b.id, 0)
+            pb_status = status_map.get(b.id, {})
+            summary = {'total': lbd_count}
+            for col in all_cols:
+                summary[col] = pb_status.get(col, 0)
+            result.append({
+                'id': b.id,
+                'name': b.name,
+                'power_block_number': b.power_block_number,
+                'description': b.description,
+                'page_number': b.page_number,
+                'image_path': b.image_path,
+                'is_completed': b.is_completed,
+                'claimed_by': b.claimed_by,
+                'claimed_at': b.claimed_at.isoformat() if b.claimed_at else None,
+                'last_updated_by': b.last_updated_by,
+                'last_updated_at': b.last_updated_at.isoformat() if b.last_updated_at else None,
+                'lbd_count': lbd_count,
+                'lbd_summary': summary,
+                # 'lbds' omitted — use /power-blocks/<id> for full detail
+            })
+
+        return jsonify({'success': True, 'data': result}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
