@@ -119,6 +119,14 @@ def create_app():
     def index():
         return render_template('index.html')
 
+    @app.route('/manifest.json')
+    def pwa_manifest():
+        return app.send_static_file('manifest.json')
+
+    @app.route('/sw.js')
+    def pwa_sw():
+        return app.send_static_file('sw.js'), 200, {'Content-Type': 'application/javascript', 'Service-Worker-Allowed': '/'}
+
     return app
 
 
