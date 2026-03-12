@@ -96,6 +96,9 @@ const api = {
   saveAdminFontSize(size) {
     return this.call('/admin/settings/font-size', { method:'PUT', body: JSON.stringify({size}) });
   },
+  saveColumnOrder(order) {
+    return this.call('/admin/settings/column-order', { method:'PUT', body: JSON.stringify({order}) });
+  },
   bulkComplete(powerBlockId, statusTypes, isCompleted) {
     return this.call('/admin/bulk-complete', { method:'POST',
       body: JSON.stringify({ power_block_id: powerBlockId, status_types: statusTypes, is_completed: isCompleted })
@@ -410,11 +413,11 @@ async function loadBlocks() {
         let lbdTable = '';
         if (lbds.length > 0) {
           // Short column header labels
+          const hdrSize = parseInt(localStorage.getItem('pbHeaderSize') || '11');
           const headerCells = cols.map(col => {
             const color = STATUS_COLORS[col] || '#555';
             const label = STATUS_LABELS[col] || col;
-            const short = label.split('/')[0].trim().slice(0, 5);
-            return `<th class="lbd-tbl-th" style="color:${color}" title="${label}">${short}</th>`;
+            return `<th class="lbd-tbl-th" style="color:${color};font-size:${hdrSize}px;white-space:nowrap;" title="${label}">${label}</th>`;
           }).join('');
 
           const dataRows = lbds.map(lbd => {
@@ -463,9 +466,23 @@ async function loadBlocks() {
     }
 
     document.getElementById('blocks-list').innerHTML = html;
+    // Update header size display
+    const curSize = parseInt(localStorage.getItem('pbHeaderSize') || '11');
+    const sizeDisp = document.getElementById('pb-header-size-display');
+    if (sizeDisp) sizeDisp.textContent = curSize + 'px';
   } catch (err) {
     console.error('Error loading blocks:', err);
   }
+}
+
+function changePBHeaderSize(delta) {
+  let size = parseInt(localStorage.getItem('pbHeaderSize') || '11');
+  size = Math.max(7, Math.min(24, size + delta));
+  localStorage.setItem('pbHeaderSize', size);
+  const disp = document.getElementById('pb-header-size-display');
+  if (disp) disp.textContent = size + 'px';
+  // Update all header cells live
+  document.querySelectorAll('.lbd-tbl-th').forEach(th => { th.style.fontSize = size + 'px'; });
 }
 
 // PDF Upload
@@ -3177,16 +3194,46 @@ function renderAdminColumnsList(custom) {
   const container = document.getElementById('admin-columns-list');
   if (!container) return;
   const all = adminSettings.all_columns || LBD_STATUS_TYPES;
-  container.innerHTML = all.map(k => {
+  let html = '';
+  all.forEach((k, idx) => {
     const label = (adminSettings.names && adminSettings.names[k]) ? adminSettings.names[k] : k.replace(/_/g,' ');
     const col = (adminSettings.colors && adminSettings.colors[k]) || '#888';
-    return `<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid rgba(255,255,255,0.07);">
+    const isFirst = idx === 0;
+    const isLast = idx === all.length - 1;
+    html += `<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid rgba(255,255,255,0.07);" data-col-key="${k}">
+      <div style="display:flex;flex-direction:column;gap:2px;flex-shrink:0;">
+        <button onclick="moveAdminColumn(${idx},-1)" ${isFirst ? 'disabled' : ''} style="background:${isFirst ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.08)'};color:${isFirst ? '#333' : '#ccd6f6'};border:none;border-radius:3px;padding:2px 7px;cursor:${isFirst ? 'default' : 'pointer'};font-size:12px;line-height:1;" title="Move up">▲</button>
+        <button onclick="moveAdminColumn(${idx},1)" ${isLast ? 'disabled' : ''} style="background:${isLast ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.08)'};color:${isLast ? '#333' : '#ccd6f6'};border:none;border-radius:3px;padding:2px 7px;cursor:${isLast ? 'default' : 'pointer'};font-size:12px;line-height:1;" title="Move down">▼</button>
+      </div>
       <span style="display:inline-block;width:14px;height:14px;background:${col};border-radius:3px;flex-shrink:0;"></span>
       <span style="flex:1;font-size:13px;color:#eef2ff;">${label}</span>
       <span style="font-size:10px;color:#4a5568;">${k}</span>
       <button onclick="deleteAdminColumn('${k}')" style="background:rgba(255,76,106,0.15);color:#ff4c6a;border:1px solid rgba(255,76,106,0.3);border-radius:4px;padding:3px 10px;cursor:pointer;font-size:11px;font-weight:600;">Delete</button>
     </div>`;
-  }).join('');
+  });
+  html += `<div style="margin-top:14px;"><button class="btn btn-primary" onclick="saveColumnOrder()">Save Column Order</button></div>`;
+  container.innerHTML = html;
+}
+
+async function moveAdminColumn(index, direction) {
+  const all = adminSettings.all_columns || LBD_STATUS_TYPES;
+  const newIdx = index + direction;
+  if (newIdx < 0 || newIdx >= all.length) return;
+  const arr = [...all];
+  [arr[index], arr[newIdx]] = [arr[newIdx], arr[index]];
+  adminSettings.all_columns = arr;
+  LBD_STATUS_TYPES = arr;
+  renderAdminColumnsList(adminSettings.custom_columns || []);
+}
+
+async function saveColumnOrder() {
+  const order = adminSettings.all_columns || LBD_STATUS_TYPES;
+  try {
+    const r = await api.saveColumnOrder(order);
+    adminSettings.all_columns = r.all_columns || order;
+    LBD_STATUS_TYPES = adminSettings.all_columns;
+    showAdminAlert('Column order saved!', 'success');
+  } catch(e) { showAdminAlert('Error saving order: ' + e.message, 'error'); }
 }
 
 async function addAdminColumn() {

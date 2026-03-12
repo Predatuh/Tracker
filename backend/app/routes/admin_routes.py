@@ -165,6 +165,29 @@ def update_font_size():
 
 
 # ------------------------------------------------------------------ #
+# Update column order
+# ------------------------------------------------------------------ #
+@bp.route('/settings/column-order', methods=['PUT'])
+def update_column_order():
+    try:
+        data = request.get_json()
+        order = data.get('order', [])
+        if not isinstance(order, list):
+            return jsonify({'error': 'order must be a list'}), 400
+        # Validate that every key in order is an active column
+        active = set(AdminSettings.all_column_keys())
+        order = [k for k in order if k in active]
+        AdminSettings.set('column_order', order)
+        return jsonify({
+            'success': True,
+            'all_columns': AdminSettings.all_column_keys()
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+# ------------------------------------------------------------------ #
 # Bulk-complete statuses for a power block
 # ------------------------------------------------------------------ #
 @bp.route('/bulk-complete', methods=['POST'])

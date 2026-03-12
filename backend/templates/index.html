@@ -178,7 +178,15 @@
             <!-- Power Blocks Page -->
             <div id="page-blocks" class="page">
                 <div class="container">
-                    <h1 class="section-title">Power Blocks & LBDs</h1>
+                    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:8px;">
+                      <h1 class="section-title" style="margin-bottom:0;">Power Blocks & LBDs</h1>
+                      <div style="display:flex;align-items:center;gap:8px;">
+                        <label style="font-size:12px;color:#8892b0;white-space:nowrap;">Header Text:</label>
+                        <button onclick="changePBHeaderSize(-1)" style="background:rgba(255,255,255,0.08);color:#ccd6f6;border:none;border-radius:4px;width:26px;height:26px;cursor:pointer;font-size:14px;font-weight:700;line-height:1;">−</button>
+                        <span id="pb-header-size-display" style="font-size:11px;color:#ccd6f6;min-width:28px;text-align:center;">11px</span>
+                        <button onclick="changePBHeaderSize(1)" style="background:rgba(255,255,255,0.08);color:#ccd6f6;border:none;border-radius:4px;width:26px;height:26px;cursor:pointer;font-size:14px;font-weight:700;line-height:1;">+</button>
+                      </div>
+                    </div>
                     <div id="blocks-list" class="blocks-grid"></div>
                 </div>
             </div>

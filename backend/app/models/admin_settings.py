@@ -90,7 +90,7 @@ class AdminSettings(db.Model):
 
     @classmethod
     def all_column_keys(cls):
-        """All status keys: built-in (minus disabled) + custom."""
+        """All status keys: built-in (minus disabled) + custom, respecting saved order."""
         from app.models.status import LBDStatus
         disabled = cls.get('disabled_builtins') or []
         base = [k for k in LBDStatus.STATUS_TYPES if k not in disabled]
@@ -98,4 +98,14 @@ class AdminSettings(db.Model):
         for c in custom:
             if c not in base:
                 base.append(c)
+        # Apply saved column order if it exists
+        saved_order = cls.get('column_order')
+        if saved_order:
+            active = set(base)
+            ordered = [k for k in saved_order if k in active]
+            # Append any new columns not yet in saved order
+            for k in base:
+                if k not in ordered:
+                    ordered.append(k)
+            return ordered
         return base
