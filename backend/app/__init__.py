@@ -60,6 +60,9 @@ def create_app():
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500 MB
     app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
+    # Allow cross-origin session cookies (Flutter web on localhost)
+    app.config['SESSION_COOKIE_SAMESITE'] = 'None'
+    app.config['SESSION_COOKIE_SECURE'] = True
 
     # Initialize extensions
     db.init_app(app)
