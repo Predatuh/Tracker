@@ -287,6 +287,7 @@ def update_lbd_status(lbd_id, status_type):
     """Update specific status of an LBD"""
     try:
         data = request.get_json()
+        lbd = LBD.query.get_or_404(lbd_id)
         
         # Create status record if it doesn't exist yet (LBDs from scan have no statuses)
         status = LBDStatus.query.filter_by(
@@ -296,6 +297,7 @@ def update_lbd_status(lbd_id, status_type):
         if not status:
             status = LBDStatus(lbd_id=lbd_id, status_type=status_type, is_completed=False)
             db.session.add(status)
+            db.session.flush()
 
         status.is_completed = data.get('is_completed', status.is_completed)
         actor = _current_user_name()
@@ -309,7 +311,7 @@ def update_lbd_status(lbd_id, status_type):
         status.notes = data.get('notes', status.notes)
 
         # Update power-block audit trail
-        pb = status.lbd.power_block
+        pb = lbd.power_block
         if pb and actor:
             pb.last_updated_by = actor
             pb.last_updated_at = datetime.utcnow()
@@ -323,7 +325,7 @@ def update_lbd_status(lbd_id, status_type):
                 'lbd_id':       lbd_id,
                 'status_type':  status_type,
                 'is_completed': bool(status.is_completed),
-                'pb_id':        status.lbd.power_block_id
+                'pb_id':        lbd.power_block_id
             })
 
         return jsonify({
