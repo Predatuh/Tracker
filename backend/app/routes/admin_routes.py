@@ -365,7 +365,9 @@ def update_ui_text():
             'nav_dashboard', 'nav_upload', 'nav_blocks', 'nav_sitemap',
             'nav_worklog', 'nav_reports', 'nav_admin',
             'title_dashboard', 'sub_dashboard', 'title_blocks', 'title_upload',
-            'title_worklog', 'title_reports', 'title_admin'
+            'title_worklog', 'title_reports', 'title_admin',
+            'dashboard_loading', 'dashboard_empty', 'dashboard_complete',
+            'dashboard_power_blocks', 'dashboard_open_tracker'
         }
         ui_text = {k: v for k, v in ui_text.items() if k in allowed_keys and isinstance(v, str)}
         AdminSettings.set('ui_text', ui_text)

@@ -429,7 +429,13 @@ function toggleStatus(lbdId, statusType, currentStatus, blockId) {
 async function loadDashboard() {
   const grid = document.getElementById('tracker-hub-grid');
   if (!grid) return;
-  grid.innerHTML = '<div style="color:rgba(238,242,255,0.4);text-align:center;padding:60px 20px;font-family:Orbitron,sans-serif;font-size:13px;letter-spacing:1px;">LOADING TRACKERS...</div>';
+  const ui = (adminSettings && adminSettings.ui_text) ? adminSettings.ui_text : {};
+  const loadingText = ui.dashboard_loading || 'LOADING TRACKERS...';
+  const emptyText = ui.dashboard_empty || 'No trackers yet. Create one in Admin.';
+  const completeLabel = ui.dashboard_complete || 'Complete';
+  const powerBlocksLabel = ui.dashboard_power_blocks || 'Power Blocks';
+  const openTrackerLabel = ui.dashboard_open_tracker || 'Open Tracker';
+  grid.innerHTML = `<div style="color:rgba(238,242,255,0.4);text-align:center;padding:60px 20px;font-family:Orbitron,sans-serif;font-size:13px;letter-spacing:1px;">${loadingText}</div>`;
 
   // Make sure allTrackers is populated
   if (!allTrackers.length) {
@@ -440,7 +446,7 @@ async function loadDashboard() {
   }
 
   if (!allTrackers.length) {
-    grid.innerHTML = '<p style="color:rgba(238,242,255,0.35);text-align:center;padding:60px 20px;">No trackers yet. Create one in Admin.</p>';
+    grid.innerHTML = `<p style="color:rgba(238,242,255,0.35);text-align:center;padding:60px 20px;">${emptyText}</p>`;
     return;
   }
 
@@ -474,13 +480,13 @@ async function loadDashboard() {
         </div>
       </div>
       <div class="thc-stats">
-        <div class="thc-stat-pill thc-pct-pill" style="background:${barColor}18;border-color:${barColor}55;color:${barColor}"><span class="thc-stat-val">${t.pct}%</span> <span class="thc-stat-lbl">Complete</span></div>
-        <div class="thc-stat-pill"><span class="thc-stat-val">${t.totalBlocks}</span> <span class="thc-stat-lbl">Power Blocks</span></div>
+        <div class="thc-stat-pill thc-pct-pill" style="background:${barColor}18;border-color:${barColor}55;color:${barColor}"><span class="thc-stat-val">${t.pct}%</span> <span class="thc-stat-lbl">${completeLabel}</span></div>
+        <div class="thc-stat-pill"><span class="thc-stat-val">${t.totalBlocks}</span> <span class="thc-stat-lbl">${powerBlocksLabel}</span></div>
         <div class="thc-stat-pill"><span class="thc-stat-val">${t.termedItems}</span> <span class="thc-stat-lbl">${t.stat_label || t.item_name_plural || 'Items'}</span></div>
       </div>
       <div class="thc-bar-wrap"><div class="thc-bar-fill" style="width:${t.pct}%;background:${barColor};"></div></div>
       <div class="thc-footer">
-        <span class="thc-open-btn">Open Tracker →</span>
+        <span class="thc-open-btn">${openTrackerLabel} →</span>
       </div>
     </div>`;
   }).join('');
@@ -1270,7 +1276,7 @@ function applyUIText(t) {
   }
   // Dashboard subtitle element (not a page title h1)
   if (t.sub_dashboard) {
-    const e = document.getElementById('dashboard-hub-subtitle');
+    const e = document.getElementById('page-subtitle-dashboard');
     if (e) e.textContent = t.sub_dashboard;
   }
 }
@@ -3757,6 +3763,11 @@ function loadUILabelsTab() {
   setVal('ul-nav-admin',     t.nav_admin,     'Admin');
   setVal('ul-title-dashboard', t.title_dashboard, 'All Trackers');
   setVal('ul-sub-dashboard',   t.sub_dashboard,   'Select a tracker to view and manage its progress');
+  setVal('ul-dashboard-loading', t.dashboard_loading, 'LOADING TRACKERS...');
+  setVal('ul-dashboard-empty',   t.dashboard_empty,   'No trackers yet. Create one in Admin.');
+  setVal('ul-dashboard-complete', t.dashboard_complete, 'Complete');
+  setVal('ul-dashboard-blocks',   t.dashboard_power_blocks, 'Power Blocks');
+  setVal('ul-dashboard-open',     t.dashboard_open_tracker, 'Open Tracker');
   setVal('ul-title-blocks',    t.title_blocks,    'Power Blocks & LBDs');
   setVal('ul-title-upload',    t.title_upload,    'Upload & Extract PDF');
   setVal('ul-title-worklog',   t.title_worklog,   'Work Log');
@@ -3773,6 +3784,9 @@ async function saveAdminUIText() {
     nav_worklog:   g('ul-nav-worklog'),   nav_reports: g('ul-nav-reports'),
     nav_admin:     g('ul-nav-admin'),
     title_dashboard: g('ul-title-dashboard'), sub_dashboard: g('ul-sub-dashboard'),
+    dashboard_loading: g('ul-dashboard-loading'), dashboard_empty: g('ul-dashboard-empty'),
+    dashboard_complete: g('ul-dashboard-complete'), dashboard_power_blocks: g('ul-dashboard-blocks'),
+    dashboard_open_tracker: g('ul-dashboard-open'),
     title_blocks:    g('ul-title-blocks'),    title_upload:  g('ul-title-upload'),
     title_worklog:   g('ul-title-worklog'),   title_reports: g('ul-title-reports'),
     title_admin:     g('ul-title-admin'),
@@ -3783,6 +3797,7 @@ async function saveAdminUIText() {
     await api.saveUIText(ui_text);
     if (adminSettings) adminSettings.ui_text = ui_text;
     applyUIText(ui_text);
+    await loadDashboard();
     const st = document.getElementById('uilabels-save-status');
     if (st) { st.textContent = '✓ Saved'; setTimeout(() => { st.textContent = ''; }, 2500); }
   } catch(e) { showAdminAlert('Failed to save UI text: ' + e.message, 'error'); }
@@ -3790,7 +3805,8 @@ async function saveAdminUIText() {
 
 function resetAdminUIText() {
   ['ul-nav-dashboard','ul-nav-upload','ul-nav-blocks','ul-nav-sitemap','ul-nav-worklog','ul-nav-reports','ul-nav-admin',
-   'ul-title-dashboard','ul-sub-dashboard','ul-title-blocks','ul-title-upload','ul-title-worklog','ul-title-reports','ul-title-admin']
+   'ul-title-dashboard','ul-sub-dashboard','ul-dashboard-loading','ul-dashboard-empty','ul-dashboard-complete',
+   'ul-dashboard-blocks','ul-dashboard-open','ul-title-blocks','ul-title-upload','ul-title-worklog','ul-title-reports','ul-title-admin']
     .forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
 }
 
