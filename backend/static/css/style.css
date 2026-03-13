@@ -877,6 +877,19 @@ body::after {
 .admin-tab.active { background: rgba(0,212,255,0.08) !important; color: var(--cyan) !important; border-color: rgba(0,212,255,0.3) !important; border-bottom-color: transparent !important; text-shadow: 0 0 10px rgba(0,212,255,0.3); }
 .admin-tab-content { padding: 22px !important; border: 1px solid var(--border) !important; border-radius: 0 var(--radius-md) var(--radius-md) var(--radius-md) !important; background: rgba(10,14,31,0.4) !important; backdrop-filter: blur(8px); }
 
+/* Appearance & UI Text tab styles */
+.appearance-group { background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px 18px; }
+.appearance-group-title { font-size: 13px; font-weight: 700; color: var(--cyan); font-family: 'Orbitron', sans-serif; letter-spacing: 0.5px; margin-bottom: 14px; }
+.appearance-label { display: block; font-size: 12px; color: var(--text-muted); margin: 10px 0 4px; }
+.appearance-label:first-of-type { margin-top: 0; }
+.appearance-input { width: 100%; background: rgba(255,255,255,0.05); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-primary); font-size: 13px; padding: 7px 10px; font-family: 'Space Grotesk', sans-serif; transition: var(--trans); box-sizing: border-box; }
+.appearance-input:focus { outline: none; border-color: rgba(0,212,255,0.4); box-shadow: 0 0 0 2px rgba(0,212,255,0.08); }
+.appearance-color-swatch { width: 40px; height: 36px; border: none; border-radius: var(--radius-sm); cursor: pointer; flex-shrink: 0; padding: 2px; background: transparent; }
+.appearance-color-row { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-radius: var(--radius-sm); transition: background var(--trans); }
+.appearance-color-row:hover { background: rgba(255,255,255,0.03); }
+.appearance-color-name { font-size: 13px; font-weight: 600; color: var(--text-secondary); }
+.appearance-color-hex { font-size: 11px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; }
+
 #admin-font-preview { background: linear-gradient(135deg, var(--cyan), var(--purple)) !important; color: #000 !important; border-radius: var(--radius-md) !important; font-weight: 800 !important; padding: 16px 28px !important; text-align: center !important; display: inline-block !important; margin-top: 10px !important; width: auto !important; height: auto !important; line-height: 1.2 !important; font-family: 'Orbitron', sans-serif !important; box-shadow: 0 0 30px rgba(0,212,255,0.2) !important; }
 
 /* -- Misc ---------------------------------------------------------- */

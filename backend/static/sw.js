@@ -1,4 +1,4 @@
-const CACHE_NAME = 'princess-trackers-v10';
+const CACHE_NAME = 'princess-trackers-v11';
 const PRECACHE = [
   '/',
   '/static/Logo.png'

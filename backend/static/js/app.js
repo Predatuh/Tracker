@@ -90,6 +90,8 @@ const api = {
   // ---- Admin API (tracker-aware) ----
   getAdminSettings() { return this.call(this._tq('/admin/settings')); },
   saveZoneNames(names) { return this.call(this._tq('/admin/settings/zone-names'), { method:'PUT', body: JSON.stringify({names}) }); },
+  saveAppearance(appearance) { return this.call('/admin/settings/appearance', { method:'PUT', body: JSON.stringify({appearance}) }); },
+  saveUIText(ui_text) { return this.call('/admin/settings/ui-text', { method:'PUT', body: JSON.stringify({ui_text}) }); },
   saveAdminColors(colors) {
     const body = { colors };
     if (currentTracker) body.tracker_id = currentTracker.id;
@@ -1216,8 +1218,65 @@ async function loadAdminSettings() {
     if (Array.isArray(d.zone_names) && d.zone_names.length > 0) {
       _adminZoneNames = d.zone_names.slice();
     }
+    applyAppearance(d.appearance);
+    applyUIText(d.ui_text);
   } catch(e) { console.warn('Admin settings not loaded:', e); }
   renderLegend();
+}
+
+function applyAppearance(a) {
+  if (!a) return;
+  const root = document.documentElement;
+  if (a.color_cyan)   root.style.setProperty('--cyan', a.color_cyan);
+  if (a.color_purple) root.style.setProperty('--purple', a.color_purple);
+  if (a.color_green)  root.style.setProperty('--green', a.color_green);
+  if (a.color_red)    root.style.setProperty('--red', a.color_red);
+  if (a.color_bg)     root.style.setProperty('--bg', a.color_bg);
+  const set = (id, val) => { if (val !== undefined && val !== null) { const e = document.getElementById(id); if (e) e.textContent = val; } };
+  // brand-rest1 holds everything after the leading "P"
+  if (a.brand_word1 !== undefined) {
+    const e = document.getElementById('brand-rest1');
+    if (e) e.textContent = a.brand_word1.replace(/^P/i, '');
+  }
+  set('brand-sep-sym',      a.brand_sep);
+  set('brand-word2',        a.brand_word2);
+  set('login-title-text',   a.login_title);
+  set('login-subtitle-text',a.login_subtitle);
+  set('login-btn-text',     a.login_btn);
+}
+
+function applyUIText(t) {
+  if (!t) return;
+  const pairs = {
+    'nav-link-dashboard': t.nav_dashboard,
+    'nav-link-upload':    t.nav_upload,
+    'nav-link-blocks':    t.nav_blocks,
+    'nav-link-sitemap':   t.nav_sitemap,
+    'nav-link-worklog':   t.nav_worklog,
+    'nav-link-reports':   t.nav_reports,
+    'nav-link-admin':     t.nav_admin,
+    'page-title-dashboard': t.title_dashboard,
+    'page-title-blocks':    t.title_blocks,
+    'page-title-upload':    t.title_upload,
+    'page-title-worklog':   t.title_worklog,
+    'page-title-reports':   t.title_reports,
+    'page-title-admin':     t.title_admin,
+  };
+  for (const [id, val] of Object.entries(pairs)) {
+    if (val !== undefined && val !== '') {
+      const e = document.getElementById(id);
+      if (e) e.textContent = val;
+    }
+  }
+  // Dashboard subtitle element (not a page title h1)
+  if (t.sub_dashboard) {
+    const e = document.getElementById('dashboard-hub-subtitle');
+    if (e) e.textContent = t.sub_dashboard;
+  }
+}
+
+function previewThemeColor(cssVar, value) {
+  document.documentElement.style.setProperty(cssVar, value);
 }
 
 function renderLegend() {
@@ -3609,6 +3668,130 @@ function switchAdminTab(tabKey) {
   if (tabKey === 'trackers') loadTrackersTab();
   if (tabKey === 'maplabels') loadMapLabelsTab();
   if (tabKey === 'zones') loadZonesTab();
+  if (tabKey === 'appearance') loadAppearanceTab();
+  if (tabKey === 'uilabels') loadUILabelsTab();
+}
+
+/* ── Appearance Admin Tab ── */
+function loadAppearanceTab() {
+  const a = (adminSettings && adminSettings.appearance) ? adminSettings.appearance : {};
+  const setVal = (id, val, fallback) => { const e = document.getElementById(id); if (e) e.value = (val !== undefined && val !== '') ? val : fallback; };
+  setVal('ap-brand-word1', a.brand_word1, 'PRINCESS');
+  setVal('ap-brand-sep',   a.brand_sep,   '◈');
+  setVal('ap-brand-word2', a.brand_word2, 'TRACKERS');
+  setVal('ap-login-title',    a.login_title,    'Princess Trackers');
+  setVal('ap-login-subtitle', a.login_subtitle, 'Sign in to check off your work');
+  setVal('ap-login-btn',      a.login_btn,      'Sign In');
+  setVal('ap-color-cyan',   a.color_cyan,   '#00d4ff');
+  setVal('ap-color-purple', a.color_purple, '#7c6cfc');
+  setVal('ap-color-green',  a.color_green,  '#00e87a');
+  setVal('ap-color-red',    a.color_red,    '#ff4c6a');
+  setVal('ap-color-bg',     a.color_bg,     '#03040a');
+  // sync hex labels
+  ['cyan','purple','green','red','bg'].forEach(k => {
+    const swatch = document.getElementById(`ap-color-${k}`);
+    const hex    = document.getElementById(`ap-color-${k}-hex`);
+    if (swatch && hex) hex.textContent = swatch.value;
+  });
+  document.getElementById('appearance-save-status').textContent = '';
+}
+
+async function saveAdminAppearance() {
+  const g = (id) => { const e = document.getElementById(id); return e ? e.value.trim() : ''; };
+  const appearance = {
+    brand_word1:     g('ap-brand-word1'),
+    brand_sep:       g('ap-brand-sep'),
+    brand_word2:     g('ap-brand-word2'),
+    login_title:     g('ap-login-title'),
+    login_subtitle:  g('ap-login-subtitle'),
+    login_btn:       g('ap-login-btn'),
+    color_cyan:      g('ap-color-cyan'),
+    color_purple:    g('ap-color-purple'),
+    color_green:     g('ap-color-green'),
+    color_red:       g('ap-color-red'),
+    color_bg:        g('ap-color-bg'),
+  };
+  try {
+    await api.saveAppearance(appearance);
+    if (adminSettings) adminSettings.appearance = appearance;
+    applyAppearance(appearance);
+    const st = document.getElementById('appearance-save-status');
+    if (st) { st.textContent = '✓ Saved'; setTimeout(() => { st.textContent = ''; }, 2500); }
+  } catch(e) { showAdminAlert('Failed to save appearance: ' + e.message, 'error'); }
+}
+
+function resetAdminAppearance() {
+  const defaults = { brand_word1:'PRINCESS', brand_sep:'◈', brand_word2:'TRACKERS',
+    login_title:'Princess Trackers', login_subtitle:'Sign in to check off your work', login_btn:'Sign In',
+    color_cyan:'#00d4ff', color_purple:'#7c6cfc', color_green:'#00e87a', color_red:'#ff4c6a', color_bg:'#03040a' };
+  const set = (id, val) => { const e = document.getElementById(id); if (e) e.value = val; };
+  set('ap-brand-word1', defaults.brand_word1);
+  set('ap-brand-sep',   defaults.brand_sep);
+  set('ap-brand-word2', defaults.brand_word2);
+  set('ap-login-title',    defaults.login_title);
+  set('ap-login-subtitle', defaults.login_subtitle);
+  set('ap-login-btn',      defaults.login_btn);
+  set('ap-color-cyan',   defaults.color_cyan);
+  set('ap-color-purple', defaults.color_purple);
+  set('ap-color-green',  defaults.color_green);
+  set('ap-color-red',    defaults.color_red);
+  set('ap-color-bg',     defaults.color_bg);
+  ['cyan','purple','green','red','bg'].forEach(k => {
+    const hex = document.getElementById(`ap-color-${k}-hex`);
+    const sw  = document.getElementById(`ap-color-${k}`);
+    if (hex && sw) hex.textContent = sw.value;
+  });
+  applyAppearance(defaults);
+}
+
+/* ── UI Text Admin Tab ── */
+function loadUILabelsTab() {
+  const t = (adminSettings && adminSettings.ui_text) ? adminSettings.ui_text : {};
+  const setVal = (id, val, ph) => { const e = document.getElementById(id); if (e) { e.value = (val !== undefined && val !== '') ? val : ''; e.placeholder = ph; } };
+  setVal('ul-nav-dashboard', t.nav_dashboard, 'Dashboard');
+  setVal('ul-nav-upload',    t.nav_upload,    'Upload PDF');
+  setVal('ul-nav-blocks',    t.nav_blocks,    'Power Blocks');
+  setVal('ul-nav-sitemap',   t.nav_sitemap,   'Site Map');
+  setVal('ul-nav-worklog',   t.nav_worklog,   'Work Log');
+  setVal('ul-nav-reports',   t.nav_reports,   'Reports');
+  setVal('ul-nav-admin',     t.nav_admin,     'Admin');
+  setVal('ul-title-dashboard', t.title_dashboard, 'All Trackers');
+  setVal('ul-sub-dashboard',   t.sub_dashboard,   'Select a tracker to view and manage its progress');
+  setVal('ul-title-blocks',    t.title_blocks,    'Power Blocks & LBDs');
+  setVal('ul-title-upload',    t.title_upload,    'Upload & Extract PDF');
+  setVal('ul-title-worklog',   t.title_worklog,   'Work Log');
+  setVal('ul-title-reports',   t.title_reports,   'Daily Reports');
+  setVal('ul-title-admin',     t.title_admin,     'Admin Controls');
+  document.getElementById('uilabels-save-status').textContent = '';
+}
+
+async function saveAdminUIText() {
+  const g = (id) => { const e = document.getElementById(id); return e ? e.value.trim() : ''; };
+  const ui_text = {
+    nav_dashboard: g('ul-nav-dashboard'), nav_upload: g('ul-nav-upload'),
+    nav_blocks:    g('ul-nav-blocks'),    nav_sitemap: g('ul-nav-sitemap'),
+    nav_worklog:   g('ul-nav-worklog'),   nav_reports: g('ul-nav-reports'),
+    nav_admin:     g('ul-nav-admin'),
+    title_dashboard: g('ul-title-dashboard'), sub_dashboard: g('ul-sub-dashboard'),
+    title_blocks:    g('ul-title-blocks'),    title_upload:  g('ul-title-upload'),
+    title_worklog:   g('ul-title-worklog'),   title_reports: g('ul-title-reports'),
+    title_admin:     g('ul-title-admin'),
+  };
+  // strip empty strings so defaults still render
+  for (const k of Object.keys(ui_text)) { if (!ui_text[k]) delete ui_text[k]; }
+  try {
+    await api.saveUIText(ui_text);
+    if (adminSettings) adminSettings.ui_text = ui_text;
+    applyUIText(ui_text);
+    const st = document.getElementById('uilabels-save-status');
+    if (st) { st.textContent = '✓ Saved'; setTimeout(() => { st.textContent = ''; }, 2500); }
+  } catch(e) { showAdminAlert('Failed to save UI text: ' + e.message, 'error'); }
+}
+
+function resetAdminUIText() {
+  ['ul-nav-dashboard','ul-nav-upload','ul-nav-blocks','ul-nav-sitemap','ul-nav-worklog','ul-nav-reports','ul-nav-admin',
+   'ul-title-dashboard','ul-sub-dashboard','ul-title-blocks','ul-title-upload','ul-title-worklog','ul-title-reports','ul-title-admin']
+    .forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
 }
 
 /* ── Trackers Admin Tab ── */

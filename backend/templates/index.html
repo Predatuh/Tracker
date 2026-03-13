@@ -25,8 +25,8 @@
   <div class="login-box" style="position:relative;z-index:1;background:rgba(10,14,31,0.75);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(0,212,255,0.12);border-radius:22px;padding:40px 44px;width:390px;max-width:93vw;box-shadow:0 32px 90px rgba(0,0,0,0.85),0 0 80px rgba(0,212,255,0.06);">
     <div style="text-align:center;margin-bottom:24px;">
       <img id="login-logo" src="{{ url_for('static', filename='Logo.png') }}" alt="Logo" style="height:70px;width:auto;object-fit:contain;margin:0 auto 14px;display:block;filter:drop-shadow(0 0 24px rgba(0,212,255,0.35));transition:all 0.3s;" />
-      <h2 style="margin:0 0 4px;font-size:22px;font-weight:800;color:#eef2ff;font-family:'Orbitron',sans-serif;letter-spacing:1px;text-shadow:0 0 20px rgba(0,212,255,0.2);">Princess Trackers</h2>
-      <div style="color:rgba(238,242,255,0.4);font-size:13px;font-family:'Space Grotesk',sans-serif;letter-spacing:0.3px;">Sign in to check off your work</div>
+      <h2 id="login-title-text" style="margin:0 0 4px;font-size:22px;font-weight:800;color:#eef2ff;font-family:'Orbitron',sans-serif;letter-spacing:1px;text-shadow:0 0 20px rgba(0,212,255,0.2);">Princess Trackers</h2>
+      <div id="login-subtitle-text" style="color:rgba(238,242,255,0.4);font-size:13px;font-family:'Space Grotesk',sans-serif;letter-spacing:0.3px;">Sign in to check off your work</div>
     </div>
     <!-- Tabs -->
     <div style="display:flex;border-bottom:1px solid rgba(0,212,255,0.1);margin-bottom:20px;gap:4px;">
@@ -59,7 +59,7 @@
       style="width:100%;background:linear-gradient(135deg,#00d4ff,#009abc);color:#000;border:none;border-radius:8px;padding:14px;font-size:14px;font-weight:800;cursor:pointer;margin-bottom:10px;font-family:'Space Grotesk',sans-serif;letter-spacing:0.5px;transition:all 0.25s;position:relative;overflow:hidden;"
       onmouseover="this.style.boxShadow='0 0 30px rgba(0,212,255,0.45)';this.style.transform='translateY(-1px)'"
       onmouseout="this.style.boxShadow='none';this.style.transform='none'">
-      Sign In
+      <span id="login-btn-text">Sign In</span>
     </button>
     <button onclick="document.getElementById('login-overlay').style.display='none';stopLoginAnimation()"
       style="width:100%;background:transparent;color:rgba(238,242,255,0.3);border:1px solid rgba(0,212,255,0.08);border-radius:8px;padding:10px;font-size:13px;cursor:pointer;font-family:'Space Grotesk',sans-serif;transition:all 0.25s;"
@@ -76,20 +76,20 @@
         <nav class="navbar">
             <div class="navbar-container">
                 <div class="navbar-brand" onclick="showPage('dashboard')" style="cursor:pointer;" title="All Trackers">
-                  <span class="brand-name"><span class="brand-princess"><span class="brand-p">P</span>RINCESS</span><span class="brand-sep"> &#x25C8; </span><span class="brand-trackers">TRACKERS</span></span>
+                  <span class="brand-name"><span class="brand-princess"><span class="brand-p">P</span><span id="brand-rest1">RINCESS</span></span><span class="brand-sep"> <span id="brand-sep-sym">&#x25C8;</span> </span><span class="brand-trackers" id="brand-word2">TRACKERS</span></span>
                 </div>
                 <div id="active-tracker-crumb" style="display:none;align-items:center;gap:6px;margin-left:14px;padding:3px 10px;background:rgba(0,212,255,0.08);border:1px solid rgba(0,212,255,0.2);border-radius:20px;">
                     <span style="font-size:12px;color:rgba(238,242,255,0.45);">&#x30FB;</span>
                     <span id="active-tracker-name" style="font-size:13px;font-weight:600;color:#eef2ff;font-family:'Orbitron',sans-serif;letter-spacing:0.5px;"></span>
                 </div>
                 <ul class="nav-menu">
-                    <li><a href="#" onclick="showPage('dashboard')">Dashboard</a></li>
-                    <li><a href="#" onclick="showPage('upload')" class="admin-only" data-perm="upload_pdf">Upload PDF</a></li>
-                    <li><a href="#" onclick="showPage('blocks')">Power Blocks</a></li>
-                    <li><a href="#" onclick="showPage('sitemap')">Site Map</a></li>
-                    <li><a href="#" onclick="showPage('worklog')">Work Log</a></li>
-                    <li><a href="#" onclick="showPage('reports')">Reports</a></li>
-                    <li><a href="#" onclick="showPage('admin')" class="admin-only" data-perm="admin_settings">Admin</a></li>
+                    <li><a href="#" onclick="showPage('dashboard')" id="nav-link-dashboard">Dashboard</a></li>
+                    <li><a href="#" onclick="showPage('upload')" class="admin-only" data-perm="upload_pdf" id="nav-link-upload">Upload PDF</a></li>
+                    <li><a href="#" onclick="showPage('blocks')" id="nav-link-blocks">Power Blocks</a></li>
+                    <li><a href="#" onclick="showPage('sitemap')" id="nav-link-sitemap">Site Map</a></li>
+                    <li><a href="#" onclick="showPage('worklog')" id="nav-link-worklog">Work Log</a></li>
+                    <li><a href="#" onclick="showPage('reports')" id="nav-link-reports">Reports</a></li>
+                    <li><a href="#" onclick="showPage('admin')" class="admin-only" data-perm="admin_settings" id="nav-link-admin">Admin</a></li>
                 </ul>
                 <div id="user-info" style="display:flex;align-items:center;gap:8px;margin-left:12px;"></div>
             </div>
@@ -101,8 +101,8 @@
             <div id="page-dashboard" class="page active">
                 <div class="container">
                     <div class="hub-header">
-                        <h1 class="section-title">All Trackers</h1>
-                        <p class="hub-subtitle">Select a tracker to view and manage its progress</p>
+                        <h1 class="section-title" id="page-title-dashboard">All Trackers</h1>
+                        <p class="hub-subtitle" id="page-subtitle-dashboard">Select a tracker to view and manage its progress</p>
                     </div>
                     <div id="tracker-hub-grid" class="tracker-hub-grid"></div>
                 </div>
@@ -111,7 +111,7 @@
             <!-- Upload Page -->
             <div id="page-upload" class="page">
                 <div class="container">
-                    <h1 class="section-title">Upload & Extract PDF</h1>
+                    <h1 class="section-title" id="page-title-upload">Upload & Extract PDF</h1>
                     
                     <div class="form-section">
                         <div class="form-group">
@@ -168,7 +168,7 @@
             <div id="page-blocks" class="page">
                 <div class="container">
                     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:8px;">
-                      <h1 class="section-title" style="margin-bottom:0;">Power Blocks & LBDs</h1>
+                      <h1 class="section-title" id="page-title-blocks" style="margin-bottom:0;">Power Blocks & LBDs</h1>
                       <div style="display:flex;align-items:center;gap:8px;">
                         <label style="font-size:12px;color:#8892b0;white-space:nowrap;">Header Text:</label>
                         <button onclick="changePBHeaderSize(-1)" style="background:rgba(255,255,255,0.08);color:#ccd6f6;border:none;border-radius:4px;width:26px;height:26px;cursor:pointer;font-size:14px;font-weight:700;line-height:1;">−</button>
@@ -307,7 +307,7 @@
             <!-- Admin Page -->
             <div id="page-admin" class="page">
               <div class="container" style="max-width:880px;">
-                <h1 class="section-title">Admin Controls</h1>
+                <h1 class="section-title" id="page-title-admin">Admin Controls</h1>
                 <div id="admin-alert" class="alert hidden"></div>
 
                 <!-- Tabs -->
@@ -319,6 +319,8 @@
                   <button class="btn admin-tab" id="atab-maplabels" onclick="switchAdminTab('maplabels')">🗺️ Map Labels</button>
                   <button class="btn admin-tab" id="atab-zones" onclick="switchAdminTab('zones')">🗾 Zones</button>
                   <button class="btn admin-tab main-admin-only" id="atab-users" onclick="switchAdminTab('users')">👥 Users</button>
+                  <button class="btn admin-tab main-admin-only" id="atab-appearance" onclick="switchAdminTab('appearance')">✨ Appearance</button>
+                  <button class="btn admin-tab main-admin-only" id="atab-uilabels" onclick="switchAdminTab('uilabels')">📝 UI Text</button>
                   <button class="btn admin-tab" id="atab-updates" onclick="switchAdminTab('updates')">🔄 Updates</button>
                 </div>
 
@@ -467,6 +469,131 @@
                   <div id="admin-users-list" style="display:flex;flex-direction:column;gap:12px;"></div>
                 </div>
 
+                <!-- Appearance Tab -->
+                <div id="admin-tab-appearance" class="admin-tab-content" style="display:none;">
+                  <h2 class="section-subtitle">✨ Appearance &amp; Theme</h2>
+                  <p style="color:var(--text-muted);font-size:13px;margin-bottom:20px;">Customize brand text, theme colors, and the login screen. Changes apply immediately across the whole app.</p>
+
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px;">
+                    <!-- Brand -->
+                    <div class="appearance-group">
+                      <div class="appearance-group-title">Brand Name</div>
+                      <label class="appearance-label">Left word (e.g. PRINCESS)</label>
+                      <input type="text" id="ap-brand-word1" class="appearance-input" placeholder="PRINCESS" value="PRINCESS" />
+                      <label class="appearance-label">Separator symbol</label>
+                      <input type="text" id="ap-brand-sep" class="appearance-input" placeholder="◈" value="◈" style="max-width:80px;" />
+                      <label class="appearance-label">Right word (e.g. TRACKERS)</label>
+                      <input type="text" id="ap-brand-word2" class="appearance-input" placeholder="TRACKERS" value="TRACKERS" />
+                    </div>
+                    <!-- Login screen -->
+                    <div class="appearance-group">
+                      <div class="appearance-group-title">Login Screen</div>
+                      <label class="appearance-label">App title on login</label>
+                      <input type="text" id="ap-login-title" class="appearance-input" placeholder="Princess Trackers" value="Princess Trackers" />
+                      <label class="appearance-label">Login subtitle</label>
+                      <input type="text" id="ap-login-subtitle" class="appearance-input" placeholder="Sign in to check off your work" value="Sign in to check off your work" />
+                      <label class="appearance-label">Login button text</label>
+                      <input type="text" id="ap-login-btn" class="appearance-input" placeholder="Sign In" value="Sign In" />
+                    </div>
+                  </div>
+
+                  <div class="appearance-group" style="margin-bottom:24px;">
+                    <div class="appearance-group-title">Theme Colors</div>
+                    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px;">
+                      <div class="appearance-color-row">
+                        <input type="color" id="ap-color-cyan" value="#00d4ff" class="appearance-color-swatch" oninput="document.getElementById('ap-color-cyan-hex').textContent=this.value;previewThemeColor('--cyan',this.value)" />
+                        <div>
+                          <div class="appearance-color-name">Primary / Cyan</div>
+                          <div class="appearance-color-hex" id="ap-color-cyan-hex">#00d4ff</div>
+                        </div>
+                      </div>
+                      <div class="appearance-color-row">
+                        <input type="color" id="ap-color-purple" value="#7c6cfc" class="appearance-color-swatch" oninput="document.getElementById('ap-color-purple-hex').textContent=this.value;previewThemeColor('--purple',this.value)" />
+                        <div>
+                          <div class="appearance-color-name">Secondary / Purple</div>
+                          <div class="appearance-color-hex" id="ap-color-purple-hex">#7c6cfc</div>
+                        </div>
+                      </div>
+                      <div class="appearance-color-row">
+                        <input type="color" id="ap-color-green" value="#00e87a" class="appearance-color-swatch" oninput="document.getElementById('ap-color-green-hex').textContent=this.value;previewThemeColor('--green',this.value)" />
+                        <div>
+                          <div class="appearance-color-name">Success / Green</div>
+                          <div class="appearance-color-hex" id="ap-color-green-hex">#00e87a</div>
+                        </div>
+                      </div>
+                      <div class="appearance-color-row">
+                        <input type="color" id="ap-color-red" value="#ff4c6a" class="appearance-color-swatch" oninput="document.getElementById('ap-color-red-hex').textContent=this.value;previewThemeColor('--red',this.value)" />
+                        <div>
+                          <div class="appearance-color-name">Danger / Red</div>
+                          <div class="appearance-color-hex" id="ap-color-red-hex">#ff4c6a</div>
+                        </div>
+                      </div>
+                      <div class="appearance-color-row">
+                        <input type="color" id="ap-color-bg" value="#03040a" class="appearance-color-swatch" oninput="document.getElementById('ap-color-bg-hex').textContent=this.value;previewThemeColor('--bg',this.value)" />
+                        <div>
+                          <div class="appearance-color-name">Background</div>
+                          <div class="appearance-color-hex" id="ap-color-bg-hex">#03040a</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style="display:flex;gap:10px;align-items:center;">
+                    <button class="btn btn-primary" onclick="saveAdminAppearance()">Save Appearance</button>
+                    <button class="btn btn-secondary" onclick="resetAdminAppearance()" style="font-size:12px;">Reset to Defaults</button>
+                    <span id="appearance-save-status" style="font-size:12px;color:var(--green);"></span>
+                  </div>
+                </div>
+
+                <!-- UI Text / Labels Tab -->
+                <div id="admin-tab-uilabels" class="admin-tab-content" style="display:none;">
+                  <h2 class="section-subtitle">📝 UI Text &amp; Labels</h2>
+                  <p style="color:var(--text-muted);font-size:13px;margin-bottom:20px;">Rename any label, title, or nav item across the entire app. Changes save and apply instantly.</p>
+
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px;">
+                    <div class="appearance-group">
+                      <div class="appearance-group-title">Navigation Labels</div>
+                      <label class="appearance-label">Dashboard</label>
+                      <input type="text" id="ul-nav-dashboard" class="appearance-input" placeholder="Dashboard" />
+                      <label class="appearance-label">Upload PDF</label>
+                      <input type="text" id="ul-nav-upload" class="appearance-input" placeholder="Upload PDF" />
+                      <label class="appearance-label">Power Blocks</label>
+                      <input type="text" id="ul-nav-blocks" class="appearance-input" placeholder="Power Blocks" />
+                      <label class="appearance-label">Site Map</label>
+                      <input type="text" id="ul-nav-sitemap" class="appearance-input" placeholder="Site Map" />
+                      <label class="appearance-label">Work Log</label>
+                      <input type="text" id="ul-nav-worklog" class="appearance-input" placeholder="Work Log" />
+                      <label class="appearance-label">Reports</label>
+                      <input type="text" id="ul-nav-reports" class="appearance-input" placeholder="Reports" />
+                      <label class="appearance-label">Admin</label>
+                      <input type="text" id="ul-nav-admin" class="appearance-input" placeholder="Admin" />
+                    </div>
+                    <div class="appearance-group">
+                      <div class="appearance-group-title">Page Titles</div>
+                      <label class="appearance-label">Dashboard (hub)</label>
+                      <input type="text" id="ul-title-dashboard" class="appearance-input" placeholder="All Trackers" />
+                      <label class="appearance-label">Dashboard subtitle</label>
+                      <input type="text" id="ul-sub-dashboard" class="appearance-input" placeholder="Select a tracker to view and manage its progress" />
+                      <label class="appearance-label">Power Blocks page</label>
+                      <input type="text" id="ul-title-blocks" class="appearance-input" placeholder="Power Blocks & LBDs" />
+                      <label class="appearance-label">Upload page</label>
+                      <input type="text" id="ul-title-upload" class="appearance-input" placeholder="Upload & Extract PDF" />
+                      <label class="appearance-label">Work Log page</label>
+                      <input type="text" id="ul-title-worklog" class="appearance-input" placeholder="Work Log" />
+                      <label class="appearance-label">Reports page</label>
+                      <input type="text" id="ul-title-reports" class="appearance-input" placeholder="Daily Reports" />
+                      <label class="appearance-label">Admin Controls page</label>
+                      <input type="text" id="ul-title-admin" class="appearance-input" placeholder="Admin Controls" />
+                    </div>
+                  </div>
+
+                  <div style="display:flex;gap:10px;align-items:center;">
+                    <button class="btn btn-primary" onclick="saveAdminUIText()">Save Labels</button>
+                    <button class="btn btn-secondary" onclick="resetAdminUIText()" style="font-size:12px;">Reset to Defaults</button>
+                    <span id="uilabels-save-status" style="font-size:12px;color:var(--green);"></span>
+                  </div>
+                </div>
+
                 <!-- Updates Tab -->
                 <div id="admin-tab-updates" class="admin-tab-content" style="display:none;">
                   <h2 class="section-subtitle">🔄 Over-the-Air EXE Update</h2>
@@ -504,7 +631,7 @@
             <!-- Work Log Page -->
             <div id="page-worklog" class="page">
                 <div class="container">
-                    <h1 class="section-title">Work Log</h1>
+                    <h1 class="section-title" id="page-title-worklog">Work Log</h1>
                     <div id="worklog-content"></div>
                 </div>
             </div>
@@ -512,7 +639,7 @@
             <!-- Reports Page -->
             <div id="page-reports" class="page">
                 <div class="container">
-                    <h1 class="section-title">Daily Reports</h1>
+                    <h1 class="section-title" id="page-title-reports">Daily Reports</h1>
                     <div id="reports-content"></div>
                 </div>
             </div>

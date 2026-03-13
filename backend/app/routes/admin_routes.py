@@ -109,6 +109,8 @@ def get_settings():
                 'pb_label_font_size': AdminSettings.get('pb_label_font_size', 14),
                 'tracker_id': tracker.id if tracker else None,
                 'zone_names': zone_names if isinstance(zone_names, list) else [],
+                'appearance': AdminSettings.get('appearance') or {},
+                'ui_text': AdminSettings.get('ui_text') or {},
             }
         }), 200
     except Exception as e:
@@ -328,6 +330,47 @@ def update_column_order():
         }), 200
     except Exception as e:
         db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+# ------------------------------------------------------------------ #
+# Update visual appearance (brand, colors, login text)
+# ------------------------------------------------------------------ #
+@bp.route('/settings/appearance', methods=['PUT'])
+def update_appearance():
+    try:
+        data = request.get_json() or {}
+        appearance = data.get('appearance', {})
+        allowed_keys = {
+            'brand_word1', 'brand_sep', 'brand_word2',
+            'login_title', 'login_subtitle', 'login_btn',
+            'color_cyan', 'color_purple', 'color_green', 'color_red', 'color_bg'
+        }
+        appearance = {k: v for k, v in appearance.items() if k in allowed_keys and isinstance(v, str)}
+        AdminSettings.set('appearance', appearance)
+        return jsonify({'success': True, 'data': appearance}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ------------------------------------------------------------------ #
+# Update UI text / labels (nav items, page titles)
+# ------------------------------------------------------------------ #
+@bp.route('/settings/ui-text', methods=['PUT'])
+def update_ui_text():
+    try:
+        data = request.get_json() or {}
+        ui_text = data.get('ui_text', {})
+        allowed_keys = {
+            'nav_dashboard', 'nav_upload', 'nav_blocks', 'nav_sitemap',
+            'nav_worklog', 'nav_reports', 'nav_admin',
+            'title_dashboard', 'sub_dashboard', 'title_blocks', 'title_upload',
+            'title_worklog', 'title_reports', 'title_admin'
+        }
+        ui_text = {k: v for k, v in ui_text.items() if k in allowed_keys and isinstance(v, str)}
+        AdminSettings.set('ui_text', ui_text)
+        return jsonify({'success': True, 'data': ui_text}), 200
+    except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
