@@ -812,6 +812,14 @@ async function loadSiteMap() {
 
     renderPBMarkers();
     buildZoneFilter();
+    // Pre-populate _adminZoneNames from loaded area zones so zone-assign works without visiting Admin
+    loadedMapAreas.forEach(a => {
+      if (a.zone && !_adminZoneNames.includes(a.zone)) _adminZoneNames.push(a.zone);
+    });
+    _adminZoneNames.sort((a, b) => {
+      const na = parseInt(a.replace(/\D/g,'')) || 0, nb = parseInt(b.replace(/\D/g,'')) || 0;
+      return na !== nb ? na - nb : a.localeCompare(b);
+    });
     // Auto-sync localStorage positions to DB so mobile apps stay in sync
     syncPositionsToServer();
   } catch (e) {
@@ -1964,11 +1972,16 @@ function renderPBMarkers() {
       });
     } else {
       // View mode: click fetches fresh data and opens panel
-      m.style.cursor = mapDeleteMode ? 'crosshair' : 'pointer';
+      m.style.cursor = mapDeleteMode ? 'crosshair' : (zoneAssignMode ? 'cell' : 'pointer');
       m.addEventListener('click', async () => {
         // Intercept click in delete mode
         if (mapDeleteMode) {
           instantDeleteArea(pb);
+          return;
+        }
+        // Intercept click in zone assign mode
+        if (zoneAssignMode) {
+          assignZoneToMarker(pb);
           return;
         }
         // Intercept click in snap-place clear-one mode
@@ -5183,3 +5196,168 @@ async function saveAreaZone(sel) {
   }
 }
 
+// ============================================================
+// ZONE ASSIGN MODE — toolbar button, click-on-map, range input
+// ============================================================
+let zoneAssignMode = false;
+
+function toggleZoneAssignMode() {
+  zoneAssignMode = !zoneAssignMode;
+  const panel = document.getElementById('zone-assign-panel');
+  const btn = document.getElementById('zone-assign-btn');
+  if (zoneAssignMode) {
+    panel.style.display = 'flex';
+    if (btn) { btn.classList.add('btn-primary'); btn.classList.remove('btn-secondary'); }
+    const sel = document.getElementById('zone-assign-select');
+    if (sel) {
+      sel.innerHTML = '<option value="">— Pick a Zone —</option>';
+      if (_adminZoneNames.length === 0) {
+        sel.innerHTML = '<option value="">⚠ Define zones in Admin → Zones first</option>';
+      } else {
+        sel.innerHTML += _adminZoneNames.map(z => `<option value="${z}">${z}</option>`).join('');
+      }
+    }
+    closePBPanel();
+  } else {
+    panel.style.display = 'none';
+    if (btn) { btn.classList.remove('btn-primary'); btn.classList.add('btn-secondary'); }
+  }
+  renderPBMarkers();
+}
+
+async function assignZoneToMarker(pb) {
+  const zone = document.getElementById('zone-assign-select')?.value;
+  if (!zone) {
+    const sel = document.getElementById('zone-assign-select');
+    if (sel) { sel.style.boxShadow = '0 0 0 2px #ff4c6a'; setTimeout(() => sel.style.boxShadow = '', 800); }
+    return;
+  }
+  const area = loadedMapAreas.find(a => a.power_block_id === pb.id);
+  if (!area) { showUndoToast(`No placed area for PB ${pb.name}`, null); return; }
+  try {
+    await api.updateSiteArea(area.id, { zone });
+    const idx = loadedMapAreas.findIndex(a => a.id === area.id);
+    if (idx >= 0) loadedMapAreas[idx].zone = zone;
+    const marker = document.getElementById(`pb-marker-${pb.id}`);
+    if (marker) {
+      marker.style.outline = '3px solid #00e87a';
+      marker.style.outlineOffset = '2px';
+      setTimeout(() => { marker.style.outline = ''; marker.style.outlineOffset = ''; }, 700);
+    }
+    showZoneAssignFeedback(`✓ PB ${pb.name} → ${zone}`);
+    buildZoneFilter();
+  } catch(e) { console.error('Zone assign failed:', e); }
+}
+
+function showZoneAssignFeedback(msg) {
+  const el = document.getElementById('zone-assign-feedback');
+  if (!el) return;
+  el.textContent = msg;
+  el.style.display = 'inline';
+  clearTimeout(el._feedbackTimer);
+  el._feedbackTimer = setTimeout(() => { el.style.display = 'none'; }, 2500);
+}
+
+function parseBlockRange(str) {
+  const nums = new Set();
+  str.split(/[,;\s]+/).forEach(part => {
+    const range = part.match(/^(\d+)\s*[-\u2013]\s*(\d+)$/);
+    if (range) {
+      const lo = parseInt(range[1]), hi = parseInt(range[2]);
+      for (let n = Math.min(lo, hi); n <= Math.max(lo, hi); n++) nums.add(n);
+    } else {
+      const n = parseInt(part);
+      if (!isNaN(n)) nums.add(n);
+    }
+  });
+  return [...nums];
+}
+
+async function assignByRange() {
+  const zone = document.getElementById('zone-assign-select')?.value;
+  const rangeStr = document.getElementById('zone-assign-range')?.value?.trim();
+  if (!zone) { showZoneAssignFeedback('⚠ Pick a zone first'); return; }
+  if (!rangeStr) { showZoneAssignFeedback('⚠ Enter a range like 1-5, 8-10'); return; }
+
+  const wantedNums = new Set(parseBlockRange(rangeStr));
+  if (!wantedNums.size) { showZoneAssignFeedback('⚠ No valid numbers found'); return; }
+
+  const matched = mapPBs.filter(pb => {
+    const num = parseInt((pb.power_block_number || pb.name.replace('INV-', '')).replace(/\D/g,''));
+    return wantedNums.has(num);
+  });
+  if (!matched.length) { showZoneAssignFeedback('⚠ No matching PBs on current map'); return; }
+
+  let count = 0;
+  await Promise.all(matched.map(async pb => {
+    const area = loadedMapAreas.find(a => a.power_block_id === pb.id);
+    if (!area) return;
+    try {
+      await api.updateSiteArea(area.id, { zone });
+      const idx = loadedMapAreas.findIndex(a => a.id === area.id);
+      if (idx >= 0) loadedMapAreas[idx].zone = zone;
+      count++;
+      // Flash marker
+      const marker = document.getElementById(`pb-marker-${pb.id}`);
+      if (marker) {
+        marker.style.outline = '3px solid #00e87a';
+        marker.style.outlineOffset = '2px';
+        setTimeout(() => { marker.style.outline = ''; marker.style.outlineOffset = ''; }, 1200);
+      }
+    } catch(e) { console.warn(`Zone assign PB ${pb.name}:`, e); }
+  }));
+
+  document.getElementById('zone-assign-range').value = '';
+  showZoneAssignFeedback(`✓ ${count} block${count !== 1 ? 's' : ''} → ${zone}`);
+  buildZoneFilter();
+}
+
+// Updated loadZonesTab → clean summary instead of 100-row dropdown list
+async function loadZonesTab() {
+  try {
+    const r = await api.getAllSiteMaps();
+    const maps = r.data || [];
+    const areas = [];
+    maps.forEach(m => { if (m.areas) m.areas.forEach(a => areas.push(a)); });
+    areas.forEach(a => { if (a.zone && !_adminZoneNames.includes(a.zone)) _adminZoneNames.push(a.zone); });
+    _adminZoneNames.sort((a, b) => {
+      const na = parseInt(a.replace(/\D/g,'')) || 0, nb = parseInt(b.replace(/\D/g,'')) || 0;
+      return na - nb || a.localeCompare(b);
+    });
+    renderZoneNamesList();
+    renderZoneSummary(areas);
+  } catch(e) {
+    const c = document.getElementById('admin-zone-summary');
+    if (c) c.innerHTML = `<p style="color:#ff4c6a;">Failed to load: ${e.message}</p>`;
+  }
+}
+
+function renderZoneSummary(areas) {
+  const container = document.getElementById('admin-zone-summary');
+  if (!container) return;
+  if (!areas.length) {
+    container.innerHTML = '<p style="color:var(--text-muted);font-size:13px;">No areas placed on map yet.</p>';
+    return;
+  }
+  const zoneMap = {};
+  areas.forEach(a => {
+    const z = a.zone || null;
+    if (!zoneMap[z]) zoneMap[z] = [];
+    zoneMap[z].push(a);
+  });
+  let html = '';
+  _adminZoneNames.forEach(z => {
+    const list = zoneMap[z] || [];
+    const names = list.map(a => a.name || `PB#${a.power_block_id}`).sort((a,b) => {
+      const na = parseInt(a.replace(/\D/g,'')) || 0, nb = parseInt(b.replace(/\D/g,'')) || 0;
+      return na - nb;
+    }).join(', ');
+    html += `<div class="zone-assign-row"><span class="zone-assign-label" style="color:var(--cyan);min-width:100px;">${z}</span><span style="font-size:12px;color:var(--text-muted);flex:2;">${list.length} block${list.length !== 1 ? 's' : ''}${names ? ': ' + names : ''}</span></div>`;
+  });
+  const unassigned = zoneMap[null] || [];
+  if (unassigned.length) {
+    const uNames = unassigned.map(a => a.name || `PB#${a.power_block_id}`).join(', ');
+    html += `<div class="zone-assign-row" style="border-color:rgba(255,76,106,0.2);"><span class="zone-assign-label" style="color:rgba(255,76,106,0.7);min-width:100px;">Unassigned</span><span style="font-size:12px;color:var(--text-muted);flex:2;">${unassigned.length} blocks: ${uNames}</span></div>`;
+  }
+  container.innerHTML = html || '<p style="color:var(--text-muted);">No zones assigned yet.</p>';
+}

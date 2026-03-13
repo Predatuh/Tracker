@@ -75,7 +75,10 @@
         <!-- Navigation -->
         <nav class="navbar">
             <div class="navbar-container">
-                <div class="navbar-brand"><img src="{{ url_for('static', filename='Logo.png') }}" alt="Logo" style="height:28px;width:auto;object-fit:contain;vertical-align:middle;margin-right:8px;filter:drop-shadow(0 0 8px rgba(0,212,255,0.3));" /><span class="brand-dot"></span>Princess <span style="color:var(--cyan)">Trackers</span></div>
+                <div class="navbar-brand">
+                  <img src="{{ url_for('static', filename='Logo.png') }}" alt="Logo" style="height:28px;width:auto;object-fit:contain;vertical-align:middle;margin-right:9px;filter:drop-shadow(0 0 8px rgba(0,212,255,0.3));" />
+                  <span class="brand-crown">&#x1F451;</span><span class="brand-name"><span class="brand-princess">PRINCESS</span><span class="brand-sep"> &#x25C8; </span><span class="brand-trackers">TRACKERS</span></span>
+                </div>
                 <div id="tracker-selector" style="display:flex;align-items:center;gap:6px;margin-left:12px;">
                     <select id="tracker-dropdown" onchange="switchTracker(this.value)"
                         style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#eef2ff;padding:5px 10px;font-size:12px;font-weight:600;font-family:Inter,sans-serif;cursor:pointer;outline:none;">
@@ -228,6 +231,7 @@
                     <div style="padding:8px 16px;background:rgba(7,9,26,0.97);border-bottom:1px solid rgba(0,212,255,0.08);display:flex;align-items:center;gap:8px;flex-shrink:0;flex-wrap:wrap;">
                         <strong style="font-size:14px;font-weight:700;font-family:'Orbitron',sans-serif;color:#eef2ff;letter-spacing:0.5px;text-shadow:0 0 12px rgba(0,212,255,0.15);">Site Map</strong>
                         <div style="flex:1;"></div>
+                        <button id="zone-assign-btn" class="btn btn-secondary admin-only" data-perm="edit_map" onclick="toggleZoneAssignMode()" style="font-size:12px;padding:5px 12px;" title="Assign PBs to zones by clicking or entering ranges">🏷️ Assign Zones</button>
                         <button id="delete-mode-btn" class="btn btn-danger admin-only" data-perm="edit_map" onclick="toggleDeleteMode()" style="font-size:12px;padding:5px 12px;">🗑️ Delete Mode</button>
                         <span id="delete-mode-indicator" class="delete-mode-indicator" style="display:none;">DELETE MODE</span>
                         <button id="edit-mode-btn" class="btn btn-secondary admin-only" data-perm="edit_map" onclick="toggleMapEditMode()" style="font-size:12px;padding:5px 12px;">✏️ Edit Positions</button>
@@ -241,6 +245,17 @@
                         <button id="restore-hidden-btn" class="btn btn-warning admin-only" data-perm="edit_map" onclick="restoreHiddenPBs()" style="font-size:12px;padding:5px 12px;display:none;" title="Restore all hidden PB boxes">👁 Show Hidden</button>
                         <button class="btn btn-secondary admin-only" data-perm="edit_map" onclick="document.getElementById('sitemap-replace-file').click()" style="font-size:12px;padding:5px 12px;">🔄 Replace Map</button>
                         <input type="file" id="sitemap-replace-file" accept=".jpg,.jpeg,.png,.gif" style="display:none" onchange="replaceSiteMap()">
+                    </div>
+
+                    <!-- Zone Assign Mode Panel -->
+                    <div id="zone-assign-panel" style="display:none;padding:8px 16px;background:rgba(0,20,40,0.98);border-bottom:2px solid rgba(0,212,255,0.3);align-items:center;gap:10px;flex-wrap:wrap;flex-shrink:0;">
+                      <span style="font-family:'Orbitron',sans-serif;font-size:11px;color:#00d4ff;font-weight:700;letter-spacing:1px;">&#x1F3F7;&#xFE0F; ZONE ASSIGNMENT MODE</span>
+                      <select id="zone-assign-select" style="background:rgba(7,9,26,0.9);border:1px solid rgba(0,212,255,0.25);border-radius:7px;color:#eef2ff;padding:5px 10px;font-size:13px;"><option value="">&mdash; Pick a Zone &mdash;</option></select>
+                      <span style="color:rgba(238,242,255,0.45);font-size:12px;">Click markers on map, or enter range:</span>
+                      <input type="text" id="zone-assign-range" placeholder="e.g. 1-5, 8-10, 12" style="width:180px;background:rgba(7,9,26,0.9);border:1px solid rgba(0,212,255,0.2);border-radius:7px;color:#eef2ff;padding:5px 10px;font-size:13px;" onkeydown="if(event.key==='Enter')assignByRange()" />
+                      <button class="btn btn-primary" onclick="assignByRange()" style="font-size:12px;padding:5px 14px;">Assign Range</button>
+                      <span id="zone-assign-feedback" style="font-size:12px;color:#00e87a;display:none;"></span>
+                      <button class="btn btn-secondary" onclick="toggleZoneAssignMode()" style="font-size:12px;padding:5px 12px;margin-left:auto;">&#x2715; Done</button>
                     </div>
 
                     <!-- Zone filter bar -->
@@ -432,16 +447,16 @@
                 <!-- Zones Tab -->
                 <div id="admin-tab-zones" class="admin-tab-content" style="display:none;">
                   <h2 class="section-subtitle">Zone Management</h2>
-                  <p style="color:var(--text-muted);font-size:13px;margin-bottom:18px;">Assign each placed map area to a zone. Zones appear as filter chips on the Site Map page.</p>
-                  <div style="display:flex;gap:8px;margin-bottom:24px;align-items:center;">
-                    <input type="text" id="new-zone-name" placeholder="Zone name, e.g. Zone A" style="flex:1;" />
+                  <p style="color:var(--text-muted);font-size:13px;margin-bottom:18px;">Define zones here, then assign power blocks on the Site Map using the <strong style="color:var(--cyan);">Assign Zones</strong> toolbar button.</p>
+                  <div style="display:flex;gap:8px;margin-bottom:20px;align-items:center;">
+                    <input type="text" id="new-zone-name" placeholder="Zone name, e.g. Zone 1" style="flex:1;" />
                     <button class="btn btn-success" onclick="addZoneName()" style="white-space:nowrap;">+ Add Zone</button>
                   </div>
                   <div id="zone-names-list" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:28px;"></div>
                   <hr style="margin:20px 0;border-color:rgba(0,212,255,0.08);" />
-                  <h3 style="font-size:15px;margin:0 0 14px;font-family:'Orbitron',sans-serif;color:var(--cyan);">Assign Areas to Zones</h3>
-                  <p style="color:var(--text-muted);font-size:13px;margin-bottom:16px;">Set the zone for each placed map label.</p>
-                  <div id="admin-zone-assignments" style="display:flex;flex-direction:column;gap:10px;"></div>
+                  <h3 style="font-size:15px;margin:0 0 12px;font-family:'Orbitron',sans-serif;color:var(--cyan);">Zone Summary</h3>
+                  <button class="btn btn-primary" onclick="showPage('map');switchAdminTab('colors');" style="margin-bottom:16px;font-size:13px;">&#x1F5FA;&#xFE0F; Go to Site Map &rarr; Use Assign Zones button</button>
+                  <div id="admin-zone-summary" style="display:flex;flex-direction:column;gap:10px;"></div>
                 </div>
 
                 <!-- Users Tab (Main Admin Only) -->
