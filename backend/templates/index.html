@@ -75,13 +75,12 @@
         <!-- Navigation -->
         <nav class="navbar">
             <div class="navbar-container">
-                <div class="navbar-brand">
+                <div class="navbar-brand" onclick="showPage('dashboard')" style="cursor:pointer;" title="All Trackers">
                   <span class="brand-name"><span class="brand-princess"><span class="brand-p">P</span>RINCESS</span><span class="brand-sep"> &#x25C8; </span><span class="brand-trackers">TRACKERS</span></span>
                 </div>
-                <div id="tracker-selector" style="display:flex;align-items:center;gap:6px;margin-left:12px;">
-                    <select id="tracker-dropdown" onchange="switchTracker(this.value)"
-                        style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#eef2ff;padding:5px 10px;font-size:12px;font-weight:600;font-family:Inter,sans-serif;cursor:pointer;outline:none;">
-                    </select>
+                <div id="active-tracker-crumb" style="display:none;align-items:center;gap:6px;margin-left:14px;padding:3px 10px;background:rgba(0,212,255,0.08);border:1px solid rgba(0,212,255,0.2);border-radius:20px;">
+                    <span style="font-size:12px;color:rgba(238,242,255,0.45);">&#x30FB;</span>
+                    <span id="active-tracker-name" style="font-size:13px;font-weight:600;color:#eef2ff;font-family:'Orbitron',sans-serif;letter-spacing:0.5px;"></span>
                 </div>
                 <ul class="nav-menu">
                     <li><a href="#" onclick="showPage('dashboard')">Dashboard</a></li>
@@ -98,39 +97,14 @@
 
         <!-- Main Content -->
         <main class="app-main">
-            <!-- Dashboard Page -->
+            <!-- Dashboard / Tracker Hub Page -->
             <div id="page-dashboard" class="page active">
                 <div class="container">
-                    <h1 class="section-title" id="dashboard-title"><span class="crown-wrap">&#x1F451;</span>Princess <span class="title-accent">Trackers</span></h1>
-                    
-                    <div class="stats-grid">
-                        <div class="stat-card">
-                            <div class="stat-icon">📦</div>
-                            <div class="stat-content">
-                                <div class="stat-label">Power Blocks</div>
-                                <div class="stat-value" id="stat-blocks">0</div>
-                                <div class="stat-subtext" id="stat-blocks-complete">0 completed</div>
-                            </div>
-                        </div>
-                        
-                        <div class="stat-card">
-                            <div class="stat-icon" id="stat-items-icon">🔌</div>
-                            <div class="stat-content">
-                                <div class="stat-label" id="stat-items-label">Total Items</div>
-                                <div class="stat-value" id="stat-lbds">0</div>
-                                <div class="stat-subtext" id="stat-lbds-progress">0 tracked</div>
-                            </div>
-                        </div>
+                    <div class="hub-header">
+                        <h1 class="section-title">All Trackers</h1>
+                        <p class="hub-subtitle">Select a tracker to view and manage its progress</p>
                     </div>
-
-                    <div class="action-section">
-                        <h2 class="section-subtitle">Quick Actions</h2>
-                        <div class="action-buttons">
-                            <button class="btn btn-primary admin-only" data-perm="upload_pdf" onclick="showPage('upload')">📤 Upload PDF</button>
-                            <button class="btn btn-primary" onclick="showPage('blocks')">📋 Manage Blocks</button>
-                            <button class="btn btn-primary" onclick="showPage('sitemap')">🗺️ View Site Map</button>
-                        </div>
-                    </div>
+                    <div id="tracker-hub-grid" class="tracker-hub-grid"></div>
                 </div>
             </div>
 

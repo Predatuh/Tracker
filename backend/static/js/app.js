@@ -167,33 +167,31 @@ async function loadTrackers() {
   try {
     const r = await api.call('/admin/trackers');
     allTrackers = r.data || [];
-    const dd = document.getElementById('tracker-dropdown');
-    if (!dd) return;
-    dd.innerHTML = allTrackers.map(t =>
-      `<option value="${t.id}" ${currentTracker && currentTracker.id === t.id ? 'selected' : ''}>${t.icon || '📋'} ${t.name}</option>`
-    ).join('');
-    // If no tracker selected yet, pick first
+    // No dropdown to populate — hub page shows all trackers
     if (!currentTracker && allTrackers.length > 0) {
       currentTracker = allTrackers[0];
     }
-    updateDashboardTitle();
   } catch(e) { console.warn('Failed to load trackers:', e); }
 }
 
-function updateDashboardTitle() {
-  const el = document.getElementById('dashboard-title');
-  if (!el) return;
-  const name = currentTracker ? currentTracker.name : 'Princess Trackers';
-  el.innerHTML = `<span class="crown-wrap">&#x1F451;</span>${name}`;
-}
+function updateTrackerCrumb() {
+  const crumb = document.getElementById('active-tracker-crumb');
+  const nameEl = document.getElementById('active-tracker-name');
+  if (!crumb || !nameEl) return;
+  if (currentTracker) {
+    nameEl.textContent = (currentTracker.icon || '') + ' ' + currentTracker.name;
+    crumb.style.display = 'flex';
+  } else {
+    crumb.style.display = 'none';
+  }
 }
 
 async function switchTracker(trackerId) {
   const t = allTrackers.find(t => t.id == trackerId);
   if (!t) return;
   currentTracker = t;
-  // Reload settings for the new tracker, then reload current page
   await loadAdminSettings();
+  updateTrackerCrumb();
   const activePage = document.querySelector('.page.active');
   if (activePage) {
     const name = activePage.id.replace('page-', '');
@@ -220,7 +218,15 @@ function showPage(pageName) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   // Show selected page
   document.getElementById(`page-${pageName}`).classList.add('active');
-  
+
+  // Show tracker breadcrumb only when inside a tracker-specific page
+  if (pageName === 'dashboard') {
+    const crumb = document.getElementById('active-tracker-crumb');
+    if (crumb) crumb.style.display = 'none';
+  } else {
+    updateTrackerCrumb();
+  }
+
   // Load data for the page
   if (pageName === 'dashboard') loadDashboard();
   if (pageName === 'blocks') loadBlocks();
@@ -417,34 +423,74 @@ function toggleStatus(lbdId, statusType, currentStatus, blockId) {
   .catch(err => alert('Error: ' + err.message));
 }
 
-// Dashboard
+// Tracker Hub (Dashboard)
 async function loadDashboard() {
-  try {
-    const response = await api.getPowerBlocks();
-    const blocks = response.data;
-    
-    let totalItems = 0;
-    let completedBlocks = 0;
-    
-    blocks.forEach(block => {
-      totalItems += block.lbd_count;
-      if (block.is_completed) completedBlocks++;
-    });
-    
-    document.getElementById('stat-blocks').textContent = blocks.length;
-    document.getElementById('stat-blocks-complete').textContent = `${completedBlocks} completed`;
-    document.getElementById('stat-lbds').textContent = totalItems;
+  const grid = document.getElementById('tracker-hub-grid');
+  if (!grid) return;
+  grid.innerHTML = '<div style="color:rgba(238,242,255,0.4);text-align:center;padding:60px 20px;font-family:Orbitron,sans-serif;font-size:13px;letter-spacing:1px;">LOADING TRACKERS...</div>';
 
-    // Dynamic tracker labels
-    const statLabel = currentTracker ? currentTracker.stat_label : 'Total Items';
-    const itemPlural = currentTracker ? currentTracker.item_name_plural : 'Items';
-    const icon = currentTracker ? currentTracker.icon : '📋';
-    document.getElementById('stat-items-label').textContent = statLabel;
-    document.getElementById('stat-items-icon').textContent = icon;
-    document.getElementById('stat-lbds-progress').textContent = `${totalItems} tracked`;
-  } catch (err) {
-    console.error('Error loading dashboard:', err);
+  // Make sure allTrackers is populated
+  if (!allTrackers.length) {
+    try {
+      const r = await api.call('/admin/trackers');
+      allTrackers = r.data || [];
+    } catch(e) { /* ignore */ }
   }
+
+  if (!allTrackers.length) {
+    grid.innerHTML = '<p style="color:rgba(238,242,255,0.35);text-align:center;padding:60px 20px;">No trackers yet. Create one in Admin.</p>';
+    return;
+  }
+
+  // Load stats for each tracker in parallel
+  const cards = await Promise.all(allTrackers.map(async t => {
+    try {
+      const r = await fetch(`/api/tracker/power-blocks?tracker_id=${t.id}`, { credentials: 'include' });
+      const d = await r.json();
+      const blocks = Array.isArray(d.data) ? d.data : [];
+      const totalBlocks = blocks.length;
+      const completedBlocks = blocks.filter(b => b.is_completed).length;
+      const totalItems = blocks.reduce((s, b) => s + (b.lbd_count || 0), 0);
+      // count how many items have all statuses done
+      const fullyDoneItems = blocks.reduce((s, b) => s + (b.lbd_summary ? Object.values(b.lbd_summary).reduce((a,v) => a + v, 0) : 0), 0);
+      const pct = totalBlocks > 0 ? Math.round((completedBlocks / totalBlocks) * 100) : 0;
+      return { ...t, totalBlocks, completedBlocks, totalItems, pct };
+    } catch(e) {
+      return { ...t, totalBlocks: 0, completedBlocks: 0, totalItems: 0, pct: 0 };
+    }
+  }));
+
+  grid.innerHTML = cards.map(t => {
+    const barColor = t.pct >= 100 ? '#00e87a' : t.pct >= 50 ? '#00d4ff' : '#7c6cfc';
+    return `
+    <div class="tracker-hub-card" onclick="openTracker(${t.id})">
+      <div class="thc-top">
+        <span class="thc-icon">${t.icon || '📋'}</span>
+        <div class="thc-title-wrap">
+          <span class="thc-name">${t.name}</span>
+          <span class="thc-pct-badge" style="color:${barColor}">${t.pct}%</span>
+        </div>
+      </div>
+      <div class="thc-stats">
+        <div class="thc-stat-pill"><span class="thc-stat-val">${t.totalBlocks}</span> <span class="thc-stat-lbl">Power Blocks</span></div>
+        <div class="thc-stat-pill"><span class="thc-stat-val">${t.completedBlocks}</span> <span class="thc-stat-lbl">Completed</span></div>
+        <div class="thc-stat-pill"><span class="thc-stat-val">${t.totalItems}</span> <span class="thc-stat-lbl">${t.item_name_plural || 'Items'}</span></div>
+      </div>
+      <div class="thc-bar-wrap"><div class="thc-bar-fill" style="width:${t.pct}%;background:${barColor};"></div></div>
+      <div class="thc-footer">
+        <span class="thc-open-btn">Open Tracker →</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function openTracker(trackerId) {
+  const t = allTrackers.find(t => t.id == trackerId);
+  if (!t) return;
+  currentTracker = t;
+  await loadAdminSettings();
+  updateTrackerCrumb();
+  showPage('blocks');
 }
 
 // Blocks list
@@ -968,10 +1014,11 @@ async function submitLogin() {
     const d = await r.json();
     if (!r.ok) { _loginError(d.error || 'Error'); } else {
       currentUser = d.user;
-      // Play explosion animation then hide
+      // Play explosion animation then show dashboard
       playLoginExplosion(() => {
         document.getElementById('login-overlay').style.display = 'none';
         stopLoginAnimation();
+        showPage('dashboard');
       });
       _applyRoleUI();
       _initSocket();
@@ -1071,7 +1118,6 @@ async function loadAdminSettings() {
     }
   } catch(e) { console.warn('Admin settings not loaded:', e); }
   renderLegend();
-  updateDashboardTitle();
 }
 
 function renderLegend() {
