@@ -176,6 +176,18 @@
                         <button onclick="changePBHeaderSize(1)" style="background:rgba(255,255,255,0.08);color:#ccd6f6;border:none;border-radius:4px;width:26px;height:26px;cursor:pointer;font-size:14px;font-weight:700;line-height:1;">+</button>
                       </div>
                     </div>
+                    <!-- Filter / Sort bar -->
+                    <div class="blocks-filter-bar" id="blocks-filter-bar">
+                      <select id="blocks-zone-filter" class="blocks-filter-select" onchange="applyBlocksFilter()">
+                        <option value="">All Zones</option>
+                      </select>
+                      <select id="blocks-sort-select" class="blocks-filter-select" onchange="applyBlocksFilter()">
+                        <option value="default">Default Order</option>
+                        <option value="zone">Sort by Zone</option>
+                        <option value="last_completed">Last Updated</option>
+                      </select>
+                      <button id="blocks-expand-btn" class="blocks-filter-btn" onclick="toggleBlocksExpandAll()" title="Show/hide all individual LBDs">▶ Expand All</button>
+                    </div>
                     <div id="blocks-list" class="blocks-grid"></div>
                 </div>
             </div>

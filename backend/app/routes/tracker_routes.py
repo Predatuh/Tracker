@@ -4,6 +4,7 @@ from sqlalchemy import func
 from app import db
 from app.models import PowerBlock, LBD, LBDStatus
 from app.models.tracker import Tracker
+from app.models.site_area import SiteArea
 from datetime import datetime
 import re
 
@@ -93,6 +94,13 @@ def get_power_blocks():
 
         all_cols = tracker.all_column_keys() if tracker else []
 
+        # Query 4: Zone per power block from site_areas
+        zone_rows = db.session.query(SiteArea.power_block_id, SiteArea.zone).filter(
+            SiteArea.power_block_id.isnot(None),
+            SiteArea.zone.isnot(None)
+        ).all()
+        zone_by_pb = {r.power_block_id: r.zone for r in zone_rows}
+
         result = []
         for b in blocks:
             pb_lbds = lbds_by_pb.get(b.id, [])
@@ -117,6 +125,7 @@ def get_power_blocks():
                 'lbd_count': lbd_count,
                 'lbd_summary': summary,
                 'lbds': pb_lbds,
+                'zone': zone_by_pb.get(b.id),
             })
 
         # Natural sort: INV-1, INV-2, ... INV-96

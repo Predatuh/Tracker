@@ -451,10 +451,10 @@ async function loadDashboard() {
       const totalBlocks = blocks.length;
       const completedBlocks = blocks.filter(b => b.is_completed).length;
       const totalItems = blocks.reduce((s, b) => s + (b.lbd_count || 0), 0);
-      // count how many items have all statuses done
-      const fullyDoneItems = blocks.reduce((s, b) => s + (b.lbd_summary ? Object.values(b.lbd_summary).reduce((a,v) => a + v, 0) : 0), 0);
-      const pct = totalBlocks > 0 ? Math.round((completedBlocks / totalBlocks) * 100) : 0;
-      return { ...t, totalBlocks, completedBlocks, totalItems, pct };
+      // % based on LBDs with 'term' (Termed) status completed
+      const termedItems = blocks.reduce((s, b) => s + ((b.lbd_summary && b.lbd_summary['term']) || 0), 0);
+      const pct = totalItems > 0 ? Math.round((termedItems / totalItems) * 100) : 0;
+      return { ...t, totalBlocks, completedBlocks, totalItems, termedItems, pct };
     } catch(e) {
       return { ...t, totalBlocks: 0, completedBlocks: 0, totalItems: 0, pct: 0 };
     }
@@ -473,7 +473,7 @@ async function loadDashboard() {
       </div>
       <div class="thc-stats">
         <div class="thc-stat-pill"><span class="thc-stat-val">${t.totalBlocks}</span> <span class="thc-stat-lbl">Power Blocks</span></div>
-        <div class="thc-stat-pill"><span class="thc-stat-val">${t.completedBlocks}</span> <span class="thc-stat-lbl">Completed</span></div>
+        <div class="thc-stat-pill"><span class="thc-stat-val">${t.termedItems}</span> <span class="thc-stat-lbl">Termed</span></div>
         <div class="thc-stat-pill"><span class="thc-stat-val">${t.totalItems}</span> <span class="thc-stat-lbl">${t.item_name_plural || 'Items'}</span></div>
       </div>
       <div class="thc-bar-wrap"><div class="thc-bar-fill" style="width:${t.pct}%;background:${barColor};"></div></div>
@@ -494,60 +494,188 @@ async function openTracker(trackerId) {
 }
 
 // Blocks list
-let _blocksCache = {};  // pb_id -> block data for lazy LBD table expansion
+let _blocksCache = {};    // pb_id -> block data for lazy LBD table expansion
+let _allBlocksData = [];  // full blocks list from last fetch
+let _pbFilters = { zone: '', sort: 'default', expandAll: false };
+
+function _getBlocksPrefsKey() {
+  return `blocks_prefs_${currentUser ? currentUser.id : 'guest'}`;
+}
+function saveBlocksFilterPrefs() {
+  try { localStorage.setItem(_getBlocksPrefsKey(), JSON.stringify(_pbFilters)); } catch(e) {}
+}
+function loadBlocksFilterPrefs() {
+  try {
+    const saved = localStorage.getItem(_getBlocksPrefsKey());
+    if (saved) Object.assign(_pbFilters, JSON.parse(saved));
+  } catch(e) {}
+}
+
+function populateBlocksZoneFilter(blocks) {
+  const sel = document.getElementById('blocks-zone-filter');
+  if (!sel) return;
+  const zones = [...new Set(blocks.map(b => b.zone).filter(Boolean))].sort();
+  const current = _pbFilters.zone;
+  if (zones.length > 0) {
+    sel.innerHTML = '<option value="">All Zones</option>' + zones.map(z =>
+      `<option value="${z}"${z === current ? ' selected' : ''}>${z}</option>`
+    ).join('');
+  } else if (_adminZoneNames.length > 0) {
+    sel.innerHTML = '<option value="">All Zones</option>' + _adminZoneNames.map(z =>
+      `<option value="${z}"${z === current ? ' selected' : ''}>${z}</option>`
+    ).join('');
+  }
+}
+
+function applyBlocksFilter() {
+  const zoneEl = document.getElementById('blocks-zone-filter');
+  const sortEl = document.getElementById('blocks-sort-select');
+  if (zoneEl) _pbFilters.zone = zoneEl.value;
+  if (sortEl) _pbFilters.sort = sortEl.value;
+  saveBlocksFilterPrefs();
+  renderBlocks(_allBlocksData);
+}
+
+function toggleBlocksExpandAll() {
+  _pbFilters.expandAll = !_pbFilters.expandAll;
+  const btn = document.getElementById('blocks-expand-btn');
+  if (btn) {
+    btn.textContent = _pbFilters.expandAll ? '▼ Collapse All' : '▶ Expand All';
+    btn.classList.toggle('active', _pbFilters.expandAll);
+  }
+  saveBlocksFilterPrefs();
+  renderBlocks(_allBlocksData);
+}
+
 async function loadBlocks() {
   try {
     const response = await api.getPowerBlocks();
     const blocks = Array.isArray(response.data) ? response.data : response;
     blocks.forEach(b => { _blocksCache[b.id] = b; });
+    _allBlocksData = blocks;
+    loadBlocksFilterPrefs();
+    populateBlocksZoneFilter(blocks);
+    // Sync sort select
+    const sortEl = document.getElementById('blocks-sort-select');
+    if (sortEl) sortEl.value = _pbFilters.sort || 'default';
+    // Sync expand button
+    const btn = document.getElementById('blocks-expand-btn');
+    if (btn) {
+      btn.textContent = _pbFilters.expandAll ? '▼ Collapse All' : '▶ Expand All';
+      btn.classList.toggle('active', _pbFilters.expandAll);
+    }
+    renderBlocks(blocks);
+  } catch (err) {
+    console.error('Error loading blocks:', err);
+  }
+}
 
-    let html = '';
-    if (!blocks || blocks.length === 0) {
-      html = '<p style="color: #999; text-align: center; padding: 40px;">No power blocks. Upload a PDF and scan it first!</p>';
-    } else {
-      const cols = LBD_STATUS_TYPES;
-      const itemLabel = currentTracker ? currentTracker.item_name_singular : 'Item';
+function _renderLbdTable(block) {
+  const cols = LBD_STATUS_TYPES;
+  const lbds = block.lbds || [];
+  const hdrSize = parseInt(localStorage.getItem('pbHeaderSize') || '11');
+  const headerCells = cols.map(col => {
+    const color = STATUS_COLORS[col] || '#555';
+    const label = STATUS_LABELS[col] || col;
+    return `<th class="lbd-tbl-th" style="color:${color};font-size:${hdrSize}px;white-space:nowrap;" title="${label}">${label}</th>`;
+  }).join('');
+  const dataRows = lbds.map(lbd => {
+    const statusMap = {};
+    (lbd.statuses || []).forEach(s => { statusMap[s.status_type] = s.is_completed; });
+    const lbdAllDone = cols.every(c => statusMap[c]);
+    const cells = cols.map(col => {
+      const done = statusMap[col];
+      const color = STATUS_COLORS[col] || '#555';
+      return done
+        ? `<td class="lbd-tbl-td"><span class="lbd-dot lbd-dot--on" style="background:${color}"></span></td>`
+        : `<td class="lbd-tbl-td"><span class="lbd-dot lbd-dot--off"></span></td>`;
+    }).join('');
+    const name = lbd.identifier || lbd.name || `LBD ${lbd.id}`;
+    return `<tr class="lbd-tbl-row${lbdAllDone ? ' lbd-tbl-row--done' : ''}">
+      <td class="lbd-tbl-name" title="${lbd.inventory_number || name}">${name}</td>${cells}
+    </tr>`;
+  }).join('');
+  return `<div class="lbd-tbl-wrap"><table class="lbd-tbl">
+    <thead><tr><th class="lbd-tbl-name-th"></th>${headerCells}</tr></thead>
+    <tbody>${dataRows}</tbody>
+  </table></div>`;
+}
 
-      blocks.forEach(block => {
-        const total = block.lbd_count || 0;
-        const summary = block.lbd_summary || {};
-        const lbds = block.lbds || [];
-        const allDone = total > 0 && cols.every(c => (summary[c] || 0) >= total);
-        const claimed = block.claimed_by ? `<span class="pb-claimed-pill">👤 ${block.claimed_by}</span>` : '';
+function renderBlocks(blocks) {
+  let filtered = [...blocks];
+  // Apply zone filter
+  if (_pbFilters.zone) {
+    filtered = filtered.filter(b => b.zone === _pbFilters.zone);
+  }
+  // Apply sort
+  if (_pbFilters.sort === 'zone') {
+    filtered.sort((a, b) => {
+      const za = a.zone || '\uFFFF', zb = b.zone || '\uFFFF';
+      if (za !== zb) return za.localeCompare(zb);
+      return (a.name || '').localeCompare(b.name || '');
+    });
+  } else if (_pbFilters.sort === 'last_completed') {
+    filtered.sort((a, b) => {
+      const ta = a.last_updated_at || '';
+      const tb = b.last_updated_at || '';
+      return tb.localeCompare(ta); // newest first
+    });
+  }
 
-        // Overall completion
-        const totalSteps = cols.length * total;
-        const doneSteps = cols.reduce((s, c) => s + (summary[c] || 0), 0);
-        const overallPct = totalSteps > 0 ? Math.round((doneSteps / totalSteps) * 100) : 0;
+  let html = '';
+  if (!filtered || filtered.length === 0) {
+    html = '<p style="color: #999; text-align: center; padding: 40px;">No power blocks match the current filter.</p>';
+  } else {
+    const cols = LBD_STATUS_TYPES;
+    const itemLabel = currentTracker ? currentTracker.item_name_singular : 'Item';
 
-        // Per-status summary rows
-        let statusRows = '';
-        cols.forEach(col => {
-          const done = summary[col] || 0;
-          const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-          const color = STATUS_COLORS[col] || '#555';
-          const label = STATUS_LABELS[col] || col;
-          statusRows += `
+    filtered.forEach(block => {
+      const total = block.lbd_count || 0;
+      const summary = block.lbd_summary || {};
+      const lbds = block.lbds || [];
+      const allDone = total > 0 && cols.every(c => (summary[c] || 0) >= total);
+      const claimed = block.claimed_by ? `<span class="pb-claimed-pill">👤 ${block.claimed_by}</span>` : '';
+      const zonePill = block.zone ? `<span class="pb-zone-pill">${block.zone}</span>` : '';
+
+      // Overall completion
+      const totalSteps = cols.length * total;
+      const doneSteps = cols.reduce((s, c) => s + (summary[c] || 0), 0);
+      const overallPct = totalSteps > 0 ? Math.round((doneSteps / totalSteps) * 100) : 0;
+
+      // Per-status summary rows
+      let statusRows = '';
+      cols.forEach(col => {
+        const done = summary[col] || 0;
+        const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+        const color = STATUS_COLORS[col] || '#555';
+        const label = STATUS_LABELS[col] || col;
+        statusRows += `
             <div class="pb-status-row">
               <div class="pb-status-label" style="color:${color}">${label}</div>
               <div class="pb-status-bar-wrap"><div class="pb-status-bar-fill" style="width:${pct}%;background:${color}"></div></div>
               <div class="pb-status-count">${done}/${total}</div>
             </div>`;
-        });
+      });
 
-        // Individual LBD table (hidden by default for performance — toggled on tap)
-        let lbdTable = '';
-        if (lbds.length > 0) {
+      // Individual LBD table
+      let lbdTable = '';
+      if (lbds.length > 0) {
+        if (_pbFilters.expandAll) {
+          lbdTable = `
+            <div class="lbd-tbl-toggle" onclick="event.stopPropagation();toggleLbdTable(this,${block.id})">▼ Hide Details</div>
+            <div class="lbd-tbl-lazy" style="display:block;" data-pb-id="${block.id}" data-loaded="1">${_renderLbdTable(block)}</div>`;
+        } else {
           lbdTable = `
             <div class="lbd-tbl-toggle" onclick="event.stopPropagation();toggleLbdTable(this,${block.id})">▶ Show Details</div>
             <div class="lbd-tbl-lazy" style="display:none;" data-pb-id="${block.id}"></div>`;
         }
+      }
 
-        html += `
+      html += `
           <div class="block-card${allDone ? ' block-card--complete' : ''}">
             <div class="pb-card-header">
               <span class="pb-card-name">${block.name}</span>
-              <span class="pb-card-meta">${total} ${itemLabel}${total !== 1 ? 's' : ''}${claimed}</span>
+              <span class="pb-card-meta">${total} ${itemLabel}${total !== 1 ? 's' : ''}${claimed}${zonePill}</span>
             </div>
             <div class="pb-overall-bar-wrap" title="Overall: ${overallPct}% complete">
               <div class="pb-overall-bar-fill" style="width:${overallPct}%"></div>
@@ -556,17 +684,14 @@ async function loadBlocks() {
             ${lbdTable}
             <button class="btn btn-small btn-primary pb-details-btn" onclick="showBlockModal(${block.id})">View Details</button>
           </div>`;
-      });
-    }
-
-    document.getElementById('blocks-list').innerHTML = html;
-    // Update header size display
-    const curSize = parseInt(localStorage.getItem('pbHeaderSize') || '11');
-    const sizeDisp = document.getElementById('pb-header-size-display');
-    if (sizeDisp) sizeDisp.textContent = curSize + 'px';
-  } catch (err) {
-    console.error('Error loading blocks:', err);
+    });
   }
+
+  document.getElementById('blocks-list').innerHTML = html;
+  // Update header size display
+  const curSize = parseInt(localStorage.getItem('pbHeaderSize') || '11');
+  const sizeDisp = document.getElementById('pb-header-size-display');
+  if (sizeDisp) sizeDisp.textContent = curSize + 'px';
 }
 
 function toggleLbdTable(toggleEl, pbId) {
@@ -580,34 +705,7 @@ function toggleLbdTable(toggleEl, pbId) {
     wrap.dataset.loaded = '1';
     const block = _blocksCache[pbId];
     if (!block) return;
-    const cols = LBD_STATUS_TYPES;
-    const lbds = block.lbds || [];
-    const hdrSize = parseInt(localStorage.getItem('pbHeaderSize') || '11');
-    const headerCells = cols.map(col => {
-      const color = STATUS_COLORS[col] || '#555';
-      const label = STATUS_LABELS[col] || col;
-      return `<th class="lbd-tbl-th" style="color:${color};font-size:${hdrSize}px;white-space:nowrap;" title="${label}">${label}</th>`;
-    }).join('');
-    const dataRows = lbds.map(lbd => {
-      const statusMap = {};
-      (lbd.statuses || []).forEach(s => { statusMap[s.status_type] = s.is_completed; });
-      const lbdAllDone = cols.every(c => statusMap[c]);
-      const cells = cols.map(col => {
-        const done = statusMap[col];
-        const color = STATUS_COLORS[col] || '#555';
-        return done
-          ? `<td class="lbd-tbl-td"><span class="lbd-dot lbd-dot--on" style="background:${color}"></span></td>`
-          : `<td class="lbd-tbl-td"><span class="lbd-dot lbd-dot--off"></span></td>`;
-      }).join('');
-      const name = lbd.identifier || lbd.name || `LBD ${lbd.id}`;
-      return `<tr class="lbd-tbl-row${lbdAllDone ? ' lbd-tbl-row--done' : ''}">
-        <td class="lbd-tbl-name" title="${lbd.inventory_number || name}">${name}</td>${cells}
-      </tr>`;
-    }).join('');
-    wrap.innerHTML = `<div class="lbd-tbl-wrap"><table class="lbd-tbl">
-      <thead><tr><th class="lbd-tbl-name-th"></th>${headerCells}</tr></thead>
-      <tbody>${dataRows}</tbody>
-    </table></div>`;
+    wrap.innerHTML = _renderLbdTable(block);
   }
 }
 
@@ -831,12 +929,14 @@ async function loadSiteMap() {
 
     // Load saved site area bboxes from the DB if not in localStorage
     const bboxes = JSON.parse(localStorage.getItem('pb_bboxes') || '{}');
-    if (Object.keys(bboxes).length === 0) {
-      try {
-        const maps = await api.getAllSiteMaps();
-        const list = maps.data || [];
-        if (list.length > 0 && list[0].areas) {
-          loadedMapAreas = list[0].areas;
+    try {
+      const maps = await api.getAllSiteMaps();
+      const list = maps.data || [];
+      if (list.length > 0 && list[0].areas) {
+        // Always populate loadedMapAreas so zone assign works regardless of cache state
+        loadedMapAreas = list[0].areas;
+        if (Object.keys(bboxes).length === 0) {
+          // Only seed localStorage bbox cache if it hasn't been populated yet
           for (const area of list[0].areas) {
             if (area.power_block_id && area.bbox_x != null) {
               bboxes[String(area.power_block_id)] = {
@@ -863,8 +963,8 @@ async function loadSiteMap() {
           }
           localStorage.setItem('pb_label_colors', JSON.stringify(pbLabelColors));
         }
-      } catch(e) { console.log('No site areas to load:', e); }
-    }
+      }
+    } catch(e) { console.log('No site areas to load:', e); }
 
     renderPBMarkers();
     buildZoneFilter();
