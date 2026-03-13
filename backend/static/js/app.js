@@ -476,7 +476,7 @@ async function loadDashboard() {
       <div class="thc-stats">
         <div class="thc-stat-pill thc-pct-pill" style="background:${barColor}18;border-color:${barColor}55;color:${barColor}"><span class="thc-stat-val">${t.pct}%</span> <span class="thc-stat-lbl">Complete</span></div>
         <div class="thc-stat-pill"><span class="thc-stat-val">${t.totalBlocks}</span> <span class="thc-stat-lbl">Power Blocks</span></div>
-        <div class="thc-stat-pill"><span class="thc-stat-val">${t.totalItems}</span> <span class="thc-stat-lbl">${t.item_name_plural || 'Items'}</span></div>
+        <div class="thc-stat-pill"><span class="thc-stat-val">${t.termedItems}</span> <span class="thc-stat-lbl">${t.stat_label || t.item_name_plural || 'Items'}</span></div>
       </div>
       <div class="thc-bar-wrap"><div class="thc-bar-fill" style="width:${t.pct}%;background:${barColor};"></div></div>
       <div class="thc-footer">
