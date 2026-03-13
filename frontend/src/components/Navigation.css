@@ -1,48 +1,107 @@
 .navbar {
-  background-color: #333;
+  background-color: #1a1a2e;
   color: white;
   padding: 0;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  position: sticky;
+  top: 0;
+  z-index: 100;
 }
 
 .navbar-container {
   max-width: 1400px;
   margin: 0 auto;
-  padding: 15px 20px;
+  padding: 12px 20px;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
 }
 
 .navbar-brand {
-  font-size: 24px;
-  font-weight: bold;
+  font-size: 20px;
+  font-weight: 800;
   color: white;
   text-decoration: none;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  letter-spacing: 0.5px;
 }
 
 .navbar-brand:hover {
-  color: #007bff;
+  color: #00d4ff;
 }
+
+/* Hamburger button — hidden on desktop */
+.nav-hamburger {
+  display: none;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.hamburger-line {
+  width: 24px;
+  height: 2px;
+  background: white;
+  border-radius: 2px;
+  transition: transform 0.2s, opacity 0.2s;
+}
+.hamburger-line.open:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+.hamburger-line.open:nth-child(2) { opacity: 0; }
+.hamburger-line.open:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
 
 .nav-menu {
   list-style: none;
   display: flex;
-  gap: 30px;
+  gap: 4px;
   margin: 0;
   padding: 0;
 }
 
 .nav-menu a {
-  color: white;
+  color: rgba(255,255,255,0.75);
   text-decoration: none;
-  font-weight: 500;
-  transition: color 0.3s;
+  font-weight: 600;
+  font-size: 14px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  transition: background 0.2s, color 0.2s;
+  display: block;
 }
 
 .nav-menu a:hover {
-  color: #007bff;
+  background: rgba(255,255,255,0.1);
+  color: #fff;
+}
+
+.nav-menu a.nav-link--active {
+  background: rgba(0,212,255,0.15);
+  color: #00d4ff;
+}
+
+/* ── Mobile responsive nav ── */
+@media (max-width: 768px) {
+  .nav-hamburger {
+    display: flex;
+  }
+  .nav-menu {
+    display: none;
+    flex-direction: column;
+    width: 100%;
+    gap: 0;
+    padding-top: 10px;
+  }
+  .nav-menu--open {
+    display: flex;
+  }
+  .nav-menu a {
+    padding: 12px 16px;
+    border-radius: 0;
+    font-size: 15px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+  }
 }
