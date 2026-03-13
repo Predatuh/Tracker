@@ -433,17 +433,4 @@ def _seed_trackers(app):
         db.session.commit()
         app.logger.info(f'Created Inverter DC Landing tracker (id={inv_tracker.id})')
 
-    # Migrate existing inverter-dc tracker away from "Inverter" naming
-    if inv_tracker:
-        changed = False
-        if inv_tracker.name == 'Inverter DC Landing':
-            inv_tracker.name = 'DC Landing'; changed = True
-        if inv_tracker.stat_label in ('Inverters Landed', 'Landed'):
-            inv_tracker.stat_label = 'DC Complete'; changed = True
-        if inv_tracker.item_name_singular in ('Inverter', 'Landing'):
-            inv_tracker.item_name_singular = 'DC'; changed = True
-        if inv_tracker.item_name_plural in ('Inverters', 'Landings'):
-            inv_tracker.item_name_plural = 'DCs'; changed = True
-        if changed:
-            db.session.commit()
-            app.logger.info('Migrated inverter-dc tracker: renamed to DC Landing')
+
