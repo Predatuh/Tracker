@@ -107,14 +107,30 @@ body::after {
 
 /* -- Navbar ------------------------------------------------------ */
 .navbar {
-  background: rgba(3,4,10,0.88);
-  backdrop-filter: blur(24px) saturate(1.4);
-  -webkit-backdrop-filter: blur(24px) saturate(1.4);
-  border-bottom: 1px solid rgba(0,212,255,0.1);
+  background: rgba(3,4,10,0.92);
+  backdrop-filter: blur(28px) saturate(1.5);
+  -webkit-backdrop-filter: blur(28px) saturate(1.5);
+  border-bottom: 1px solid rgba(0,212,255,0.07);
   position: sticky;
   top: 0;
   z-index: 900;
-  box-shadow: 0 4px 40px rgba(0,0,0,0.7), 0 1px 0 rgba(0,212,255,0.08);
+  overflow: hidden;
+  box-shadow: 0 4px 40px rgba(0,0,0,0.75), 0 0 80px rgba(0,0,0,0.4);
+}
+/* Animated gradient top line — the wow accent */
+.navbar::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent 0%, #7c3ff5 20%, #00d4ff 50%, #7c3ff5 80%, transparent 100%);
+  background-size: 200% 100%;
+  animation: navTopLine 5s linear infinite;
+  pointer-events: none;
+}
+@keyframes navTopLine {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 
 .navbar-container {
@@ -123,68 +139,106 @@ body::after {
   padding: 0 24px;
   display: flex;
   align-items: center;
-  height: 58px;
+  height: 60px;
   gap: 8px;
+  position: relative;
 }
 
 .navbar-brand {
-  font-size: 17px;
   font-weight: 800;
-  color: var(--text-primary);
   letter-spacing: 1.5px;
   display: flex;
   align-items: center;
   gap: 0;
   white-space: nowrap;
-  margin-right: 10px;
+  margin-right: 14px;
   font-family: 'Orbitron', sans-serif;
   text-transform: uppercase;
+  flex-shrink: 0;
 }
 
-/* P wears the crown */
-.navbar-brand .brand-p {
+/* ── Logo mark badge ── */
+.brand-mark {
+  width: 34px;
+  height: 34px;
+  background: linear-gradient(140deg, #7c3ff5 0%, #5b6cfc 45%, #00c8e8 100%);
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  flex-shrink: 0;
+  margin-right: 11px;
   position: relative;
-  display: inline-block;
-  margin-right: 1px;
+  overflow: hidden;
+  box-shadow: 0 0 0 1.5px rgba(124,108,252,0.5), 0 0 18px rgba(0,212,255,0.4), 0 0 40px rgba(124,108,252,0.25);
+  animation: markGlow 3s ease-in-out infinite alternate;
+  cursor: pointer;
 }
-.navbar-brand .brand-p::before {
-  content: '♛';
+.brand-mark::after {
+  content: '';
   position: absolute;
-  top: -13px;
-  left: 50%;
-  transform: translateX(-50%) scale(0.72);
-  font-size: 13px;
-  line-height: 1;
-  pointer-events: none;
-  color: #FFD700;
-  animation: brandCrown 3s ease-in-out infinite alternate;
+  top: -50%; left: -75%;
+  width: 50%; height: 200%;
+  background: linear-gradient(120deg, transparent, rgba(255,255,255,0.42), transparent);
+  animation: markShimmer 5s ease-in-out infinite;
+  transform: skewX(-20deg);
 }
-@keyframes brandCrown {
-  from { filter: drop-shadow(0 0 3px rgba(255,215,0,0.6)) drop-shadow(0 0 7px rgba(255,165,0,0.3)); }
-  to   { filter: drop-shadow(0 0 7px rgba(255,215,0,0.95)) drop-shadow(0 0 16px rgba(255,165,0,0.55)); }
+@keyframes markGlow {
+  from { box-shadow: 0 0 0 1.5px rgba(124,108,252,0.4), 0 0 14px rgba(0,212,255,0.32), 0 0 32px rgba(124,108,252,0.18); }
+  to   { box-shadow: 0 0 0 1.5px rgba(0,212,255,0.65), 0 0 26px rgba(0,212,255,0.65), 0 0 55px rgba(124,108,252,0.45); }
 }
+@keyframes markShimmer {
+  0%   { left: -75%; }
+  40%, 100% { left: 160%; }
+}
+
+/* Hide old floating crown above P  */
+.navbar-brand .brand-p { position: relative; display: inline-block; margin-right: 0; }
+.navbar-brand .brand-p::before { display: none; }
+@keyframes brandCrown { from {} to {} }
+
 .navbar-brand .brand-name { display: inline-flex; align-items: baseline; gap: 0; }
+
+/* PRINCESS — purple → lavender gradient */
 .navbar-brand .brand-princess {
-  color: rgba(238,242,255,0.92);
+  background: linear-gradient(90deg, #c084fc 0%, #a78bfa 55%, #e8ddff 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
   font-size: 15px;
-  letter-spacing: 2px;
-  padding-top: 6px; /* room for crown */
+  letter-spacing: 2.5px;
+  padding-top: 0;
+  font-weight: 900;
+  animation: princessGlow 3s ease-in-out infinite alternate;
 }
+@keyframes princessGlow {
+  from { filter: drop-shadow(0 0 3px rgba(192,132,252,0.45)); }
+  to   { filter: drop-shadow(0 0 9px rgba(192,132,252,0.9)) drop-shadow(0 0 20px rgba(167,139,250,0.45)); }
+}
+
+/* Separator */
 .navbar-brand .brand-sep {
-  color: rgba(124,108,252,0.5);
-  font-size: 13px;
-  padding: 0 3px;
+  font-size: 11px;
+  padding: 0 7px;
+  -webkit-text-fill-color: rgba(238,242,255,0.18);
+  color: rgba(238,242,255,0.18);
 }
+
+/* TRACKERS — cyan gradient */
 .navbar-brand .brand-trackers {
-  color: var(--cyan);
+  background: linear-gradient(90deg, #00d4ff 0%, #62eeff 50%, #00b8d9 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
   font-size: 15px;
-  letter-spacing: 2px;
-  text-shadow: 0 0 14px rgba(0,212,255,0.55);
+  letter-spacing: 2.5px;
+  font-weight: 900;
   animation: trackersPulse 3s ease-in-out infinite alternate;
 }
 @keyframes trackersPulse {
-  from { text-shadow: 0 0 10px rgba(0,212,255,0.4); }
-  to   { text-shadow: 0 0 22px rgba(0,212,255,0.85), 0 0 40px rgba(0,212,255,0.3); }
+  from { filter: drop-shadow(0 0 4px rgba(0,212,255,0.5)); }
+  to   { filter: drop-shadow(0 0 14px rgba(0,212,255,1)) drop-shadow(0 0 28px rgba(0,212,255,0.45)); }
 }
 
 /* Keep old brand-dot/brand-crown in case still used elsewhere */
@@ -359,87 +413,199 @@ body::after {
 .hub-header .section-title { margin-bottom: 6px; }
 .hub-subtitle { color: rgba(238,242,255,0.4); font-size: 14px; margin: 0; }
 
+/* ── Dashboard Hero ── */
+.hub-hero {
+  text-align: center;
+  padding: 56px 24px 48px;
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+.hub-hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 70% 80% at 50% -10%, rgba(124,108,252,0.14) 0%, transparent 68%),
+    radial-gradient(ellipse 50% 40% at 50% 100%, rgba(0,212,255,0.06) 0%, transparent 60%);
+  pointer-events: none;
+}
+.hub-hero::after {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 10%; right: 10%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(0,212,255,0.2), rgba(124,108,252,0.2), transparent);
+}
+.hub-hero-badge {
+  font-size: 44px;
+  display: inline-block;
+  margin-bottom: 16px;
+  filter: drop-shadow(0 0 14px rgba(255,215,0,0.65)) drop-shadow(0 0 30px rgba(255,165,0,0.3));
+  animation: crownGlow 3s ease-in-out infinite alternate;
+  line-height: 1;
+}
+.hub-hero-wordmark {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 34px;
+  font-weight: 900;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  position: relative;
+}
+.hub-hero-princess {
+  background: linear-gradient(90deg, #d08dff 0%, #a78bfa 45%, #ede0ff 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: princessGlow 3s ease-in-out infinite alternate;
+}
+.hub-hero-sep {
+  font-size: 24px;
+  -webkit-text-fill-color: rgba(238,242,255,0.15);
+  color: rgba(238,242,255,0.15);
+}
+.hub-hero-trackers {
+  background: linear-gradient(90deg, #00d4ff 0%, #62eeff 50%, #00b8d9 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: trackersPulse 3s ease-in-out infinite alternate;
+}
+.hub-hero-sub {
+  font-size: 13px;
+  color: rgba(238,242,255,0.35);
+  letter-spacing: 0.5px;
+  margin: 0;
+  font-family: 'Space Grotesk', sans-serif;
+}
+
 .tracker-hub-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 20px;
 }
 
+/* ── Hub cards — premium overhaul ── */
 .tracker-hub-card {
-  background: var(--bg-card);
+  background: linear-gradient(145deg, rgba(12,16,36,0.85) 0%, rgba(7,9,26,0.95) 100%);
   border: 1px solid rgba(0,212,255,0.1);
   border-radius: var(--radius-lg);
-  padding: 24px;
+  padding: 26px 24px 22px;
   cursor: pointer;
-  transition: var(--trans);
+  transition: all 0.32s cubic-bezier(0.4,0,0.2,1);
   position: relative;
   overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
+/* Animated top-edge gradient border */
 .tracker-hub-card::before {
   content: '';
   position: absolute; top: 0; left: 0; right: 0; height: 2px;
-  background: linear-gradient(90deg, var(--cyan), var(--purple));
+  background: linear-gradient(90deg, var(--purple), var(--cyan), var(--purple));
+  background-size: 200% 100%;
+  animation: borderFlow 4s linear infinite;
+  opacity: 0.8;
+}
+@keyframes borderFlow {
+  0%   { background-position: 0% 0%; }
+  100% { background-position: 200% 0%; }
+}
+/* Ambient inner glow on hover */
+.tracker-hub-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-lg);
+  background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(0,212,255,0.06) 0%, transparent 70%);
+  opacity: 0;
+  transition: opacity 0.35s;
+  pointer-events: none;
 }
 .tracker-hub-card:hover {
-  border-color: rgba(0,212,255,0.3);
-  transform: translateY(-4px);
-  box-shadow: 0 16px 48px rgba(0,0,0,0.6), 0 0 40px rgba(0,212,255,0.1);
-  background: var(--bg-card-hover);
+  border-color: rgba(0,212,255,0.32);
+  transform: translateY(-5px) scale(1.005);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.65), 0 0 50px rgba(0,212,255,0.1), inset 0 0 30px rgba(0,212,255,0.025);
+  background: linear-gradient(145deg, rgba(14,18,40,0.9) 0%, rgba(9,11,30,0.98) 100%);
 }
+.tracker-hub-card:hover::after { opacity: 1; }
+
 .thc-top {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
 }
-.thc-icon { font-size: 28px; line-height: 1; flex-shrink: 0; }
-.thc-title-wrap { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+/* Icon in a glowing badge */
+.thc-icon {
+  font-size: 26px;
+  line-height: 1;
+  flex-shrink: 0;
+  width: 52px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,212,255,0.06);
+  border: 1px solid rgba(0,212,255,0.12);
+  border-radius: 14px;
+  transition: all 0.3s;
+}
+.tracker-hub-card:hover .thc-icon {
+  background: rgba(0,212,255,0.1);
+  border-color: rgba(0,212,255,0.28);
+  box-shadow: 0 0 22px rgba(0,212,255,0.18), inset 0 0 14px rgba(0,212,255,0.05);
+}
+.thc-title-wrap { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
 .thc-name {
   font-family: 'Orbitron', sans-serif;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
   color: var(--text-primary);
-  letter-spacing: 0.5px;
+  letter-spacing: 0.8px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .thc-pct-badge {
   font-family: 'Orbitron', sans-serif;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 1px;
 }
 .thc-stats {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 .thc-stat-pill {
-  background: rgba(255,255,255,0.04);
+  background: rgba(255,255,255,0.035);
   border: 1px solid rgba(255,255,255,0.07);
   border-radius: 20px;
   padding: 4px 12px;
   font-size: 12px;
-  color: rgba(238,242,255,0.55);
+  color: rgba(238,242,255,0.5);
   white-space: nowrap;
 }
 .thc-stat-val { color: var(--text-primary); font-weight: 700; margin-right: 3px; }
-.thc-stat-lbl { }
 
 .thc-bar-wrap {
-  height: 4px;
-  background: rgba(255,255,255,0.07);
-  border-radius: 4px;
+  height: 5px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 5px;
   overflow: hidden;
 }
 .thc-bar-fill {
   height: 100%;
-  border-radius: 4px;
-  transition: width 0.6s cubic-bezier(.4,0,.2,1);
-  box-shadow: 0 0 8px currentColor;
+  border-radius: 5px;
+  transition: width 0.8s cubic-bezier(.4,0,.2,1);
+  box-shadow: 0 0 10px currentColor, 0 0 22px currentColor;
 }
 .thc-footer {
   display: flex;
@@ -455,7 +621,7 @@ body::after {
   transition: text-shadow 0.2s;
 }
 .tracker-hub-card:hover .thc-open-btn {
-  text-shadow: 0 0 18px rgba(0,212,255,0.9);
+  text-shadow: 0 0 20px rgba(0,212,255,0.95), 0 0 40px rgba(0,212,255,0.4);
 }
 
 .stat-card {

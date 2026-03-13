@@ -5362,14 +5362,16 @@ function zoomToZone(zone) {
   if (!mapOuter || !mapContainer || !img) return;
 
   if (!zone) {
-    // Reset zoom/scroll
-    mapOuter.scrollTo({ left: 0, top: 0, behavior: 'smooth' });
-    mapContainer.style.transform = '';
-    mapContainer.style.transformOrigin = '';
+    // Reset: remove transform, restore scroll
+    mapContainer.style.transition = 'transform 0.45s cubic-bezier(0.4,0,0.2,1)';
+    mapContainer.style.transformOrigin = '0 0';
+    mapContainer.style.transform = 'translate(0px, 0px) scale(1)';
+    mapOuter.style.overflow = 'auto';
+    setTimeout(() => { mapOuter.scrollTo({ left: 0, top: 0, behavior: 'smooth' }); }, 50);
     return;
   }
 
-  // Find bboxes for all areas in this zone
+  // Collect PB ids in this zone
   const zonePbIds = new Set();
   loadedMapAreas.forEach(a => { if (a.zone === zone) zonePbIds.add(a.power_block_id); });
   if (!zonePbIds.size) return;
@@ -5386,8 +5388,8 @@ function zoomToZone(zone) {
   });
   if (!isFinite(minX)) return;
 
-  // Add 5% padding
-  const pad = 5;
+  // Tight 3% padding for precise focus
+  const pad = 3;
   minX = Math.max(0, minX - pad);
   minY = Math.max(0, minY - pad);
   maxX = Math.min(100, maxX + pad);
@@ -5402,31 +5404,33 @@ function zoomToZone(zone) {
   const imgW = img.offsetWidth;
   const imgH = img.offsetHeight;
 
+  // Zone rectangle in image pixels
   const absX = (minX / 100) * imgW;
   const absY = (minY / 100) * imgH;
   const absW = (zoneW / 100) * imgW;
   const absH = (zoneH / 100) * imgH;
 
-  // Calculate scale to fit zone into the outer container
-  const scaleX = outerW / absW;
-  const scaleY = outerH / absH;
-  const scale = Math.min(scaleX, scaleY, 4); // cap at 4x
+  // Center of zone in image pixels
+  const cx = absX + absW / 2;
+  const cy = absY + absH / 2;
 
-  // Apply CSS scale on map-container
-  const originX = (minX + zoneW / 2) + '%';
-  const originY = (minY + zoneH / 2) + '%';
-  mapContainer.style.transformOrigin = originX + ' ' + originY;
-  mapContainer.style.transition = 'transform 0.5s cubic-bezier(0.4,0,0.2,1)';
-  mapContainer.style.transform = `scale(${scale})`;
+  // Scale to fill ~90% of the outer container — allow up to 7× zoom
+  const scaleX = (outerW * 0.90) / absW;
+  const scaleY = (outerH * 0.90) / absH;
+  const scale = Math.min(scaleX, scaleY, 7);
 
-  // Scroll to center the zone
-  const centerAbsX = absX + absW / 2;
-  const centerAbsY = absY + absH / 2;
-  const scrollX = centerAbsX * scale - outerW / 2;
-  const scrollY = centerAbsY * scale - outerH / 2;
-  setTimeout(() => {
-    mapOuter.scrollTo({ left: Math.max(0, scrollX), top: Math.max(0, scrollY), behavior: 'smooth' });
-  }, 100);
+  // With transform-origin 0 0:
+  //   a point at (px, py) appears at (px*s + tx, py*s + ty) in outer coords
+  //   we want zone center (cx, cy) → outer center (outerW/2, outerH/2)
+  const tx = outerW / 2 - cx * scale;
+  const ty = outerH / 2 - cy * scale;
+
+  // Freeze scroll and drive entirely with CSS transform
+  mapOuter.scrollTo(0, 0);
+  mapOuter.style.overflow = 'hidden';
+  mapContainer.style.transformOrigin = '0 0';
+  mapContainer.style.transition = 'transform 0.52s cubic-bezier(0.4,0,0.2,1)';
+  mapContainer.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
 }
 
 
