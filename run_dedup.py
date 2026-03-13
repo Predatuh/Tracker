@@ -1,9 +1,8 @@
 """Hit the dedup endpoint to remove duplicate LBDs."""
 import requests
+from ops_env import login_session
 
-RAILWAY_URL = "https://www.princesscoded.net"
-s = requests.Session()
-s.post(f"{RAILWAY_URL}/api/auth/login", json={"name": "Admin", "pin": "9067"})
+s, RAILWAY_URL = login_session()
 
 r = s.post(f"{RAILWAY_URL}/api/admin/dedup-lbds", timeout=120)
 print(f"Status: {r.status_code}")

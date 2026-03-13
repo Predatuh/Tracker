@@ -3,6 +3,7 @@ import re
 from flask import Blueprint, request, jsonify, session
 from app import db
 from app.models.user import User
+from app.utils.audit import log_action
 
 bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 
@@ -140,4 +141,5 @@ def update_user_role(user_id):
         target.set_permissions([])
 
     db.session.commit()
+    log_action('user.role.update', 'user', target.id, {'role': new_role, 'permissions': valid_perms}, actor=caller)
     return jsonify({'user': target.to_dict()}), 200

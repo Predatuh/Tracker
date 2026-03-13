@@ -1,7 +1,8 @@
 """Check what's already been migrated to PostgreSQL."""
 import psycopg2
+from ops_env import get_db_url
 
-DB_URL = "postgresql://postgres:qeFiwAwzvCupyEAmPwPeJWKVhWcpnwZB@mainline.proxy.rlwy.net:29747/railway"
+DB_URL = get_db_url()
 conn = psycopg2.connect(DB_URL)
 cur = conn.cursor()
 

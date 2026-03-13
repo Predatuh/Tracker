@@ -1,5 +1,7 @@
 import psycopg2
-conn = psycopg2.connect('postgresql://postgres:qeFiwAwzvCupyEAmPwPeJWKVhWcpnwZB@mainline.proxy.rlwy.net:29747/railway')
+from ops_env import get_db_url
+
+conn = psycopg2.connect(get_db_url())
 cur = conn.cursor()
 
 # Check all schemas

@@ -1,9 +1,8 @@
 """Count LBDs on Railway and find duplicates."""
 import requests
+from ops_env import login_session
 
-RAILWAY_URL = "https://www.princesscoded.net"
-s = requests.Session()
-s.post(f"{RAILWAY_URL}/api/auth/login", json={"name": "Admin", "pin": "9067"})
+s, RAILWAY_URL = login_session()
 
 r = s.get(f"{RAILWAY_URL}/api/tracker/power-blocks")
 pbs = r.json().get("data", [])

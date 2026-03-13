@@ -1,7 +1,8 @@
 import requests, json
-s = requests.Session()
-s.post('https://www.princesscoded.net/api/auth/login', json={'name':'Admin','pin':'9067'})
-r = s.get('https://www.princesscoded.net/api/map/sitemaps')
+from ops_env import login_session
+
+s, base_url = login_session()
+r = s.get(f'{base_url}/api/map/sitemaps')
 d = r.json()
 maps = d.get('data', d)
 for m in maps:
@@ -12,11 +13,11 @@ for m in maps:
 # Check if map image is accessible
 for m in maps:
     mid = m["id"]
-    r2 = s.get(f'https://www.princesscoded.net/api/map/sitemap/{mid}')
+    r2 = s.get(f'{base_url}/api/map/sitemap/{mid}')
     print(f"Map {mid} image: status={r2.status_code} content-type={r2.headers.get('content-type','?')[:40]}")
 
 # Check how frontend loads the map
-r3 = s.get('https://www.princesscoded.net/api/map/sitemaps')
+r3 = s.get(f'{base_url}/api/map/sitemaps')
 d3 = r3.json()
 maps3 = d3.get('data', d3)
 if maps3:

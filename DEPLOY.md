@@ -21,7 +21,7 @@ In your service settings → **Variables** tab, add:
 |---|---|
 | `DATABASE_URL` | *(auto-set when you add PostgreSQL plugin — copy from the plugin's Connect tab)* |
 | `SECRET_KEY` | Any long random string, e.g. `my-super-secret-abc-123-xyz-789` |
-| `ADMIN_PIN` | Your chosen 4-digit admin PIN (default: `1234`) |
+| `ADMIN_PIN` | Required. Use a strong PIN or passcode you will not commit into scripts. |
 
 4. Railway will auto-deploy. Your site URL will be something like `https://lbd-tracker-xyz.railway.app`
 
@@ -36,7 +36,7 @@ In your service settings → **Variables** tab, add:
    url = postgresql://...   ← paste your Railway DATABASE_URL here
 
    [admin]
-   pin = 1234               ← must match ADMIN_PIN on Railway
+   pin = your-admin-pin     ← must match ADMIN_PIN on Railway
    
    [app]
    secret_key = same-secret-key-as-railway
@@ -59,6 +59,14 @@ In your service settings → **Variables** tab, add:
 - PIN must be exactly 4 digits (0–9)
 - To sign in as Admin: name = `Admin`, PIN = your `ADMIN_PIN`
 - Admin account is created automatically on first run
+- Helper scripts should use env vars like `TRACKER_SITE_URL`, `TRACKER_ADMIN_PIN`, and `TRACKER_DATABASE_URL` instead of hardcoded production secrets
+
+## 4.1. Before Going Live
+
+- Rotate any previously exposed DB passwords or admin PINs before launch
+- Verify `SECRET_KEY` and `ADMIN_PIN` are set in Railway; cloud boot now fails fast if they are missing
+- Confirm you can restore from a DB backup before announcing the system as live
+- Review the new Admin `Activity` tab to confirm changes are being logged
 
 ---
 

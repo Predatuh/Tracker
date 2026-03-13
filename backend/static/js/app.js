@@ -1,4 +1,6 @@
 // API helper functions
+const DEBUG_API = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+
 const api = {
   async call(endpoint, options = {}) {
     const url = `/api${endpoint}`;
@@ -8,16 +10,16 @@ const api = {
       ...options
     };
     
-    console.log(`API Call: ${endpoint}`, defaultOptions.body);
+    if (DEBUG_API) console.log(`API Call: ${endpoint}`, defaultOptions.body);
     
     const response = await fetch(url, defaultOptions);
     const data = await response.json();
     
-    console.log(`API Response (${endpoint}):`, data);
+    if (DEBUG_API) console.log(`API Response (${endpoint}):`, data);
     
     if (!response.ok) {
       const errorMsg = data.error || `HTTP ${response.status}`;
-      console.error(`API Error: ${errorMsg}`);
+      if (DEBUG_API) console.error(`API Error: ${errorMsg}`);
       throw new Error(errorMsg);
     }
     return data;
@@ -89,6 +91,7 @@ const api = {
 
   // ---- Admin API (tracker-aware) ----
   getAdminSettings() { return this.call(this._tq('/admin/settings')); },
+  getAuditLogs(limit = 100) { return this.call(`/admin/audit-logs?limit=${limit}`); },
   saveZoneNames(names) { return this.call(this._tq('/admin/settings/zone-names'), { method:'PUT', body: JSON.stringify({names}) }); },
   saveAppearance(appearance) { return this.call('/admin/settings/appearance', { method:'PUT', body: JSON.stringify({appearance}) }); },
   saveUIText(ui_text) { return this.call('/admin/settings/ui-text', { method:'PUT', body: JSON.stringify({ui_text}) }); },
@@ -3676,6 +3679,38 @@ function switchAdminTab(tabKey) {
   if (tabKey === 'zones') loadZonesTab();
   if (tabKey === 'appearance') loadAppearanceTab();
   if (tabKey === 'uilabels') loadUILabelsTab();
+  if (tabKey === 'audit') loadAuditLogsTab();
+}
+
+async function loadAuditLogsTab() {
+  const container = document.getElementById('admin-audit-log-list');
+  if (!container) return;
+  container.innerHTML = '<div style="color:rgba(238,242,255,0.45);padding:18px 0;">Loading activity…</div>';
+  try {
+    const r = await api.getAuditLogs(120);
+    const items = r.data || [];
+    if (!items.length) {
+      container.innerHTML = '<div style="color:rgba(238,242,255,0.45);padding:18px 0;">No activity logged yet.</div>';
+      return;
+    }
+    container.innerHTML = items.map(item => {
+      const when = item.created_at ? new Date(item.created_at).toLocaleString() : '';
+      const details = item.details && Object.keys(item.details).length ? JSON.stringify(item.details) : '';
+      return `
+        <div style="padding:14px 16px;border:1px solid rgba(255,255,255,0.08);border-radius:12px;background:rgba(8,12,28,0.72);margin-bottom:10px;">
+          <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;">
+            <div>
+              <div style="font-weight:700;color:#eef2ff;">${item.action}</div>
+              <div style="font-size:12px;color:#9aa6c7;">${item.actor_name}${item.target_type ? ` • ${item.target_type}` : ''}${item.target_id ? ` #${item.target_id}` : ''}</div>
+            </div>
+            <div style="font-size:12px;color:#7f8cb2;white-space:nowrap;">${when}</div>
+          </div>
+          ${details ? `<div style="margin-top:8px;font-size:12px;color:#aeb8d6;font-family:monospace;word-break:break-word;">${details}</div>` : ''}
+        </div>`;
+    }).join('');
+  } catch (e) {
+    container.innerHTML = `<div style="color:#ff8aa0;padding:18px 0;">Failed to load activity: ${e.message}</div>`;
+  }
 }
 
 /* ── Appearance Admin Tab ── */

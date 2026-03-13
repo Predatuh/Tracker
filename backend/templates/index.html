@@ -327,6 +327,7 @@
                   <button class="btn admin-tab" id="atab-maplabels" onclick="switchAdminTab('maplabels')">🗺️ Map Labels</button>
                   <button class="btn admin-tab" id="atab-zones" onclick="switchAdminTab('zones')">🗾 Zones</button>
                   <button class="btn admin-tab main-admin-only" id="atab-users" onclick="switchAdminTab('users')">👥 Users</button>
+                  <button class="btn admin-tab main-admin-only" id="atab-audit" onclick="switchAdminTab('audit')">🧾 Activity</button>
                   <button class="btn admin-tab main-admin-only" id="atab-appearance" onclick="switchAdminTab('appearance')">✨ Appearance</button>
                   <button class="btn admin-tab main-admin-only" id="atab-uilabels" onclick="switchAdminTab('uilabels')">📝 UI Text</button>
                   <button class="btn admin-tab" id="atab-updates" onclick="switchAdminTab('updates')">🔄 Updates</button>
@@ -489,6 +490,12 @@
                     </div>
                   </div>
                   <div id="admin-users-list" style="display:flex;flex-direction:column;gap:12px;"></div>
+                </div>
+
+                <div id="admin-tab-audit" class="admin-tab-content" style="display:none;">
+                  <h2 class="section-subtitle">Activity Log</h2>
+                  <p style="color:var(--text-muted);font-size:13px;margin-bottom:20px;">Recent admin changes across trackers, settings, users, and bulk actions.</p>
+                  <div id="admin-audit-log-list"></div>
                 </div>
 
                 <!-- Appearance Tab -->

@@ -1,8 +1,9 @@
 from flask import Blueprint, request, jsonify
 from app import db
-from app.models import LBDStatus
+from app.models import LBDStatus, AuditLog
 from app.models.admin_settings import AdminSettings
 from app.models.tracker import Tracker
+from app.utils.audit import require_permission, log_action
 
 bp = Blueprint('admin', __name__, url_prefix='/api/admin')
 
@@ -18,6 +19,9 @@ def list_trackers():
 
 @bp.route('/trackers', methods=['POST'])
 def create_tracker():
+    actor, err, status = require_permission('admin_settings')
+    if not actor:
+        return err, status
     data = request.get_json() or {}
     name = (data.get('name') or '').strip()
     slug = (data.get('slug') or '').strip().lower().replace(' ', '-')
@@ -43,11 +47,15 @@ def create_tracker():
     t.set_status_names(data.get('status_names', {}))
     db.session.add(t)
     db.session.commit()
+    log_action('tracker.create', 'tracker', t.id, {'name': t.name, 'slug': t.slug}, actor=actor)
     return jsonify({'success': True, 'data': t.to_dict()}), 201
 
 
 @bp.route('/trackers/<int:tracker_id>', methods=['PUT'])
 def update_tracker(tracker_id):
+    actor, err, status = require_permission('admin_settings')
+    if not actor:
+        return err, status
     t = Tracker.query.get_or_404(tracker_id)
     data = request.get_json() or {}
     for field in ('name', 'slug', 'item_name_singular', 'item_name_plural', 'stat_label', 'dashboard_progress_label', 'dashboard_blocks_label', 'dashboard_open_label', 'icon', 'sort_order'):
@@ -62,15 +70,30 @@ def update_tracker(tracker_id):
     if 'column_order' in data:
         t.set_column_order(data['column_order'])
     db.session.commit()
+    log_action('tracker.update', 'tracker', t.id, {'fields': sorted(list(data.keys()))}, actor=actor)
     return jsonify({'success': True, 'data': t.to_dict()}), 200
 
 
 @bp.route('/trackers/<int:tracker_id>', methods=['DELETE'])
 def delete_tracker(tracker_id):
+    actor, err, status = require_permission('admin_settings')
+    if not actor:
+        return err, status
     t = Tracker.query.get_or_404(tracker_id)
     t.is_active = False
     db.session.commit()
+    log_action('tracker.delete', 'tracker', t.id, {'name': t.name}, actor=actor)
     return jsonify({'success': True}), 200
+
+
+@bp.route('/audit-logs', methods=['GET'])
+def list_audit_logs():
+    actor, err, status = require_permission('admin_settings')
+    if not actor:
+        return err, status
+    limit = min(int(request.args.get('limit', 100)), 250)
+    items = AuditLog.query.order_by(AuditLog.created_at.desc()).limit(limit).all()
+    return jsonify({'success': True, 'data': [item.to_dict() for item in items]}), 200
 
 
 # ------------------------------------------------------------------ #
@@ -126,6 +149,9 @@ def get_settings():
 @bp.route('/settings/zone-names', methods=['PUT'])
 def update_zone_names():
     try:
+        actor, err, status = require_permission('admin_settings')
+        if not actor:
+            return err, status
         data = request.get_json() or {}
         names = data.get('names', [])
         if not isinstance(names, list):
@@ -133,6 +159,7 @@ def update_zone_names():
         tracker = _get_tracker()
         key = f'zone_names_{tracker.id}' if tracker else 'zone_names'
         AdminSettings.set(key, names)
+        log_action('settings.zone_names', 'tracker' if tracker else 'global', tracker.id if tracker else key, {'count': len(names)}, actor=actor)
         return jsonify({'success': True, 'data': names}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -144,14 +171,19 @@ def update_zone_names():
 @bp.route('/settings/colors', methods=['PUT'])
 def update_colors():
     try:
+        actor, err, status = require_permission('admin_settings')
+        if not actor:
+            return err, status
         data = request.get_json()
         colors = data.get('colors', {})
         tracker = _get_tracker()
         if tracker:
             tracker.set_status_colors(colors)
             db.session.commit()
+            log_action('settings.colors', 'tracker', tracker.id, {'keys': sorted(list(colors.keys()))}, actor=actor)
             return jsonify({'success': True, 'data': tracker.get_status_colors()}), 200
         AdminSettings.set('status_colors', colors)
+        log_action('settings.colors', 'global', 'status_colors', {'keys': sorted(list(colors.keys()))}, actor=actor)
         return jsonify({'success': True, 'data': AdminSettings.get_colors()}), 200
     except Exception as e:
         db.session.rollback()
@@ -164,14 +196,19 @@ def update_colors():
 @bp.route('/settings/names', methods=['PUT'])
 def update_names():
     try:
+        actor, err, status = require_permission('admin_settings')
+        if not actor:
+            return err, status
         data = request.get_json()
         names = data.get('names', {})
         tracker = _get_tracker()
         if tracker:
             tracker.set_status_names(names)
             db.session.commit()
+            log_action('settings.names', 'tracker', tracker.id, {'keys': sorted(list(names.keys()))}, actor=actor)
             return jsonify({'success': True, 'data': tracker.get_status_names()}), 200
         AdminSettings.set('status_names', names)
+        log_action('settings.names', 'global', 'status_names', {'keys': sorted(list(names.keys()))}, actor=actor)
         return jsonify({'success': True, 'data': AdminSettings.get_names()}), 200
     except Exception as e:
         db.session.rollback()
@@ -184,6 +221,9 @@ def update_names():
 @bp.route('/settings/columns', methods=['POST'])
 def add_column():
     try:
+        actor, err, status = require_permission('admin_settings')
+        if not actor:
+            return err, status
         data = request.get_json()
         key = data.get('key', '').strip().lower().replace(' ', '_')
         label = data.get('label', '').strip()
@@ -206,6 +246,7 @@ def add_column():
             names[key] = label
             tracker.set_status_names(names)
             db.session.commit()
+            log_action('column.add', 'tracker', tracker.id, {'key': key, 'label': label}, actor=actor)
             return jsonify({
                 'success': True,
                 'data': {'key': key, 'label': label, 'color': color, 'all_columns': tracker.all_column_keys()}
@@ -235,6 +276,8 @@ def add_column():
         colors_store[key] = color
         AdminSettings.set('status_colors', colors_store)
 
+        log_action('column.add', 'global', key, {'label': label}, actor=actor)
+
         return jsonify({
             'success': True,
             'data': {'key': key, 'label': label, 'color': color, 'all_columns': AdminSettings.all_column_keys()}
@@ -250,6 +293,9 @@ def add_column():
 @bp.route('/settings/columns/<column_key>', methods=['DELETE'])
 def delete_column(column_key):
     try:
+        actor, err, status = require_permission('admin_settings')
+        if not actor:
+            return err, status
         tracker = _get_tracker()
         if tracker:
             types = tracker.get_status_types()
@@ -262,6 +308,7 @@ def delete_column(column_key):
             names.pop(column_key, None)
             tracker.set_status_names(names)
             db.session.commit()
+            log_action('column.delete', 'tracker', tracker.id, {'key': column_key}, actor=actor)
             return jsonify({'success': True, 'all_columns': tracker.all_column_keys()}), 200
 
         from app.models.status import LBDStatus
@@ -284,6 +331,8 @@ def delete_column(column_key):
         colors.pop(column_key, None)
         AdminSettings.set('status_colors', colors)
 
+        log_action('column.delete', 'global', column_key, {'key': column_key}, actor=actor)
+
         return jsonify({'success': True, 'all_columns': AdminSettings.all_column_keys()}), 200
     except Exception as e:
         db.session.rollback()
@@ -296,9 +345,13 @@ def delete_column(column_key):
 @bp.route('/settings/font-size', methods=['PUT'])
 def update_font_size():
     try:
+        actor, err, status = require_permission('admin_settings')
+        if not actor:
+            return err, status
         data = request.get_json()
         size = data.get('size', 14)
         AdminSettings.set('pb_label_font_size', int(size))
+        log_action('settings.font_size', 'global', 'pb_label_font_size', {'size': int(size)}, actor=actor)
         return jsonify({'success': True, 'data': int(size)}), 200
     except Exception as e:
         db.session.rollback()
@@ -311,6 +364,9 @@ def update_font_size():
 @bp.route('/settings/column-order', methods=['PUT'])
 def update_column_order():
     try:
+        actor, err, status = require_permission('admin_settings')
+        if not actor:
+            return err, status
         data = request.get_json()
         order = data.get('order', [])
         if not isinstance(order, list):
@@ -322,11 +378,13 @@ def update_column_order():
             order = [k for k in order if k in active]
             tracker.set_column_order(order)
             db.session.commit()
+            log_action('column.reorder', 'tracker', tracker.id, {'order': order}, actor=actor)
             return jsonify({'success': True, 'all_columns': tracker.all_column_keys()}), 200
 
         active = set(AdminSettings.all_column_keys())
         order = [k for k in order if k in active]
         AdminSettings.set('column_order', order)
+        log_action('column.reorder', 'global', 'column_order', {'order': order}, actor=actor)
         return jsonify({
             'success': True,
             'all_columns': AdminSettings.all_column_keys()
@@ -342,6 +400,9 @@ def update_column_order():
 @bp.route('/settings/appearance', methods=['PUT'])
 def update_appearance():
     try:
+        actor, err, status = require_permission('admin_settings')
+        if not actor:
+            return err, status
         data = request.get_json() or {}
         appearance = data.get('appearance', {})
         allowed_keys = {
@@ -351,6 +412,7 @@ def update_appearance():
         }
         appearance = {k: v for k, v in appearance.items() if k in allowed_keys and isinstance(v, str)}
         AdminSettings.set('appearance', appearance)
+        log_action('settings.appearance', 'global', 'appearance', {'keys': sorted(list(appearance.keys()))}, actor=actor)
         return jsonify({'success': True, 'data': appearance}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -362,6 +424,9 @@ def update_appearance():
 @bp.route('/settings/ui-text', methods=['PUT'])
 def update_ui_text():
     try:
+        actor, err, status = require_permission('admin_settings')
+        if not actor:
+            return err, status
         data = request.get_json() or {}
         ui_text = data.get('ui_text', {})
         allowed_keys = {
@@ -374,6 +439,7 @@ def update_ui_text():
         }
         ui_text = {k: v for k, v in ui_text.items() if k in allowed_keys and isinstance(v, str)}
         AdminSettings.set('ui_text', ui_text)
+        log_action('settings.ui_text', 'global', 'ui_text', {'keys': sorted(list(ui_text.keys()))}, actor=actor)
         return jsonify({'success': True, 'data': ui_text}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -391,6 +457,9 @@ def bulk_complete():
     Body: { power_block_id, status_types: [...], is_completed: bool }
     """
     try:
+        actor, err, status = require_permission('manage_blocks')
+        if not actor:
+            return err, status
         from app.models import PowerBlock, LBDStatus
         from datetime import datetime
 
@@ -419,6 +488,8 @@ def bulk_complete():
         except Exception:
             pass
 
+        log_action('bulk.complete', 'power_block', block_id, {'status_types': status_types, 'is_completed': is_completed, 'updated': len(block.lbds)}, actor=actor)
+
         return jsonify({'success': True, 'updated': len(block.lbds)}), 200
     except Exception as e:
         db.session.rollback()
@@ -432,6 +503,9 @@ def bulk_complete():
 def dedup_lbds():
     """Delete duplicate LBDs keeping the one with the lowest id."""
     try:
+        actor, err, status = require_permission(admin_only=True)
+        if not actor:
+            return err, status
         from app.models import LBD, PowerBlock
 
         blocks = PowerBlock.query.all()
@@ -451,6 +525,7 @@ def dedup_lbds():
 
         db.session.commit()
         remaining = LBD.query.count()
+        log_action('lbd.dedup', 'global', 'lbds', {'deleted': total_deleted, 'remaining': remaining}, actor=actor)
         return jsonify({
             'success': True,
             'deleted': total_deleted,

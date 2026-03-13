@@ -1,11 +1,10 @@
 """Upload just site areas (PB positions on map) to Railway PostgreSQL."""
 import sqlite3, requests, json, os, time
+from ops_env import login_session
 
-RAILWAY_URL = "https://www.princesscoded.net"
 LOCAL_DB = os.path.join(os.path.dirname(__file__), "dist", "LBDTracker_data", "lbd_tracker.db")
 
-s = requests.Session()
-s.post(f"{RAILWAY_URL}/api/auth/login", json={"name": "Admin", "pin": "9067"})
+s, RAILWAY_URL = login_session()
 
 # Get remote PB name->id mapping
 r = s.get(f"{RAILWAY_URL}/api/tracker/power-blocks")

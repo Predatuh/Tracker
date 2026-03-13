@@ -10,6 +10,13 @@ Download or build LBDTracker.exe and double-click it. Done!
 ```
 See [BUILD_EXE.md](BUILD_EXE.md) for building your own EXE.
 
+Before using production helper scripts, set credentials outside the repo:
+```powershell
+$env:TRACKER_SITE_URL = "https://your-live-site.example"
+$env:TRACKER_ADMIN_PIN = "your-admin-pin"
+$env:TRACKER_DATABASE_URL = "your-postgres-url"
+```
+
 ### Option 2: Development Mode
 **Windows:**
 ```bash

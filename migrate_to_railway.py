@@ -13,9 +13,10 @@ import os
 import json
 import time
 import sys
+from ops_env import get_site_url, get_admin_name, get_admin_pin
 
 # -------------------------------------------------------------------
-RAILWAY_URL = "https://www.princesscoded.net"
+RAILWAY_URL = get_site_url()
 LOCAL_DB = os.path.join(os.path.dirname(__file__), "dist", "LBDTracker_data", "lbd_tracker.db")
 MAP_FILE = os.path.join(os.path.dirname(__file__), "dist", "LBDTracker_data", "uploads", "maps",
                         "map_Gemini_Generated_Image_l30ce4l30ce4l30c.png")
@@ -44,7 +45,7 @@ def check_connection():
 def login_admin():
     """Login as admin so we have permission to create data."""
     print("Logging in as admin...")
-    r = api("post", "/api/auth/login", json={"name": "Admin", "pin": "9067"})
+    r = api("post", "/api/auth/login", json={"name": get_admin_name(), "pin": get_admin_pin()})
     if r.status_code == 200:
         print("  Logged in as Admin")
         return True

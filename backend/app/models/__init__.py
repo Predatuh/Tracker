@@ -8,6 +8,7 @@ from .user import User
 from .worker import Worker, WorkEntry
 from .daily_report import DailyReport
 from .tracker import Tracker
+from .audit_log import AuditLog
 
 __all__ = ['PowerBlock', 'LBD', 'LBDStatus', 'SiteMap', 'SiteArea', 'AdminSettings', 'User',
-           'Worker', 'WorkEntry', 'DailyReport', 'Tracker']
+           'Worker', 'WorkEntry', 'DailyReport', 'Tracker', 'AuditLog']

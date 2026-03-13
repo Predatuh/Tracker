@@ -6,9 +6,10 @@ import sqlite3
 import psycopg2
 import json
 import os
+from ops_env import get_db_url
 
 LOCAL_DB = os.path.join(os.path.dirname(__file__), "dist", "LBDTracker_data", "lbd_tracker.db")
-PG_URL = "postgresql://postgres:qeFiwAwzvCupyEAmPwPeJWKVhWcpnwZB@mainline.proxy.rlwy.net:29747/railway"
+PG_URL = get_db_url()
 MAP_FILE = os.path.join(os.path.dirname(__file__), "dist", "LBDTracker_data", "uploads", "maps",
                         "map_Gemini_Generated_Image_l30ce4l30ce4l30c.png")
 

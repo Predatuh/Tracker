@@ -373,11 +373,19 @@ def _apply_update(dl_url_or_path, base, log):
             log(f'Download failed: {e}')
             return
     bat = os.path.join(base, '_lbd_update.bat')
+    backup = os.path.join(base, 'LBDTracker_previous.exe')
     with open(bat, 'w') as f:
         f.write(
             f'@echo off\n'
             f'timeout /t 2 /nobreak > nul\n'
-            f'move /Y "{tmp}" "{exe}"\n'
+            f'if exist "{backup}" del /f /q "{backup}"\n'
+            f'if exist "{exe}" move /Y "{exe}" "{backup}" > nul\n'
+            f'copy /Y "{tmp}" "{exe}" > nul\n'
+            f'if errorlevel 1 (\n'
+            f'  if exist "{backup}" move /Y "{backup}" "{exe}" > nul\n'
+            f') else (\n'
+            f'  del /f /q "{tmp}" > nul 2>nul\n'
+            f')\n'
             f'start "" "{exe}"\n'
             f'del "%~f0"\n'
         )
