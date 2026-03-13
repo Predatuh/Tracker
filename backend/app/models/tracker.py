@@ -14,6 +14,9 @@ class Tracker(db.Model):
     item_name_singular  = db.Column(db.String(50), default='Item')            # "LBD"
     item_name_plural    = db.Column(db.String(50), default='Items')           # "LBDs"
     stat_label          = db.Column(db.String(100), default='Total Items')    # "Total LBDs"
+    dashboard_progress_label = db.Column(db.String(100), default='Complete')
+    dashboard_blocks_label   = db.Column(db.String(100), default='Power Blocks')
+    dashboard_open_label     = db.Column(db.String(100), default='Open Tracker')
     icon                = db.Column(db.String(10), default='📋')
     _status_types       = db.Column('status_types', db.Text)                  # JSON list
     _status_colors      = db.Column('status_colors', db.Text)                 # JSON dict
@@ -86,6 +89,9 @@ class Tracker(db.Model):
             'item_name_singular':  self.item_name_singular,
             'item_name_plural':    self.item_name_plural,
             'stat_label':          self.stat_label,
+            'dashboard_progress_label': self.dashboard_progress_label,
+            'dashboard_blocks_label':   self.dashboard_blocks_label,
+            'dashboard_open_label':     self.dashboard_open_label,
             'icon':                self.icon,
             'status_types':        self.get_status_types(),
             'status_colors':       self.get_status_colors(),

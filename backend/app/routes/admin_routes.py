@@ -31,6 +31,9 @@ def create_tracker():
         item_name_singular=data.get('item_name_singular', 'Item'),
         item_name_plural=data.get('item_name_plural', 'Items'),
         stat_label=data.get('stat_label', f'Total {data.get("item_name_plural", "Items")}'),
+        dashboard_progress_label=data.get('dashboard_progress_label', 'Complete'),
+        dashboard_blocks_label=data.get('dashboard_blocks_label', 'Power Blocks'),
+        dashboard_open_label=data.get('dashboard_open_label', 'Open Tracker'),
         icon=data.get('icon', '📋'),
         sort_order=data.get('sort_order', 99),
     )
@@ -47,7 +50,7 @@ def create_tracker():
 def update_tracker(tracker_id):
     t = Tracker.query.get_or_404(tracker_id)
     data = request.get_json() or {}
-    for field in ('name', 'slug', 'item_name_singular', 'item_name_plural', 'stat_label', 'icon', 'sort_order'):
+    for field in ('name', 'slug', 'item_name_singular', 'item_name_plural', 'stat_label', 'dashboard_progress_label', 'dashboard_blocks_label', 'dashboard_open_label', 'icon', 'sort_order'):
         if field in data:
             setattr(t, field, data[field])
     if 'status_types' in data:

@@ -184,6 +184,9 @@ def _migrate_generic(app):
         ('users', 'permissions', "TEXT DEFAULT '[]'"),
         ('site_maps', 'image_data', 'BYTEA'),
         ('site_maps', 'image_mime', 'VARCHAR(50)'),
+        ('trackers', 'dashboard_progress_label', "VARCHAR(100) DEFAULT 'Complete'"),
+        ('trackers', 'dashboard_blocks_label', "VARCHAR(100) DEFAULT 'Power Blocks'"),
+        ('trackers', 'dashboard_open_label', "VARCHAR(100) DEFAULT 'Open Tracker'"),
     ]
     for table, col, dtype in migrations:
         try:
@@ -225,6 +228,9 @@ def _migrate_sqlite(app, db_uri):
     _add_col(cur, 'users', 'permissions', "TEXT DEFAULT '[]'")
     _add_col(cur, 'site_maps', 'image_data', 'BLOB')
     _add_col(cur, 'site_maps', 'image_mime', 'VARCHAR(50)')
+    _add_col(cur, 'trackers', 'dashboard_progress_label', "VARCHAR(100) DEFAULT 'Complete'")
+    _add_col(cur, 'trackers', 'dashboard_blocks_label', "VARCHAR(100) DEFAULT 'Power Blocks'")
+    _add_col(cur, 'trackers', 'dashboard_open_label', "VARCHAR(100) DEFAULT 'Open Tracker'")
     conn.commit()
     conn.close()
 

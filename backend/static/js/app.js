@@ -432,9 +432,6 @@ async function loadDashboard() {
   const ui = (adminSettings && adminSettings.ui_text) ? adminSettings.ui_text : {};
   const loadingText = ui.dashboard_loading || 'LOADING TRACKERS...';
   const emptyText = ui.dashboard_empty || 'No trackers yet. Create one in Admin.';
-  const completeLabel = ui.dashboard_complete || 'Complete';
-  const powerBlocksLabel = ui.dashboard_power_blocks || 'Power Blocks';
-  const openTrackerLabel = ui.dashboard_open_tracker || 'Open Tracker';
   grid.innerHTML = `<div style="color:rgba(238,242,255,0.4);text-align:center;padding:60px 20px;font-family:Orbitron,sans-serif;font-size:13px;letter-spacing:1px;">${loadingText}</div>`;
 
   // Make sure allTrackers is populated
@@ -470,6 +467,9 @@ async function loadDashboard() {
 
   grid.innerHTML = cards.map(t => {
     const barColor = t.pct >= 100 ? '#00e87a' : t.pct >= 50 ? '#00d4ff' : '#7c6cfc';
+    const completeLabel = t.dashboard_progress_label || ui.dashboard_complete || 'Complete';
+    const powerBlocksLabel = t.dashboard_blocks_label || ui.dashboard_power_blocks || 'Power Blocks';
+    const openTrackerLabel = t.dashboard_open_label || ui.dashboard_open_tracker || 'Open Tracker';
     return `
     <div class="tracker-hub-card" onclick="openTracker(${t.id})">
       <div class="thc-top">
@@ -3846,6 +3846,9 @@ function renderTrackersList(trackers) {
       <div style="font-size:12px;color:#a0aec0;margin-bottom:6px;">
         Item: <strong>${t.item_name_singular || 'Item'}</strong> / <strong>${t.item_name_plural || 'Items'}</strong> &nbsp;|&nbsp; Stat label: <strong>${t.stat_label || ''}</strong>
       </div>
+      <div style="font-size:12px;color:#a0aec0;margin-bottom:6px;">
+        Dashboard card: <strong>${t.dashboard_progress_label || 'Complete'}</strong> &nbsp;|&nbsp; <strong>${t.dashboard_blocks_label || 'Power Blocks'}</strong> &nbsp;|&nbsp; <strong>${t.dashboard_open_label || 'Open Tracker'}</strong>
+      </div>
       <div style="font-size:11px;color:#8892b0;margin-bottom:4px;">Status columns:</div>
       <div>${columnPills || '<span style="color:#8892b0;font-size:11px;">None</span>'}</div>
     </div>`;
@@ -3883,6 +3886,11 @@ function editTrackerInline(trackerId) {
       <div class="form-group"><label style="font-size:12px;">Item Singular</label><input type="text" id="tedit-singular-${trackerId}" value="${t.item_name_singular || ''}" /></div>
       <div class="form-group"><label style="font-size:12px;">Item Plural</label><input type="text" id="tedit-plural-${trackerId}" value="${t.item_name_plural || ''}" /></div>
       <div class="form-group"><label style="font-size:12px;">Stat Label</label><input type="text" id="tedit-stat-${trackerId}" value="${t.stat_label || ''}" /></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label style="font-size:12px;">Dashboard Progress Label</label><input type="text" id="tedit-progress-${trackerId}" value="${t.dashboard_progress_label || ''}" /></div>
+      <div class="form-group"><label style="font-size:12px;">Dashboard Blocks Label</label><input type="text" id="tedit-blocks-${trackerId}" value="${t.dashboard_blocks_label || ''}" /></div>
+      <div class="form-group"><label style="font-size:12px;">Dashboard Button Text</label><input type="text" id="tedit-open-${trackerId}" value="${t.dashboard_open_label || ''}" /></div>
     </div>
     <div>
       <div style="font-size:12px;font-weight:600;color:#a0aec0;margin-bottom:6px;">Status Columns</div>
@@ -3927,6 +3935,9 @@ async function saveTrackerEdit(trackerId) {
   const singular = document.getElementById('tedit-singular-' + trackerId).value.trim();
   const plural = document.getElementById('tedit-plural-' + trackerId).value.trim();
   const statLabel = document.getElementById('tedit-stat-' + trackerId).value.trim();
+  const progressLabel = document.getElementById('tedit-progress-' + trackerId).value.trim();
+  const blocksLabel = document.getElementById('tedit-blocks-' + trackerId).value.trim();
+  const openLabel = document.getElementById('tedit-open-' + trackerId).value.trim();
   if (!name || !slug) { showAdminAlert('Name and slug are required.', 'error'); return; }
 
   // Collect columns from the edit rows
@@ -3944,7 +3955,7 @@ async function saveTrackerEdit(trackerId) {
   });
 
   try {
-    await api.updateTracker(trackerId, { name, slug, icon, item_name_singular: singular, item_name_plural: plural, stat_label: statLabel, status_types, status_colors, status_names, column_order: status_types });
+    await api.updateTracker(trackerId, { name, slug, icon, item_name_singular: singular, item_name_plural: plural, stat_label: statLabel, dashboard_progress_label: progressLabel, dashboard_blocks_label: blocksLabel, dashboard_open_label: openLabel, status_types, status_colors, status_names, column_order: status_types });
     showAdminAlert('Tracker updated!', 'success');
     await loadTrackers();
     // If this is the current tracker, refresh settings
@@ -3972,16 +3983,22 @@ async function addNewTracker() {
   const singular = (document.getElementById('new-tracker-singular') || {}).value.trim();
   const plural = (document.getElementById('new-tracker-plural') || {}).value.trim();
   const statLabel = (document.getElementById('new-tracker-stat') || {}).value.trim();
+  const progressLabel = (document.getElementById('new-tracker-progress') || {}).value.trim();
+  const blocksLabel = (document.getElementById('new-tracker-blocks') || {}).value.trim();
+  const openLabel = (document.getElementById('new-tracker-open') || {}).value.trim();
   const icon = (document.getElementById('new-tracker-icon') || {}).value.trim();
   if (!name || !slug) { showAdminAlert('Tracker name and slug are required.', 'error'); return; }
   try {
-    await api.createTracker({ name, slug, item_name_singular: singular, item_name_plural: plural, stat_label: statLabel, icon });
+    await api.createTracker({ name, slug, item_name_singular: singular, item_name_plural: plural, stat_label: statLabel, dashboard_progress_label: progressLabel, dashboard_blocks_label: blocksLabel, dashboard_open_label: openLabel, icon });
     showAdminAlert('Tracker created!', 'success');
     document.getElementById('new-tracker-name').value = '';
     document.getElementById('new-tracker-slug').value = '';
     document.getElementById('new-tracker-singular').value = '';
     document.getElementById('new-tracker-plural').value = '';
     document.getElementById('new-tracker-stat').value = '';
+    document.getElementById('new-tracker-progress').value = '';
+    document.getElementById('new-tracker-blocks').value = '';
+    document.getElementById('new-tracker-open').value = '';
     document.getElementById('new-tracker-icon').value = '';
     await loadTrackers();
     loadTrackersTab();
