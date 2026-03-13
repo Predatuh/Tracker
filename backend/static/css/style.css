@@ -155,75 +155,135 @@ body::after {
   font-family: 'Orbitron', sans-serif;
   text-transform: uppercase;
   flex-shrink: 0;
-}
-
-/* P holds the crown above it */
-.navbar-brand .brand-p {
   position: relative;
+  overflow: visible;
+}
+
+/* Inline crown icon before PRINCESS */
+.navbar-brand .brand-crown-icon {
+  font-size: 16px;
+  margin-right: 4px;
   display: inline-block;
-  margin-right: 0;
+  background: linear-gradient(135deg, #ffd700 0%, #ffaa00 40%, #ffe66d 70%, #ffd700 100%);
+  background-size: 200% 200%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  filter: drop-shadow(0 0 6px rgba(255,215,0,0.8)) drop-shadow(0 0 14px rgba(255,165,0,0.5));
+  animation: crownFloat 2s ease-in-out infinite alternate, crownGradient 3s ease infinite;
+  transform-origin: center bottom;
+  vertical-align: baseline;
+  position: relative;
+  top: -1px;
 }
-.navbar-brand .brand-p::before {
-  content: '👑';
+@keyframes crownFloat {
+  0%   { transform: translateY(0) rotate(-2deg) scale(1);
+         filter: drop-shadow(0 0 4px rgba(255,215,0,0.7)) drop-shadow(0 0 10px rgba(255,165,0,0.4)); }
+  100% { transform: translateY(-2px) rotate(2deg) scale(1.08);
+         filter: drop-shadow(0 0 10px rgba(255,215,0,1)) drop-shadow(0 0 24px rgba(255,165,0,0.7)) drop-shadow(0 0 40px rgba(255,200,0,0.3)); }
+}
+@keyframes crownGradient {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.navbar-brand .brand-name {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0;
+  position: relative;
+}
+
+/* Shimmer sweep across entire brand */
+.navbar-brand .brand-shimmer {
   position: absolute;
-  top: -17px;
-  left: 50%;
-  transform: translateX(-50%) scale(1);
-  font-size: 13px;
-  line-height: 1;
+  top: 0; left: -100%; width: 60%; height: 100%;
+  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.12) 40%, rgba(255,255,255,0.25) 50%, rgba(255,255,255,0.12) 60%, transparent 100%);
   pointer-events: none;
-  display: block;
-  filter: drop-shadow(0 0 5px rgba(255,215,0,0.8)) drop-shadow(0 0 10px rgba(255,165,0,0.5));
-  animation: brandCrown 3s ease-in-out infinite alternate;
+  animation: brandShimmer 4s ease-in-out infinite;
+  z-index: 2;
 }
-@keyframes brandCrown {
-  from { filter: drop-shadow(0 0 4px rgba(255,215,0,0.75)) drop-shadow(0 0 8px rgba(255,165,0,0.4));
-         transform: translateX(-50%) scale(1); }
-  to   { filter: drop-shadow(0 0 9px rgba(255,215,0,1)) drop-shadow(0 0 20px rgba(255,165,0,0.65)) drop-shadow(0 0 36px rgba(255,200,0,0.35));
-         transform: translateX(-50%) scale(1.1); }
+@keyframes brandShimmer {
+  0%   { left: -100%; }
+  40%  { left: 200%; }
+  100% { left: 200%; }
 }
 
-.navbar-brand .brand-name { display: inline-flex; align-items: baseline; gap: 0; }
-
-/* PRINCESS — purple → lavender gradient */
+/* PRINCESS — animated sweeping gradient */
 .navbar-brand .brand-princess {
-  background: linear-gradient(90deg, #c084fc 0%, #a78bfa 55%, #e8ddff 100%);
+  background: linear-gradient(90deg, #c084fc 0%, #d8a5ff 20%, #a78bfa 40%, #e8ddff 60%, #c084fc 80%, #a78bfa 100%);
+  background-size: 200% 100%;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
   font-size: 15px;
   letter-spacing: 2.5px;
-  padding-top: 6px; /* space for the crown */
   font-weight: 900;
-  animation: princessGlow 3s ease-in-out infinite alternate;
+  animation: princessGlow 3s ease-in-out infinite alternate, princessGradientSweep 4s ease infinite;
+}
+.navbar-brand .brand-p {
+  display: inline;
 }
 @keyframes princessGlow {
-  from { filter: drop-shadow(0 0 3px rgba(192,132,252,0.45)); }
-  to   { filter: drop-shadow(0 0 9px rgba(192,132,252,0.9)) drop-shadow(0 0 20px rgba(167,139,250,0.45)); }
+  from { filter: drop-shadow(0 0 3px rgba(192,132,252,0.5)); }
+  to   { filter: drop-shadow(0 0 10px rgba(192,132,252,0.95)) drop-shadow(0 0 22px rgba(167,139,250,0.5)); }
+}
+@keyframes princessGradientSweep {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
 }
 
-/* Separator */
+/* Separator — pulsing diamond */
 .navbar-brand .brand-sep {
   font-size: 11px;
   padding: 0 7px;
-  -webkit-text-fill-color: rgba(238,242,255,0.18);
-  color: rgba(238,242,255,0.18);
+  -webkit-text-fill-color: rgba(238,242,255,0.25);
+  color: rgba(238,242,255,0.25);
+  animation: sepPulse 2s ease-in-out infinite;
+}
+@keyframes sepPulse {
+  0%, 100% { opacity: 0.3; transform: scale(1); }
+  50%      { opacity: 0.8; transform: scale(1.2); }
 }
 
-/* TRACKERS — cyan gradient */
+/* TRACKERS — animated sweeping cyan gradient */
 .navbar-brand .brand-trackers {
-  background: linear-gradient(90deg, #00d4ff 0%, #62eeff 50%, #00b8d9 100%);
+  background: linear-gradient(90deg, #00d4ff 0%, #62eeff 20%, #00b8d9 40%, #7ffbff 60%, #00d4ff 80%, #62eeff 100%);
+  background-size: 200% 100%;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
   font-size: 15px;
   letter-spacing: 2.5px;
   font-weight: 900;
-  animation: trackersPulse 3s ease-in-out infinite alternate;
+  animation: trackersPulse 3s ease-in-out infinite alternate, trackersGradientSweep 4s ease infinite;
 }
 @keyframes trackersPulse {
   from { filter: drop-shadow(0 0 4px rgba(0,212,255,0.5)); }
-  to   { filter: drop-shadow(0 0 14px rgba(0,212,255,1)) drop-shadow(0 0 28px rgba(0,212,255,0.45)); }
+  to   { filter: drop-shadow(0 0 16px rgba(0,212,255,1)) drop-shadow(0 0 32px rgba(0,212,255,0.5)); }
+}
+@keyframes trackersGradientSweep {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* Hover: intensify everything */
+.navbar-brand:hover .brand-crown-icon {
+  animation-duration: 0.6s, 1s;
+  filter: drop-shadow(0 0 14px rgba(255,215,0,1)) drop-shadow(0 0 30px rgba(255,165,0,0.8)) drop-shadow(0 0 50px rgba(255,200,0,0.4));
+}
+.navbar-brand:hover .brand-princess {
+  filter: drop-shadow(0 0 14px rgba(192,132,252,1)) drop-shadow(0 0 28px rgba(167,139,250,0.6));
+}
+.navbar-brand:hover .brand-trackers {
+  filter: drop-shadow(0 0 20px rgba(0,212,255,1)) drop-shadow(0 0 40px rgba(0,212,255,0.6));
+}
+.navbar-brand:hover .brand-sep {
+  -webkit-text-fill-color: rgba(238,242,255,0.6);
+  color: rgba(238,242,255,0.6);
 }
 
 /* Keep old brand-dot/brand-crown in case still used elsewhere */
@@ -427,8 +487,13 @@ body::after {
   font-size: 44px;
   display: inline-block;
   margin-bottom: 16px;
+  background: linear-gradient(135deg, #ffd700 0%, #ffaa00 40%, #ffe66d 70%, #ffd700 100%);
+  background-size: 200% 200%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
   filter: drop-shadow(0 0 14px rgba(255,215,0,0.65)) drop-shadow(0 0 30px rgba(255,165,0,0.3));
-  animation: crownGlow 3s ease-in-out infinite alternate;
+  animation: crownGlow 3s ease-in-out infinite alternate, crownGradient 3s ease infinite;
   line-height: 1;
 }
 .hub-hero-wordmark {
@@ -443,25 +508,64 @@ body::after {
   gap: 12px;
   margin-bottom: 16px;
   position: relative;
+  overflow: visible;
 }
-.hub-hero-princess {
-  background: linear-gradient(90deg, #d08dff 0%, #a78bfa 45%, #ede0ff 100%);
+/* Inline crown in hero wordmark */
+.hub-hero-crown-icon {
+  font-size: 30px;
+  margin-right: 2px;
+  background: linear-gradient(135deg, #ffd700 0%, #ffaa00 40%, #ffe66d 70%, #ffd700 100%);
+  background-size: 200% 200%;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  animation: princessGlow 3s ease-in-out infinite alternate;
+  filter: drop-shadow(0 0 10px rgba(255,215,0,0.8)) drop-shadow(0 0 20px rgba(255,165,0,0.5));
+  animation: crownFloat 2s ease-in-out infinite alternate, crownGradient 3s ease infinite;
+  display: inline-block;
+  vertical-align: baseline;
+  position: relative;
+  top: 2px;
+}
+/* Hero shimmer sweep */
+.hub-hero-shimmer {
+  position: absolute;
+  top: 0; left: -100%; width: 50%; height: 100%;
+  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.08) 40%, rgba(255,255,255,0.18) 50%, rgba(255,255,255,0.08) 60%, transparent 100%);
+  pointer-events: none;
+  animation: brandShimmer 5s ease-in-out infinite;
+  z-index: 2;
+}
+.hub-hero-princess {
+  background: linear-gradient(90deg, #d08dff 0%, #e0a5ff 20%, #a78bfa 40%, #ede0ff 60%, #d08dff 80%, #a78bfa 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: princessGlow 3s ease-in-out infinite alternate, princessGradientSweep 4s ease infinite;
 }
 .hub-hero-sep {
   font-size: 24px;
-  -webkit-text-fill-color: rgba(238,242,255,0.15);
-  color: rgba(238,242,255,0.15);
+  -webkit-text-fill-color: rgba(238,242,255,0.2);
+  color: rgba(238,242,255,0.2);
+  animation: sepPulse 2s ease-in-out infinite;
 }
 .hub-hero-trackers {
-  background: linear-gradient(90deg, #00d4ff 0%, #62eeff 50%, #00b8d9 100%);
+  background: linear-gradient(90deg, #00d4ff 0%, #62eeff 20%, #00b8d9 40%, #7ffbff 60%, #00d4ff 80%, #62eeff 100%);
+  background-size: 200% 100%;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  animation: trackersPulse 3s ease-in-out infinite alternate;
+  animation: trackersPulse 3s ease-in-out infinite alternate, trackersGradientSweep 4s ease infinite;
+}
+/* Hover intensify on hero */
+.hub-hero-wordmark:hover .hub-hero-crown-icon {
+  filter: drop-shadow(0 0 18px rgba(255,215,0,1)) drop-shadow(0 0 40px rgba(255,165,0,0.8));
+}
+.hub-hero-wordmark:hover .hub-hero-princess {
+  filter: drop-shadow(0 0 16px rgba(192,132,252,1)) drop-shadow(0 0 32px rgba(167,139,250,0.6));
+}
+.hub-hero-wordmark:hover .hub-hero-trackers {
+  filter: drop-shadow(0 0 24px rgba(0,212,255,1)) drop-shadow(0 0 48px rgba(0,212,255,0.6));
 }
 .hub-hero-sub {
   font-size: 13px;
