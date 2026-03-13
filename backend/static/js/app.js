@@ -126,8 +126,14 @@ const api = {
       body: JSON.stringify({ power_block_id: powerBlockId, status_types: statusTypes, is_completed: isCompleted })
     });
   },
-  claimBlock(blockId, action) {
-    return this.call(`/tracker/power-blocks/${blockId}/claim`, { method:'POST', body: JSON.stringify({ action }) });
+  getClaimPeople() {
+    return this.call('/tracker/claim-people');
+  },
+  claimBlock(blockId, action, people = []) {
+    return this.call(`/tracker/power-blocks/${blockId}/claim`, {
+      method:'POST',
+      body: JSON.stringify({ action, people })
+    });
   },
 
   // ---- Tracker API ----
@@ -246,6 +252,15 @@ function closeModal() {
   document.getElementById('block-modal').classList.add('hidden');
 }
 
+function _escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function showBlockModal(blockId) {
   api.getPowerBlock(blockId)
     .then(response => {
@@ -354,11 +369,87 @@ async function bulkCompleteAll(blockId, complete) {
   } catch(e) { alert('Error: ' + e.message); }
 }
 
-async function claimBlock(blockId, action) {
+async function claimBlock(blockId, action, people = []) {
   try {
-    await api.claimBlock(blockId, action);
+    await api.claimBlock(blockId, action, people);
     loadBlockLBDs(blockId);
   } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function showClaimPeopleDialog(block) {
+  try {
+    const response = await api.getClaimPeople();
+    const suggestions = Array.isArray(response.data) ? response.data : [];
+    const selected = new Set((block.claimed_people || []).map(name => String(name)));
+    if (selected.size === 0 && currentUser?.name) selected.add(currentUser.name);
+
+    const overlay = document.createElement('div');
+    overlay.id = 'claim-people-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(3,8,20,0.7);backdrop-filter:blur(6px);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px;';
+
+    const optionsHtml = suggestions.map(name => {
+      const escaped = _escapeHtml(name);
+      const checked = selected.has(name) ? 'checked' : '';
+      return `<label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid rgba(255,255,255,0.08);border-radius:10px;background:rgba(255,255,255,0.03);cursor:pointer;">
+        <input type="checkbox" value="${escaped}" ${checked} />
+        <span style="color:#eef2ff;font-size:13px;">${escaped}</span>
+      </label>`;
+    }).join('');
+
+    overlay.innerHTML = `
+      <div style="width:min(560px,100%);max-height:80vh;overflow:auto;background:#0f172a;border:1px solid rgba(255,255,255,0.12);border-radius:18px;padding:18px;box-shadow:0 30px 80px rgba(0,0,0,0.45);">
+        <div style="display:flex;align-items:start;justify-content:space-between;gap:12px;">
+          <div>
+            <div style="color:#eef2ff;font-size:18px;font-weight:700;">Claim ${_escapeHtml(block.name)}</div>
+            <div style="color:#94a3b8;font-size:12px;margin-top:4px;">Select everyone working this block together. Add names below for helpers without accounts.</div>
+          </div>
+          <button type="button" id="claim-people-close" style="background:transparent;border:none;color:#94a3b8;font-size:20px;cursor:pointer;">×</button>
+        </div>
+        <div style="margin-top:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;">
+          ${optionsHtml || '<div style="color:#94a3b8;font-size:12px;">No saved people yet.</div>'}
+        </div>
+        <div style="margin-top:16px;">
+          <label style="display:block;color:#cbd5e1;font-size:12px;margin-bottom:6px;">Extra names</label>
+          <textarea id="claim-extra-names" rows="3" placeholder="Type names separated by commas or new lines" style="width:100%;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:10px 12px;color:#eef2ff;resize:vertical;"></textarea>
+        </div>
+        <div style="margin-top:18px;display:flex;justify-content:flex-end;gap:10px;">
+          <button type="button" id="claim-people-cancel" class="btn btn-secondary">Cancel</button>
+          <button type="button" id="claim-people-save" class="btn btn-primary">Save Claim</button>
+        </div>
+      </div>`;
+
+    document.body.appendChild(overlay);
+
+    const close = () => overlay.remove();
+    overlay.addEventListener('click', (event) => {
+      if (event.target === overlay) close();
+    });
+    overlay.querySelector('#claim-people-close').addEventListener('click', close);
+    overlay.querySelector('#claim-people-cancel').addEventListener('click', close);
+    overlay.querySelector('#claim-people-save').addEventListener('click', async () => {
+      const checked = Array.from(overlay.querySelectorAll('input[type="checkbox"]:checked'))
+        .map(el => el.value.trim())
+        .filter(Boolean);
+      const extras = (overlay.querySelector('#claim-extra-names').value || '')
+        .split(/[\n,]/)
+        .map(name => name.trim())
+        .filter(Boolean);
+      const people = [...checked, ...extras];
+      await claimBlock(block.id, 'claim', people);
+      close();
+    });
+  } catch (e) {
+    alert('Error: ' + e.message);
+  }
+}
+
+async function showClaimPeopleDialogById(blockId) {
+  try {
+    const response = await api.getPowerBlock(blockId);
+    await showClaimPeopleDialog(response.data);
+  } catch (e) {
+    alert('Error: ' + e.message);
+  }
 }
 
 function _fmtDate(iso) {
@@ -370,6 +461,8 @@ function _fmtDate(iso) {
 }
 
 function _buildClaimedBanner(block) {
+  const claimedPeople = Array.isArray(block.claimed_people) ? block.claimed_people : [];
+  const claimedLabel = block.claimed_label || claimedPeople.join(', ');
   const claimed   = block.claimed_by;
   const claimedAt = block.claimed_at ? _fmtDate(block.claimed_at) : '';
   const lastBy    = block.last_updated_by;
@@ -377,16 +470,20 @@ function _buildClaimedBanner(block) {
 
   let claimPart = '';
   if (claimed) {
-    claimPart = '<span style="color:#1565c0;font-weight:600;">&#128204; Claimed by ' + claimed + '</span>'
+    claimPart = '<span style="color:#1565c0;font-weight:600;">&#128204; Claimed by ' + _escapeHtml(claimedLabel || claimed) + '</span>'
       + '<span style="color:#666;font-size:11px;"> &mdash; ' + claimedAt + '</span>';
-    if (currentUser && currentUser.name === claimed) {
+    if (currentUser) {
+      claimPart += ' <button onclick="showClaimPeopleDialogById(' + block.id + ')" '
+        + 'style="margin-left:8px;background:#1976d2;color:#fff;border:none;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer;">&#128101; Edit Team</button>';
+    }
+    if (currentUser && Array.isArray(claimedPeople) && claimedPeople.includes(currentUser.name)) {
       claimPart += ' <button onclick="claimBlock(' + block.id + ',\'unclaim\')" '
         + 'style="margin-left:8px;background:#dc3545;color:#fff;border:none;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer;">&#x2715; Release</button>';
     }
   } else {
     claimPart = '<span style="color:#999;font-size:12px;">Unclaimed</span>';
     if (currentUser) {
-      claimPart += ' <button onclick="claimBlock(' + block.id + ',\'claim\')" '
+      claimPart += ' <button onclick="showClaimPeopleDialogById(' + block.id + ')" '
         + 'style="margin-left:8px;background:#1976d2;color:#fff;border:none;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer;">&#128204; Claim</button>';
     }
   }
@@ -645,7 +742,7 @@ function renderBlocks(blocks) {
       const summary = block.lbd_summary || {};
       const lbds = block.lbds || [];
       const allDone = total > 0 && cols.every(c => (summary[c] || 0) >= total);
-      const claimed = block.claimed_by ? `<span class="pb-claimed-pill">👤 ${block.claimed_by}</span>` : '';
+      const claimed = block.claimed_by ? `<span class="pb-claimed-pill">👥 ${_escapeHtml(block.claimed_label || block.claimed_by)}</span>` : '';
       const zonePill = block.zone ? `<span class="pb-zone-pill">${block.zone}</span>` : '';
 
       // Overall completion
@@ -1201,7 +1298,12 @@ function _initSocket() {
 
   _socket.on('claim_update', function(data) {
     const pb = mapPBs.find(p => p.id === data.pb_id);
-    if (pb) { pb.claimed_by = data.claimed_by; pb.claimed_at = data.claimed_at; }
+    if (pb) {
+      pb.claimed_by = data.claimed_by;
+      pb.claimed_people = data.claimed_people || [];
+      pb.claimed_label = data.claimed_label || '';
+      pb.claimed_at = data.claimed_at;
+    }
     if (activePBId === data.pb_id) {
       const banner = document.getElementById('pb-claimed-banner');
       if (banner && pb) banner.outerHTML = _buildClaimedBanner(pb);

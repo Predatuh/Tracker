@@ -5,6 +5,8 @@ from app import db
 from app.models import PowerBlock, LBD, LBDStatus
 from app.models.tracker import Tracker
 from app.models.site_area import SiteArea
+from app.models.user import User
+from app.models.worker import Worker
 from datetime import datetime
 import re
 
@@ -44,7 +46,68 @@ def _resolve_tracker():
     return Tracker.query.filter_by(is_active=True).order_by(Tracker.sort_order, Tracker.id).first()
 
 
+def _normalize_people(people):
+    normalized = []
+    seen = set()
+    for person in people or []:
+        name = str(person or '').strip()
+        if not name:
+            continue
+        key = name.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append(name)
+    return normalized
+
+
+def _claim_payload(block):
+    claimed_people = block.get_claimed_people()
+    return {
+        'claimed_by': block.claimed_by,
+        'claimed_people': claimed_people,
+        'claimed_label': ', '.join(claimed_people),
+        'claimed_at': block.claimed_at.isoformat() if block.claimed_at else None,
+    }
+
+
+def _ensure_claim_workers(names):
+    normalized = _normalize_people(names)
+    if not normalized:
+        return
+
+    existing_workers = {
+        name.casefold()
+        for (name,) in db.session.query(Worker.name).all()
+        if name
+    }
+    existing_users = {
+        name.casefold()
+        for (name,) in db.session.query(User.name).all()
+        if name
+    }
+
+    for name in normalized:
+        folded = name.casefold()
+        if folded in existing_workers or folded in existing_users:
+            continue
+        db.session.add(Worker(name=name, is_active=True))
+        existing_workers.add(folded)
+
+
 bp = Blueprint('tracker', __name__, url_prefix='/api/tracker')
+
+
+@bp.route('/claim-people', methods=['GET'])
+def get_claim_people():
+    names = []
+    names.extend(name for (name,) in db.session.query(User.name).order_by(User.name).all() if name)
+    names.extend(name for (name,) in db.session.query(Worker.name).filter_by(is_active=True).order_by(Worker.name).all() if name)
+    actor = _current_user_name()
+    if actor:
+        names.insert(0, actor)
+    people = _normalize_people(names)
+    return jsonify({'success': True, 'data': people}), 200
 
 @bp.route('/power-blocks', methods=['GET'])
 def get_power_blocks():
@@ -119,6 +182,8 @@ def get_power_blocks():
                 'description': b.description,
                 'is_completed': b.is_completed,
                 'claimed_by': b.claimed_by,
+                'claimed_people': b.get_claimed_people(),
+                'claimed_label': ', '.join(b.get_claimed_people()),
                 'claimed_at': b.claimed_at.isoformat() if b.claimed_at else None,
                 'last_updated_by': b.last_updated_by,
                 'last_updated_at': b.last_updated_at.isoformat() if b.last_updated_at else None,
@@ -317,7 +382,7 @@ def update_lbd(lbd_id):
 
 @bp.route('/power-blocks/<int:block_id>/claim', methods=['POST'])
 def claim_power_block(block_id):
-    """Claim or unclaim a power block for the current user."""
+    """Claim or unclaim a power block for one or more people."""
     try:
         block = PowerBlock.query.get_or_404(block_id)
         data  = request.get_json() or {}
@@ -326,12 +391,21 @@ def claim_power_block(block_id):
 
         if action == 'unclaim':
             block.claimed_by = None
+            block.set_claimed_people([])
             block.claimed_at = None
         else:
             if not actor:
                 return jsonify({'error': 'You must be logged in to claim a block'}), 401
+            requested_people = data.get('people') or []
+            if not isinstance(requested_people, list):
+                requested_people = [requested_people]
+            people = _normalize_people([actor, *requested_people])
+            if not people:
+                people = [actor]
             block.claimed_by = actor
+            block.set_claimed_people(people)
             block.claimed_at = datetime.utcnow()
+            _ensure_claim_workers(people)
 
         db.session.commit()
 
@@ -339,16 +413,12 @@ def claim_power_block(block_id):
         if sio:
             sio.emit('claim_update', {
                 'pb_id':      block_id,
-                'claimed_by': block.claimed_by,
-                'claimed_at': block.claimed_at.isoformat() if block.claimed_at else None,
+                **_claim_payload(block),
             })
 
         return jsonify({
             'success': True,
-            'data': {
-                'claimed_by': block.claimed_by,
-                'claimed_at': block.claimed_at.isoformat() if block.claimed_at else None,
-            }
+            'data': _claim_payload(block)
         }), 200
     except Exception as e:
         db.session.rollback()

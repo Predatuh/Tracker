@@ -171,6 +171,7 @@ def _migrate_generic(app):
     migrations = [
         ('power_blocks', 'power_block_number', 'VARCHAR(255)'),
         ('power_blocks', 'claimed_by', 'VARCHAR(100)'),
+        ('power_blocks', 'claimed_people', "TEXT DEFAULT '[]'"),
         ('power_blocks', 'claimed_at', 'TIMESTAMP'),
         ('power_blocks', 'last_updated_by', 'VARCHAR(100)'),
         ('power_blocks', 'last_updated_at', 'TIMESTAMP'),
@@ -215,6 +216,7 @@ def _migrate_sqlite(app, db_uri):
     cur = conn.cursor()
     _add_col(cur, 'power_blocks', 'power_block_number', 'TEXT')
     _add_col(cur, 'power_blocks', 'claimed_by', 'VARCHAR(100)')
+    _add_col(cur, 'power_blocks', 'claimed_people', "TEXT DEFAULT '[]'")
     _add_col(cur, 'power_blocks', 'claimed_at', 'DATETIME')
     _add_col(cur, 'power_blocks', 'last_updated_by', 'VARCHAR(100)')
     _add_col(cur, 'power_blocks', 'last_updated_at', 'DATETIME')
