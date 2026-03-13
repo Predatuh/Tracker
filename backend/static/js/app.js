@@ -89,6 +89,7 @@ const api = {
 
   // ---- Admin API (tracker-aware) ----
   getAdminSettings() { return this.call(this._tq('/admin/settings')); },
+  saveZoneNames(names) { return this.call(this._tq('/admin/settings/zone-names'), { method:'PUT', body: JSON.stringify({names}) }); },
   saveAdminColors(colors) {
     const body = { colors };
     if (currentTracker) body.tracker_id = currentTracker.id;
@@ -175,7 +176,16 @@ async function loadTrackers() {
     if (!currentTracker && allTrackers.length > 0) {
       currentTracker = allTrackers[0];
     }
+    updateDashboardTitle();
   } catch(e) { console.warn('Failed to load trackers:', e); }
+}
+
+function updateDashboardTitle() {
+  const el = document.getElementById('dashboard-title');
+  if (!el) return;
+  const name = currentTracker ? currentTracker.name : 'Princess Trackers';
+  el.innerHTML = `<span class="crown-wrap">&#x1F451;</span>${name}`;
+}
 }
 
 async function switchTracker(trackerId) {
@@ -812,14 +822,6 @@ async function loadSiteMap() {
 
     renderPBMarkers();
     buildZoneFilter();
-    // Pre-populate _adminZoneNames from loaded area zones so zone-assign works without visiting Admin
-    loadedMapAreas.forEach(a => {
-      if (a.zone && !_adminZoneNames.includes(a.zone)) _adminZoneNames.push(a.zone);
-    });
-    _adminZoneNames.sort((a, b) => {
-      const na = parseInt(a.replace(/\D/g,'')) || 0, nb = parseInt(b.replace(/\D/g,'')) || 0;
-      return na !== nb ? na - nb : a.localeCompare(b);
-    });
     // Auto-sync localStorage positions to DB so mobile apps stay in sync
     syncPositionsToServer();
   } catch (e) {
@@ -1063,8 +1065,13 @@ async function loadAdminSettings() {
     LBD_STATUS_TYPES.forEach(k => {
       STATUS_LABELS[k] = (d.names && d.names[k]) ? d.names[k] : k.replace(/_/g,' ');
     });
+    // Load persisted zone names from settings
+    if (Array.isArray(d.zone_names) && d.zone_names.length > 0) {
+      _adminZoneNames = d.zone_names.slice();
+    }
   } catch(e) { console.warn('Admin settings not loaded:', e); }
   renderLegend();
+  updateDashboardTitle();
 }
 
 function renderLegend() {
@@ -5100,19 +5107,14 @@ function zoomToZone(zone) {
 let _adminZoneNames = [];   // list of defined zone name strings
 
 async function loadZonesTab() {
-  // Load all areas for zone assignment
+  // Zone names already loaded via loadAdminSettings() — just render them.
+  renderZoneNamesList();
+  // Also show existing zone assignments as a summary
   try {
     const r = await api.getAllSiteMaps();
     const maps = r.data || [];
     const areas = [];
     maps.forEach(m => { if (m.areas) m.areas.forEach(a => areas.push(a)); });
-    // Extract existing zone names from areas
-    areas.forEach(a => { if (a.zone && !_adminZoneNames.includes(a.zone)) _adminZoneNames.push(a.zone); });
-    _adminZoneNames.sort((a, b) => {
-      const na = parseInt(a.replace(/\D/g,'')) || 0, nb = parseInt(b.replace(/\D/g,'')) || 0;
-      return na - nb || a.localeCompare(b);
-    });
-    renderZoneNamesList();
     renderZoneAssignments(areas);
   } catch(e) {
     const c = document.getElementById('admin-zone-assignments');
@@ -5132,6 +5134,10 @@ function renderZoneNamesList() {
   ).join('');
 }
 
+function _saveZoneNames() {
+  api.saveZoneNames(_adminZoneNames).catch(e => console.warn('Failed to save zone names:', e));
+}
+
 function addZoneName() {
   const inp = document.getElementById('new-zone-name');
   const val = inp.value.trim();
@@ -5144,14 +5150,13 @@ function addZoneName() {
   });
   inp.value = '';
   renderZoneNamesList();
-  // Update all dropdowns
-  document.querySelectorAll('.zone-area-select').forEach(sel => refreshZoneSelect(sel));
+  _saveZoneNames();
 }
 
 function removeZoneName(name) {
   _adminZoneNames = _adminZoneNames.filter(z => z !== name);
   renderZoneNamesList();
-  document.querySelectorAll('.zone-area-select').forEach(sel => refreshZoneSelect(sel));
+  _saveZoneNames();
 }
 
 function refreshZoneSelect(sel) {
@@ -5314,17 +5319,12 @@ async function assignByRange() {
 
 // Updated loadZonesTab → clean summary instead of 100-row dropdown list
 async function loadZonesTab() {
+  renderZoneNamesList();
   try {
     const r = await api.getAllSiteMaps();
     const maps = r.data || [];
     const areas = [];
     maps.forEach(m => { if (m.areas) m.areas.forEach(a => areas.push(a)); });
-    areas.forEach(a => { if (a.zone && !_adminZoneNames.includes(a.zone)) _adminZoneNames.push(a.zone); });
-    _adminZoneNames.sort((a, b) => {
-      const na = parseInt(a.replace(/\D/g,'')) || 0, nb = parseInt(b.replace(/\D/g,'')) || 0;
-      return na - nb || a.localeCompare(b);
-    });
-    renderZoneNamesList();
     renderZoneSummary(areas);
   } catch(e) {
     const c = document.getElementById('admin-zone-summary');

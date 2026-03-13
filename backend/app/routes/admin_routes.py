@@ -92,10 +92,12 @@ def get_settings():
             colors = tracker.get_status_colors()
             names = tracker.get_status_names()
             all_columns = tracker.all_column_keys() or AdminSettings.all_column_keys()
+            zone_names = AdminSettings.get(f'zone_names_{tracker.id}', [])
         else:
             colors = AdminSettings.get_colors()
             names = AdminSettings.get_names()
             all_columns = AdminSettings.all_column_keys()
+            zone_names = AdminSettings.get('zone_names', [])
 
         return jsonify({
             'success': True,
@@ -106,8 +108,27 @@ def get_settings():
                 'all_columns': all_columns,
                 'pb_label_font_size': AdminSettings.get('pb_label_font_size', 14),
                 'tracker_id': tracker.id if tracker else None,
+                'zone_names': zone_names if isinstance(zone_names, list) else [],
             }
         }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ------------------------------------------------------------------ #
+# Update zone names (tracker-aware)
+# ------------------------------------------------------------------ #
+@bp.route('/settings/zone-names', methods=['PUT'])
+def update_zone_names():
+    try:
+        data = request.get_json() or {}
+        names = data.get('names', [])
+        if not isinstance(names, list):
+            return jsonify({'error': 'names must be a list'}), 400
+        tracker = _get_tracker()
+        key = f'zone_names_{tracker.id}' if tracker else 'zone_names'
+        AdminSettings.set(key, names)
+        return jsonify({'success': True, 'data': names}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

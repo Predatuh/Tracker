@@ -141,26 +141,33 @@ body::after {
   text-transform: uppercase;
 }
 
-/* New brand crown + name layout */
-.navbar-brand .brand-crown {
-  font-size: 15px;
+/* P wears the crown */
+.navbar-brand .brand-p {
+  position: relative;
   display: inline-block;
-  transform: rotate(-30deg) translateY(1px);
-  margin-right: 6px;
-  filter: drop-shadow(0 0 8px rgba(255,215,0,0.7));
+  margin-right: 1px;
+}
+.navbar-brand .brand-p::before {
+  content: '\1F451'; /* crown emoji */
+  position: absolute;
+  top: -11px;
+  left: 50%;
+  transform: translateX(-48%) rotate(-18deg) scale(0.58);
+  line-height: 1;
+  pointer-events: none;
   animation: brandCrown 4s ease-in-out infinite alternate;
-  flex-shrink: 0;
+  filter: drop-shadow(0 0 6px rgba(255,215,0,0.75));
 }
 @keyframes brandCrown {
-  from { filter: drop-shadow(0 0 5px rgba(255,215,0,0.5)); }
-  to   { filter: drop-shadow(0 0 16px rgba(255,215,0,1)) drop-shadow(0 0 30px rgba(255,215,0,0.35)); }
+  from { filter: drop-shadow(0 0 4px rgba(255,215,0,0.5)); }
+  to   { filter: drop-shadow(0 0 14px rgba(255,215,0,1)) drop-shadow(0 0 28px rgba(255,215,0,0.4)); }
 }
 .navbar-brand .brand-name { display: inline-flex; align-items: baseline; gap: 0; }
 .navbar-brand .brand-princess {
   color: rgba(238,242,255,0.92);
   font-size: 15px;
   letter-spacing: 2px;
-  text-shadow: 0 0 18px rgba(255,215,0,0.2);
+  padding-top: 6px; /* room for crown */
 }
 .navbar-brand .brand-sep {
   color: rgba(124,108,252,0.5);
@@ -179,8 +186,9 @@ body::after {
   to   { text-shadow: 0 0 22px rgba(0,212,255,0.85), 0 0 40px rgba(0,212,255,0.3); }
 }
 
-/* Keep old brand-dot in case still used elsewhere */
-.navbar-brand .brand-dot {
+/* Keep old brand-dot/brand-crown in case still used elsewhere */
+.navbar-brand .brand-dot,
+.navbar-brand .brand-crown {
   display: none;
 }
 
