@@ -272,7 +272,30 @@ def _status_aliases(status_type, status_label):
             clean = _normalize_token(part)
             if len(clean) >= 3:
                 aliases.add(clean)
+
+    if status_type == 'term':
+        aliases.update({
+            'lug',
+            'lugged',
+            'land',
+            'landed',
+            'lugland',
+            'luggedlanded',
+            'luglanded',
+            'luggedland',
+        })
+    elif status_type == 'stickers':
+        aliases.update({'label', 'labels', 'sticker', 'stickers'})
+    elif status_type == 'ground_brackets':
+        aliases.update({'bg', 'bracketground', 'groundbracket', 'bracketsground'})
     return aliases
+
+
+def _claim_scan_status_types(tracker):
+    preferred_order = ['ground_brackets', 'stuff', 'term', 'stickers']
+    available = tracker.all_column_keys() if tracker else AdminSettings.all_column_keys()
+    ordered = [status_type for status_type in preferred_order if status_type in available]
+    return ordered or available
 
 
 def _build_lbd_candidates(block):
@@ -344,7 +367,7 @@ def _select_evenly_spaced_lines(lines, expected_count, tolerance=0.35):
     return sorted(center for center, _ in ranked)
 
 
-def _extract_term_form_layout(binary):
+def _extract_term_form_layout(binary, row_count=20, status_column_count=4):
     try:
         import cv2
         import numpy as np
@@ -391,13 +414,16 @@ def _extract_term_form_layout(binary):
         min_gap=max(4, h // 180),
     )
 
-    if len(x_lines) < 6 or len(y_lines) < 25:
+    expected_x_boundaries = status_column_count + 2
+    expected_y_boundaries = row_count + 3
+
+    if len(x_lines) < expected_x_boundaries or len(y_lines) < expected_y_boundaries:
         return None
 
-    x_boundaries = _select_evenly_spaced_lines(x_lines, 6, tolerance=0.55)
-    y_boundaries = _select_evenly_spaced_lines(y_lines, 25, tolerance=0.55)
+    x_boundaries = _select_evenly_spaced_lines(x_lines, expected_x_boundaries, tolerance=0.55)
+    y_boundaries = _select_evenly_spaced_lines(y_lines, expected_y_boundaries, tolerance=0.55)
 
-    if len(x_boundaries) != 6 or len(y_boundaries) != 25:
+    if len(x_boundaries) != expected_x_boundaries or len(y_boundaries) != expected_y_boundaries:
         return None
 
     return {
@@ -694,17 +720,18 @@ def _parse_claim_scan(block, tracker, image_bytes):
 
     height, width = binary.shape[:2]
     tracker = tracker or (Tracker.query.get(block.lbds[0].tracker_id) if block.lbds and block.lbds[0].tracker_id else None)
-    status_types = tracker.all_column_keys() if tracker else AdminSettings.all_column_keys()
+    status_types = _claim_scan_status_types(tracker)
     status_names = tracker.get_status_names() if tracker else AdminSettings.get_names()
     status_positions = {}
     warnings = []
     source = 'ocr-grid'
-    layout = _extract_term_form_layout(binary)
+    form_row_count = max(1, min(max(len(block.lbds), 1), 20))
+    layout = _extract_term_form_layout(binary, row_count=form_row_count, status_column_count=len(status_types))
 
-    if layout and len(status_types) >= 4:
+    if layout and status_types:
         x_boundaries = layout['x_boundaries']
         fixed_positions = []
-        for index in range(min(4, len(x_boundaries) - 2)):
+        for index in range(min(len(status_types), len(x_boundaries) - 2)):
             left = x_boundaries[index + 1]
             right = x_boundaries[index + 2]
             fixed_positions.append(int((left + right) / 2))
@@ -741,11 +768,11 @@ def _parse_claim_scan(block, tracker, image_bytes):
 
     lbd_lookup, lbd_labels = _build_lbd_candidates(block)
     row_candidates = {}
-    row_number_map = _map_form_rows_to_lbds(block, row_count=22)
+    row_number_map = _map_form_rows_to_lbds(block, row_count=form_row_count)
 
     if layout:
         y_boundaries = layout['y_boundaries']
-        for row_number in range(1, min(22, len(y_boundaries) - 2) + 1):
+        for row_number in range(1, min(form_row_count, len(y_boundaries) - 2) + 1):
             lbd_id = row_number_map.get(row_number)
             if not lbd_id:
                 continue
@@ -758,20 +785,21 @@ def _parse_claim_scan(block, tracker, image_bytes):
                 'source': 'layout-row',
             }
 
-    for item in items:
-        normalized = item['normalized']
-        if not normalized:
-            continue
-        candidate_tokens = {normalized, *_extract_digit_tokens(item['text'])}
-        matched_ids = set()
-        for token in candidate_tokens:
-            matched_ids.update(lbd_lookup.get(token, set()))
-        if len(matched_ids) != 1:
-            continue
-        lbd_id = next(iter(matched_ids))
-        existing = row_candidates.get(lbd_id)
-        if existing is None or item['conf'] > existing.get('conf', -1):
-            row_candidates[lbd_id] = item
+    if not layout:
+        for item in items:
+            normalized = item['normalized']
+            if not normalized:
+                continue
+            candidate_tokens = {normalized, *_extract_digit_tokens(item['text'])}
+            matched_ids = set()
+            for token in candidate_tokens:
+                matched_ids.update(lbd_lookup.get(token, set()))
+            if len(matched_ids) != 1:
+                continue
+            lbd_id = next(iter(matched_ids))
+            existing = row_candidates.get(lbd_id)
+            if existing is None or item['conf'] > existing.get('conf', -1):
+                row_candidates[lbd_id] = item
 
     if not row_candidates:
         warnings.append('Could not match any LBD numbers from the claim sheet')
