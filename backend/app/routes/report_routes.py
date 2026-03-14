@@ -845,8 +845,8 @@ def _extract_claim_cell_roi(binary, left, right, top, bottom):
     if roi.size == 0:
         return roi
 
-    inset_y = min(max(1, roi.shape[0] // 12), 8)
-    inset_x = min(max(1, roi.shape[1] // 12), 8)
+    inset_y = min(max(2, roi.shape[0] // 8), 12)
+    inset_x = min(max(2, roi.shape[1] // 8), 12)
     if roi.shape[0] > (inset_y * 2) + 4 and roi.shape[1] > (inset_x * 2) + 4:
         roi = roi[inset_y:roi.shape[0] - inset_y, inset_x:roi.shape[1] - inset_x]
     return roi
@@ -894,7 +894,7 @@ def _claim_mark_metrics(roi):
     vertical_lines = cv2.morphologyEx(work, cv2.MORPH_OPEN, vertical_kernel)
     residual = cv2.subtract(work, cv2.max(horizontal_lines, vertical_lines))
 
-    noise_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
+    noise_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
     residual = cv2.morphologyEx(residual, cv2.MORPH_OPEN, noise_kernel)
     ink_mask = (residual > 0).astype(np.uint8)
     ink_pixels = int(ink_mask.sum())
@@ -960,29 +960,56 @@ def _claim_mark_metrics(roi):
 
 
 def _is_claim_marked(metrics, use_form_layout=False):
-    if metrics.get('raw_fill_ratio', 0.0) >= 0.11:
-        return True
-
-    minimum_ink = 10 if use_form_layout else 8
-    if metrics.get('ink_pixels', 0) < minimum_ink:
-        return False
-
     if use_form_layout:
-        if metrics.get('edge_touch_count', 0) >= 2 and metrics.get('inner_ratio', 0.0) < 0.01:
+        # Form-layout mode: grid cells always have line residue so we require
+        # meaningful interior ink to distinguish real marks from artifacts.
+
+        # Solid fill: line-removal strips everything, but raw_fill stays high
+        if metrics.get('raw_fill_ratio', 0.0) >= 0.18:
+            return True
+
+        if metrics.get('ink_pixels', 0) < 25:
             return False
 
-    peak_threshold = 0.17 if use_form_layout else 0.17
-    component_threshold = 0.03 if use_form_layout else 0.03
-    if metrics.get('peak_ratio', 0.0) >= peak_threshold:
-        return True
-    if metrics.get('component_ratio', 0.0) >= component_threshold:
-        return True
+        inner_ratio = metrics.get('inner_ratio', 0.0)
+        fill_ratio = metrics.get('fill_ratio', 0.0)
+        peak_ratio = metrics.get('peak_ratio', 0.0)
+        component_ratio = metrics.get('component_ratio', 0.0)
+        edge_touch_count = metrics.get('edge_touch_count', 0)
 
+        # Reject edge-only residue (grid line fragments)
+        if edge_touch_count >= 2 and inner_ratio < 0.02:
+            return False
+
+        # All form detections require central ink
+        if inner_ratio < 0.012:
+            return False
+
+        # Strong overall fill with central ink
+        if fill_ratio >= 0.06 and inner_ratio >= 0.025:
+            return True
+        # Strong local density peak with central ink
+        if peak_ratio >= 0.25 and inner_ratio >= 0.02:
+            return True
+        # Significant connected component with central ink
+        if component_ratio >= 0.035 and inner_ratio >= 0.02:
+            return True
+        # Combined moderate signals
+        if fill_ratio >= 0.02 and peak_ratio >= 0.10 and inner_ratio >= 0.015:
+            return True
+        return False
+
+    # Non-form-layout (freestyle scanning)
+    if metrics.get('raw_fill_ratio', 0.0) >= 0.11:
+        return True
+    if metrics.get('ink_pixels', 0) < 8:
+        return False
+    if metrics.get('peak_ratio', 0.0) >= 0.17:
+        return True
+    if metrics.get('component_ratio', 0.0) >= 0.03:
+        return True
     fill_ratio = metrics.get('fill_ratio', 0.0)
     peak_ratio = metrics.get('peak_ratio', 0.0)
-    inner_ratio = metrics.get('inner_ratio', fill_ratio)
-    if use_form_layout:
-        return fill_ratio >= 0.01 and peak_ratio >= 0.07 and inner_ratio >= 0.008
     return fill_ratio >= 0.008 and peak_ratio >= 0.055
 
 
