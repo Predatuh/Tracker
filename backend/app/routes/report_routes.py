@@ -349,6 +349,48 @@ def _estimate_claim_scan_x_boundaries(table_bbox, status_column_count):
     return boundaries
 
 
+def _estimate_claim_scan_y_boundaries(table_bbox, y_lines, row_count):
+    if not table_bbox or row_count <= 0:
+        return None
+
+    _, y, _, h = table_bbox
+    detected = sorted(y + center for center, _ in (y_lines or []))
+    top = detected[0] if detected else y
+    bottom = detected[-1] if detected else (y + h)
+    if bottom <= top:
+        bottom = y + h
+
+    expected_meta_ratio = 0.048
+    expected_header_ratio = 0.103
+    tolerance = max(8, int(h * 0.04))
+
+    def pick_nearest(target, lower_bound):
+        candidates = [line for line in detected if line > lower_bound]
+        if not candidates:
+            return target
+        nearest = min(candidates, key=lambda line: abs(line - target))
+        if abs(nearest - target) <= tolerance:
+            return nearest
+        return target
+
+    meta_target = int(round(y + (h * expected_meta_ratio)))
+    header_target = int(round(y + (h * expected_header_ratio)))
+    meta_line = pick_nearest(meta_target, top + 2)
+    header_line = pick_nearest(header_target, meta_line + 4)
+    if header_line <= meta_line:
+        header_line = max(meta_line + 4, header_target)
+
+    data_top = header_line
+    data_height = max(1, bottom - data_top)
+    row_height = data_height / float(row_count)
+
+    boundaries = [top, meta_line, header_line]
+    for index in range(1, row_count + 1):
+        boundaries.append(int(round(data_top + (row_height * index))))
+    boundaries[-1] = bottom
+    return boundaries
+
+
 def _fit_claim_scan_rows_from_ocr(items, row_number_map, image_width, row_count=CLAIM_SCAN_FORM_ROWS):
     if not items or not row_number_map:
         return {}
@@ -530,15 +572,20 @@ def _extract_term_form_layout(binary, row_count=CLAIM_SCAN_FORM_ROWS, status_col
         x_boundaries = _estimate_claim_scan_x_boundaries(table_bbox, status_column_count)
 
     y_boundaries = None
+    y_detected = False
     if len(y_lines) >= expected_y_boundaries:
         selected = _select_evenly_spaced_lines(y_lines, expected_y_boundaries, tolerance=0.55)
         if len(selected) == expected_y_boundaries:
             y_boundaries = [y + value for value in selected]
+            y_detected = True
+    if y_boundaries is None:
+        y_boundaries = _estimate_claim_scan_y_boundaries(table_bbox, y_lines, row_count)
 
     return {
         'bbox': table_bbox,
         'x_boundaries': x_boundaries,
         'y_boundaries': y_boundaries,
+        'detected_rows': y_detected,
     }
 
 
@@ -846,7 +893,12 @@ def _parse_claim_scan(block, tracker, image_bytes):
             fixed_positions.append(int((left + right) / 2))
         for status_type, center_x in zip(status_types, fixed_positions):
             status_positions[status_type] = center_x
-        source = 'form-grid' if layout.get('y_boundaries') else 'form-bbox'
+        if layout.get('detected_rows'):
+            source = 'form-grid'
+        elif layout.get('y_boundaries'):
+            source = 'form-estimated'
+        else:
+            source = 'form-bbox'
 
     if len(status_positions) < len(status_types):
         for status_type in status_types:

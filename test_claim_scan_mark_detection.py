@@ -9,7 +9,7 @@ import numpy as np
 REPO_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(REPO_ROOT / 'backend'))
 
-from app.routes.report_routes import CLAIM_SCAN_FORM_ROWS, _claim_mark_metrics, _claim_scan_status_types, _fit_claim_scan_rows_from_ocr, _is_claim_marked  # noqa: E402
+from app.routes.report_routes import CLAIM_SCAN_FORM_ROWS, _claim_mark_metrics, _claim_scan_status_types, _estimate_claim_scan_y_boundaries, _fit_claim_scan_rows_from_ocr, _is_claim_marked  # noqa: E402
 
 
 def _make_checkbox(mark=None):
@@ -75,6 +75,15 @@ class ClaimScanMarkDetectionTests(unittest.TestCase):
         self.assertLess(fitted[1001]['top'], fitted[1002]['top'])
         self.assertLess(fitted[1002]['top'], fitted[1003]['top'])
         self.assertLess(fitted[1009]['top'], fitted[1010]['top'])
+
+    def test_estimated_y_boundaries_cover_full_22_row_sheet(self):
+        boundaries = _estimate_claim_scan_y_boundaries((10, 20, 500, 880), [], CLAIM_SCAN_FORM_ROWS)
+
+        self.assertEqual(len(boundaries), CLAIM_SCAN_FORM_ROWS + 3)
+        self.assertLess(boundaries[0], boundaries[1])
+        self.assertLess(boundaries[1], boundaries[2])
+        self.assertLess(boundaries[2], boundaries[3])
+        self.assertLess(boundaries[-2], boundaries[-1])
 
 
 if __name__ == '__main__':
