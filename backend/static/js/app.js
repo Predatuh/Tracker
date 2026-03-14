@@ -1188,7 +1188,7 @@ async function loadSiteMap() {
 // ============================================================
 // INTERACTIVE MAP
 // ============================================================
-let LBD_STATUS_TYPES = ['ground_brackets', 'stuff', 'term', 'quality_check', 'quality_docs'];
+let LBD_STATUS_TYPES = ['ground_brackets', 'stuff', 'term'];
 
 // An LBD counts as complete when term is checked
 function isLBDComplete(lbd) {
@@ -1198,16 +1198,12 @@ function isLBDComplete(lbd) {
 let STATUS_COLORS = {
   ground_brackets: '#95E1D3',
   stuff:           '#FF6B6B',
-  term:            '#4ECDC4',
-  quality_check:   '#A8E6CF',
-  quality_docs:    '#56AB91'
+  term:            '#4ECDC4'
 };
 let STATUS_LABELS = {
   ground_brackets: 'Bracket/Ground',
   stuff:           'Stuffed',
-  term:            'Termed',
-  quality_check:   'Quality Check',
-  quality_docs:    'Quality Docs'
+  term:            'Termed'
 };
 
 // Admin settings cache

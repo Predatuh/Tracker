@@ -1407,6 +1407,7 @@ def submit_claim_scan():
 
     created = 0
     skipped = 0
+    status_updates = []
     for status_type, lbd_ids in assignments.items():
         if not lbd_ids:
             continue
@@ -1436,6 +1437,8 @@ def submit_claim_scan():
     block.claimed_by = actor or (people[0] if people else None)
     block.set_claim_state(people, assignments)
     block.claimed_at = datetime.utcnow()
+    from app.routes.tracker_routes import _apply_claim_assignments_to_statuses
+    status_updates = _apply_claim_assignments_to_statuses(block, assignments, actor or (people[0] if people else None))
 
     report = _get_or_generate_report(target, tracker_id)
     scan_record = {
@@ -1462,6 +1465,8 @@ def submit_claim_scan():
             'pb_id': block.id,
             **_claim_payload(block),
         })
+        for update in status_updates:
+            socketio.emit('status_update', update)
     except Exception:
         pass
 

@@ -130,6 +130,60 @@ def _ensure_claim_workers(names):
         existing_workers.add(folded)
 
 
+def _apply_claim_assignments_to_statuses(block, assignments, actor=None):
+    if not block or not isinstance(assignments, dict):
+        return []
+
+    lbd_by_id = {lbd.id: lbd for lbd in block.lbds}
+    changed = []
+    now = datetime.utcnow()
+    completed_by = str(actor or '').strip() or None
+
+    for status_type, lbd_ids in assignments.items():
+        normalized_status_type = str(status_type or '').strip()
+        if not normalized_status_type:
+            continue
+
+        for lbd_id in lbd_ids or []:
+            lbd = lbd_by_id.get(lbd_id)
+            if not lbd:
+                continue
+
+            status = next((item for item in lbd.statuses if item.status_type == normalized_status_type), None)
+            if not status:
+                status = LBDStatus(
+                    lbd_id=lbd.id,
+                    status_type=normalized_status_type,
+                    is_completed=False,
+                )
+                db.session.add(status)
+                lbd.statuses.append(status)
+
+            if status.is_completed:
+                if not status.completed_at:
+                    status.completed_at = now
+                if completed_by and not status.completed_by:
+                    status.completed_by = completed_by
+                continue
+
+            status.is_completed = True
+            status.completed_at = now
+            if completed_by:
+                status.completed_by = completed_by
+            changed.append({
+                'lbd_id': lbd.id,
+                'status_type': normalized_status_type,
+                'is_completed': True,
+                'pb_id': block.id,
+            })
+
+    if actor and changed:
+        block.last_updated_by = actor
+        block.last_updated_at = now
+
+    return changed
+
+
 bp = Blueprint('tracker', __name__, url_prefix='/api/tracker')
 
 
@@ -447,6 +501,10 @@ def claim_power_block(block_id):
             block.set_claim_state(people, assignments)
             block.claimed_at = datetime.utcnow()
             _ensure_claim_workers(people)
+            status_updates = _apply_claim_assignments_to_statuses(block, assignments, actor)
+
+        if action == 'unclaim':
+            status_updates = []
 
         db.session.commit()
 
@@ -456,6 +514,8 @@ def claim_power_block(block_id):
                 'pb_id':      block_id,
                 **_claim_payload(block),
             })
+            for update in status_updates:
+                sio.emit('status_update', update)
 
         return jsonify({
             'success': True,

@@ -48,16 +48,12 @@ class AdminSettings(db.Model):
         'ground_brackets': '#95E1D3',
         'stuff': '#FF6B6B',
         'term': '#4ECDC4',
-        'quality_check': '#A8E6CF',
-        'quality_docs': '#56AB91',
     }
 
     DEFAULT_NAMES = {
         'ground_brackets': 'Bracket/Ground',
         'stuff': 'Stuffed',
         'term': 'Termed',
-        'quality_check': 'Quality Check',
-        'quality_docs': 'Quality Docs',
     }
 
     @classmethod

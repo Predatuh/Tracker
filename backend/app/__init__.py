@@ -367,15 +367,40 @@ def _seed_trackers(app):
     from app.models.status import LBDStatus
     import json
 
+    deprecated_statuses = {'quality_check', 'quality_docs'}
+
+    def _remove_deprecated_statuses(values):
+        return [value for value in values if value not in deprecated_statuses]
+
+    stored_colors = AdminSettings.get('status_colors') or {}
+    if any(key in stored_colors for key in deprecated_statuses):
+        AdminSettings.set(
+            'status_colors',
+            {key: value for key, value in stored_colors.items() if key not in deprecated_statuses}
+        )
+        stored_colors = AdminSettings.get('status_colors') or {}
+
+    stored_names = AdminSettings.get('status_names') or {}
+    if any(key in stored_names for key in deprecated_statuses):
+        AdminSettings.set(
+            'status_names',
+            {key: value for key, value in stored_names.items() if key not in deprecated_statuses}
+        )
+        stored_names = AdminSettings.get('status_names') or {}
+
+    col_order = AdminSettings.get('column_order')
+    if col_order:
+        cleaned_order = _remove_deprecated_statuses(col_order)
+        if cleaned_order != col_order:
+            AdminSettings.set('column_order', cleaned_order)
+        col_order = cleaned_order
+
     # --- LBD Tracker ---
     lbd_tracker = Tracker.query.filter_by(slug='lbd').first()
     if not lbd_tracker:
         # Pull existing admin settings to populate the LBD tracker
-        stored_colors = AdminSettings.get('status_colors') or {}
-        stored_names = AdminSettings.get('status_names') or {}
         custom = AdminSettings.get('custom_columns') or []
         disabled = AdminSettings.get('disabled_builtins') or []
-        col_order = AdminSettings.get('column_order')
 
         # Build full type list: builtins minus disabled + custom
         types = [k for k in LBDStatus.STATUS_TYPES if k not in disabled]
@@ -428,6 +453,41 @@ def _seed_trackers(app):
         )
         db.session.commit()
         app.logger.info(f'Created LBD tracker (id={lbd_tracker.id}) and migrated existing data')
+    else:
+        tracker_changed = False
+        types = _remove_deprecated_statuses(lbd_tracker.get_status_types())
+        if types != lbd_tracker.get_status_types():
+            lbd_tracker.set_status_types(types)
+            tracker_changed = True
+
+        colors = {
+            key: value
+            for key, value in lbd_tracker.get_status_colors().items()
+            if key not in deprecated_statuses
+        }
+        if colors != lbd_tracker.get_status_colors():
+            lbd_tracker.set_status_colors(colors)
+            tracker_changed = True
+
+        names = {
+            key: value
+            for key, value in lbd_tracker.get_status_names().items()
+            if key not in deprecated_statuses
+        }
+        if names != lbd_tracker.get_status_names():
+            lbd_tracker.set_status_names(names)
+            tracker_changed = True
+
+        tracker_order = lbd_tracker.get_column_order()
+        if tracker_order:
+            cleaned_tracker_order = _remove_deprecated_statuses(tracker_order)
+            if cleaned_tracker_order != tracker_order:
+                lbd_tracker.set_column_order(cleaned_tracker_order)
+                tracker_changed = True
+
+        if tracker_changed:
+            db.session.commit()
+            app.logger.info(f'Removed deprecated LBD tracker statuses from tracker id={lbd_tracker.id}')
 
     # --- Inverter DC Landing Tracker ---
     inv_tracker = Tracker.query.filter_by(slug='inverter-dc').first()
