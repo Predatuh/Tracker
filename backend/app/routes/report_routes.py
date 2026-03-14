@@ -12,15 +12,26 @@ Workers & Daily Reports API
   GET        /api/reports/range               – reports in a date range (weekly / monthly)
 """
 
-from flask import Blueprint, request, jsonify, session
+from flask import Blueprint, request, jsonify, session, current_app, send_from_directory
 from app import db
 from app.models.worker import Worker, WorkEntry
 from app.models.daily_report import DailyReport
 from app.models.admin_settings import AdminSettings
 from app.models.tracker import Tracker
+from app.models.power_block import PowerBlock
+from app.models.lbd import LBD
 from collections import defaultdict
 from datetime import date, datetime, timedelta
+from sqlalchemy.orm import subqueryload
 import pytz
+import base64
+import os
+import re
+import json
+import shutil
+import subprocess
+import tempfile
+import uuid
 
 bp = Blueprint('reports', __name__, url_prefix='/api')
 
@@ -59,7 +70,7 @@ def _resolve_tracker_id():
     return t.id if t else None
 
 
-def _build_report_data(target_date, tracker_id=None):
+def _build_report_data(target_date, tracker_id=None, existing_data=None):
     """Aggregate WorkEntry rows for *target_date* into a structured snapshot."""
     q = WorkEntry.query.filter_by(work_date=target_date)
     if tracker_id:
@@ -84,6 +95,8 @@ def _build_report_data(target_date, tracker_id=None):
         by_pb[pb][task].append(worker)
         worker_names.add(worker)
 
+    existing_data = existing_data or {}
+
     return {
         'report_date':   target_date.isoformat(),
         'total_entries': len(entries),
@@ -93,6 +106,7 @@ def _build_report_data(target_date, tracker_id=None):
         'by_power_block': {pb: dict(t) for pb, t in by_pb.items()},
         'task_labels':   col_names,
         'raw_entries': [e.to_dict() for e in entries],
+        'claim_scans': list(existing_data.get('claim_scans') or []),
     }
 
 
@@ -102,13 +116,629 @@ def _get_or_generate_report(target_date, tracker_id=None):
     if tracker_id:
         q = q.filter_by(tracker_id=tracker_id)
     report = q.first()
+    existing_data = report.get_data() if report else {}
     if report is None:
         report = DailyReport(report_date=target_date, tracker_id=tracker_id)
         db.session.add(report)
-    report.set_data(_build_report_data(target_date, tracker_id))
+    report.set_data(_build_report_data(target_date, tracker_id, existing_data))
     report.generated_at = datetime.utcnow()
     db.session.commit()
     return report
+
+
+def _normalize_people(people):
+    normalized = []
+    seen = set()
+    for person in people or []:
+        name = str(person or '').strip()
+        if not name:
+            continue
+        key = name.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append(name)
+    return normalized
+
+
+def _normalize_claim_assignments(assignments, valid_lbd_ids=None):
+    normalized = {}
+    if not isinstance(assignments, dict):
+        return normalized
+
+    valid_set = set(valid_lbd_ids or [])
+    enforce_valid_ids = bool(valid_set)
+
+    for status_type, lbd_ids in assignments.items():
+        key = str(status_type or '').strip()
+        if not key:
+            continue
+        if not isinstance(lbd_ids, list):
+            lbd_ids = [lbd_ids]
+        seen_ids = set()
+        normalized_ids = []
+        for lbd_id in lbd_ids:
+            try:
+                normalized_id = int(lbd_id)
+            except (TypeError, ValueError):
+                continue
+            if normalized_id <= 0 or normalized_id in seen_ids:
+                continue
+            if enforce_valid_ids and normalized_id not in valid_set:
+                continue
+            seen_ids.add(normalized_id)
+            normalized_ids.append(normalized_id)
+        if normalized_ids:
+            normalized[key] = normalized_ids
+
+    return normalized
+
+
+def _ensure_claim_workers(names):
+    normalized = _normalize_people(names)
+    if not normalized:
+        return
+
+    existing_workers = {
+        name.casefold()
+        for (name,) in db.session.query(Worker.name).all()
+        if name
+    }
+
+    for name in normalized:
+        folded = name.casefold()
+        if folded in existing_workers:
+            continue
+        db.session.add(Worker(name=name, is_active=True))
+        existing_workers.add(folded)
+
+
+def _claim_payload(block):
+    claimed_people = block.get_claimed_people()
+    return {
+        'claimed_by': block.claimed_by,
+        'claimed_people': claimed_people,
+        'claim_assignments': block.get_claim_assignments(),
+        'claimed_label': ', '.join(claimed_people),
+        'claimed_at': block.claimed_at.isoformat() if block.claimed_at else None,
+    }
+
+
+def _decode_claim_scan_image(image_base64):
+    raw = str(image_base64 or '').strip()
+    if not raw:
+        raise ValueError('image_base64 is required')
+    if ',' in raw and raw.lower().startswith('data:'):
+        raw = raw.split(',', 1)[1]
+    return base64.b64decode(raw)
+
+
+def _guess_image_extension(file_name):
+    ext = os.path.splitext(str(file_name or ''))[1].lower()
+    return ext if ext in {'.jpg', '.jpeg', '.png', '.webp'} else '.jpg'
+
+
+def _claim_scan_root():
+    path = os.path.join(current_app.config['UPLOAD_FOLDER'], 'claim_scans')
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def _save_claim_scan_file(file_name, image_bytes, target_date):
+    ext = _guess_image_extension(file_name)
+    day_dir = target_date.isoformat()
+    rel_dir = os.path.join('claim_scans', day_dir)
+    abs_dir = os.path.join(current_app.config['UPLOAD_FOLDER'], rel_dir)
+    os.makedirs(abs_dir, exist_ok=True)
+    stored_name = f'{uuid.uuid4().hex}{ext}'
+    rel_path = os.path.join(rel_dir, stored_name)
+    abs_path = os.path.join(abs_dir, stored_name)
+    with open(abs_path, 'wb') as fh:
+        fh.write(image_bytes)
+    return {
+        'file_name': stored_name,
+        'relative_path': rel_path.replace('\\', '/'),
+        'image_url': f"/api/reports/claim-scan-file/{rel_path.replace('\\', '/')}",
+    }
+
+
+def _resolve_claim_scan_file(relative_path):
+    normalized = os.path.normpath(str(relative_path or '')).replace('\\', '/')
+    normalized = normalized.lstrip('/')
+    root = _claim_scan_root()
+    abs_path = os.path.abspath(os.path.join(current_app.config['UPLOAD_FOLDER'], normalized))
+    if not abs_path.startswith(os.path.abspath(root)):
+        return None
+    if not os.path.exists(abs_path):
+        return None
+    return abs_path
+
+
+def _normalize_token(value):
+    return re.sub(r'[^a-z0-9]+', '', str(value or '').lower())
+
+
+def _extract_digit_tokens(value):
+    return [token.lstrip('0') or '0' for token in re.findall(r'\d+', str(value or ''))]
+
+
+def _status_aliases(status_type, status_label):
+    aliases = set()
+    for raw in [status_type, status_label, str(status_type or '').replace('_', ' '), str(status_label or '').replace('/', ' ')]:
+        normalized = _normalize_token(raw)
+        if normalized:
+            aliases.add(normalized)
+        for part in re.split(r'[^a-z0-9]+', str(raw or '').lower()):
+            clean = _normalize_token(part)
+            if len(clean) >= 3:
+                aliases.add(clean)
+    return aliases
+
+
+def _build_lbd_candidates(block):
+    lookup = {}
+    labels = {}
+    for lbd in block.lbds:
+        label = lbd.identifier or lbd.name or f'LBD {lbd.id}'
+        labels[lbd.id] = label
+        candidates = set()
+        for raw in [lbd.identifier, lbd.inventory_number, lbd.name]:
+            normalized = _normalize_token(raw)
+            if normalized and len(normalized) <= 12:
+                candidates.add(normalized)
+            candidates.update(token for token in _extract_digit_tokens(raw) if len(token) <= 4)
+        for candidate in candidates:
+            lookup.setdefault(candidate, set()).add(lbd.id)
+    return lookup, labels
+
+
+def _line_centers_from_projection(signal, threshold, min_gap=6):
+    centers = []
+    strengths = []
+    start = None
+    last = None
+    for index, value in enumerate(signal):
+        if value >= threshold:
+            if start is None:
+                start = index
+            last = index
+            continue
+        if start is None:
+            continue
+        if centers and start - centers[-1] <= min_gap:
+            prev_strength = strengths[-1]
+            strengths[-1] = max(prev_strength, int(max(signal[start:last + 1])))
+            centers[-1] = int((centers[-1] + ((start + last) / 2)) / 2)
+        else:
+            centers.append(int((start + last) / 2))
+            strengths.append(int(max(signal[start:last + 1])))
+        start = None
+        last = None
+    if start is not None and last is not None:
+        centers.append(int((start + last) / 2))
+        strengths.append(int(max(signal[start:last + 1])))
+    return list(zip(centers, strengths))
+
+
+def _select_evenly_spaced_lines(lines, expected_count, tolerance=0.35):
+    if len(lines) <= expected_count:
+        return [center for center, _ in lines]
+    centers = [center for center, _ in sorted(lines, key=lambda entry: entry[0])]
+    best = None
+    for start in range(0, len(centers) - expected_count + 1):
+        window = centers[start:start + expected_count]
+        gaps = [window[index + 1] - window[index] for index in range(len(window) - 1)]
+        if not gaps:
+            continue
+        median_gap = sorted(gaps)[len(gaps) // 2]
+        if median_gap <= 0:
+            continue
+        deviation = max(abs(gap - median_gap) for gap in gaps) / median_gap
+        if deviation <= tolerance:
+            score = (deviation, abs(expected_count - len(window)))
+            if best is None or score < best[0]:
+                best = (score, window)
+    if best:
+        return best[1]
+    ranked = sorted(lines, key=lambda entry: entry[1], reverse=True)[:expected_count]
+    return sorted(center for center, _ in ranked)
+
+
+def _extract_term_form_layout(binary):
+    try:
+        import cv2
+        import numpy as np
+    except Exception:
+        return None
+
+    height, width = binary.shape[:2]
+    vertical_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, max(20, height // 25)))
+    horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (max(20, width // 12), 1))
+    vertical_lines = cv2.morphologyEx(binary, cv2.MORPH_OPEN, vertical_kernel)
+    horizontal_lines = cv2.morphologyEx(binary, cv2.MORPH_OPEN, horizontal_kernel)
+    grid_mask = cv2.add(vertical_lines, horizontal_lines)
+
+    contours, _ = cv2.findContours(grid_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return None
+
+    table_bbox = None
+    table_area = 0
+    for contour in contours:
+        x, y, w, h = cv2.boundingRect(contour)
+        area = w * h
+        if w < width * 0.45 or h < height * 0.45:
+            continue
+        if area > table_area:
+            table_area = area
+            table_bbox = (x, y, w, h)
+
+    if not table_bbox:
+        return None
+
+    x, y, w, h = table_bbox
+    vertical_crop = vertical_lines[y:y + h, x:x + w]
+    horizontal_crop = horizontal_lines[y:y + h, x:x + w]
+
+    x_lines = _line_centers_from_projection(
+        (vertical_crop > 0).sum(axis=0),
+        threshold=max(10, int(h * 0.38)),
+        min_gap=max(5, w // 120),
+    )
+    y_lines = _line_centers_from_projection(
+        (horizontal_crop > 0).sum(axis=1),
+        threshold=max(12, int(w * 0.42)),
+        min_gap=max(4, h // 180),
+    )
+
+    if len(x_lines) < 6 or len(y_lines) < 25:
+        return None
+
+    x_boundaries = _select_evenly_spaced_lines(x_lines, 6, tolerance=0.55)
+    y_boundaries = _select_evenly_spaced_lines(y_lines, 25, tolerance=0.55)
+
+    if len(x_boundaries) != 6 or len(y_boundaries) != 25:
+        return None
+
+    return {
+        'bbox': table_bbox,
+        'x_boundaries': [x + value for value in x_boundaries],
+        'y_boundaries': [y + value for value in y_boundaries],
+    }
+
+
+def _map_form_rows_to_lbds(block, row_count=22):
+    by_number = {}
+    ordered = []
+    for lbd in block.lbds:
+        numbers = []
+        for raw in [lbd.identifier, lbd.inventory_number, lbd.name]:
+            numbers.extend(int(token) for token in _extract_digit_tokens(raw) if token.isdigit())
+        chosen = min(numbers) if numbers else None
+        ordered.append((chosen if chosen is not None else 10 ** 9, lbd.id))
+        if chosen is not None and chosen not in by_number:
+            by_number[chosen] = lbd.id
+
+    mapping = {}
+    matched = 0
+    for row_number in range(1, row_count + 1):
+        lbd_id = by_number.get(row_number)
+        if lbd_id:
+            mapping[row_number] = lbd_id
+            matched += 1
+
+    if matched >= max(6, min(row_count, len(block.lbds)) // 2):
+        return mapping
+
+    ordered_ids = [lbd_id for _, lbd_id in sorted(ordered)]
+    for row_number, lbd_id in enumerate(ordered_ids[:row_count], start=1):
+        mapping.setdefault(row_number, lbd_id)
+    return mapping
+
+
+def _ocr_scan_items(image):
+    try:
+        import cv2
+        import numpy as np
+    except Exception as exc:
+        return None, None, [f'OCR libraries unavailable: {exc}']
+
+    arr = np.frombuffer(image, dtype=np.uint8)
+    frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    if frame is None:
+        return None, None, ['Could not decode uploaded image']
+
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    _, binary = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+
+    tesseract_bin = _resolve_tesseract_binary()
+    if not tesseract_bin:
+        return frame, binary, ['Tesseract OCR binary not found']
+
+    try:
+        raw = _run_tesseract_tsv(
+            gray,
+            tesseract_bin,
+            psm='6',
+        )
+    except Exception as exc:
+        return frame, binary, [f'OCR failed: {exc}']
+
+    items = []
+    for idx, text in enumerate(raw.get('text', [])):
+        clean = str(text or '').strip()
+        if not clean:
+            continue
+        try:
+            conf = float(raw.get('conf', ['0'])[idx])
+        except (TypeError, ValueError):
+            conf = 0.0
+        items.append({
+            'text': clean,
+            'normalized': _normalize_token(clean),
+            'left': int(raw.get('left', [0])[idx]),
+            'top': int(raw.get('top', [0])[idx]),
+            'width': int(raw.get('width', [0])[idx]),
+            'height': int(raw.get('height', [0])[idx]),
+            'conf': conf,
+        })
+    return frame, binary, items
+
+
+def _resolve_tesseract_binary():
+    explicit = os.environ.get('TESSERACT_CMD') or os.environ.get('TESSERACT_PATH')
+    candidates = [
+        explicit,
+        shutil.which('tesseract'),
+        r'C:\Program Files\Tesseract-OCR\tesseract.exe',
+        r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',
+        os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Programs', 'Tesseract-OCR', 'tesseract.exe'),
+    ]
+    for candidate in candidates:
+        if candidate and os.path.exists(candidate):
+            return candidate
+    return None
+
+
+def _run_tesseract_tsv(gray_image, executable, psm='6'):
+    try:
+        import cv2
+    except Exception as exc:
+        raise RuntimeError(f'OpenCV unavailable for OCR: {exc}')
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        image_path = os.path.join(temp_dir, 'scan.png')
+        output_base = os.path.join(temp_dir, 'ocr')
+        if not cv2.imwrite(image_path, gray_image):
+            raise RuntimeError('Failed to write OCR temp image')
+
+        command = [
+            executable,
+            image_path,
+            output_base,
+            '--psm',
+            str(psm),
+            'tsv',
+        ]
+        completed = subprocess.run(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+        if completed.returncode != 0:
+            raise RuntimeError(completed.stderr.strip() or 'Tesseract exited with an error')
+
+        tsv_path = f'{output_base}.tsv'
+        if not os.path.exists(tsv_path):
+            raise RuntimeError('Tesseract did not produce TSV output')
+
+        columns = {
+            'text': [],
+            'left': [],
+            'top': [],
+            'width': [],
+            'height': [],
+            'conf': [],
+        }
+        with open(tsv_path, 'r', encoding='utf-8', errors='ignore') as handle:
+            lines = [line.rstrip('\n') for line in handle]
+        if not lines:
+            return columns
+
+        headers = lines[0].split('\t')
+        for line in lines[1:]:
+            parts = line.split('\t')
+            row = {headers[index]: parts[index] if index < len(parts) else '' for index in range(len(headers))}
+            columns['text'].append(row.get('text', ''))
+            columns['left'].append(row.get('left', '0'))
+            columns['top'].append(row.get('top', '0'))
+            columns['width'].append(row.get('width', '0'))
+            columns['height'].append(row.get('height', '0'))
+            columns['conf'].append(row.get('conf', '0'))
+        return columns
+
+
+def _parse_claim_scan(block, tracker, image_bytes):
+    frame, binary, ocr_result = _ocr_scan_items(image_bytes)
+    if frame is None or binary is None:
+        return {
+            'assignments': {},
+            'preview_rows': [],
+            'warnings': ocr_result or ['Scan parsing unavailable'],
+            'source': 'manual',
+            'detected_date': _cst_today().isoformat(),
+        }
+
+    items = ocr_result
+    height, width = binary.shape[:2]
+    tracker = tracker or (Tracker.query.get(block.lbds[0].tracker_id) if block.lbds and block.lbds[0].tracker_id else None)
+    status_types = tracker.all_column_keys() if tracker else AdminSettings.all_column_keys()
+    status_names = tracker.get_status_names() if tracker else AdminSettings.get_names()
+    status_positions = {}
+    warnings = []
+    source = 'ocr-grid'
+    layout = _extract_term_form_layout(binary)
+
+    if layout and len(status_types) >= 4:
+        x_boundaries = layout['x_boundaries']
+        fixed_positions = []
+        for index in range(min(4, len(x_boundaries) - 2)):
+            left = x_boundaries[index + 1]
+            right = x_boundaries[index + 2]
+            fixed_positions.append(int((left + right) / 2))
+        for status_type, center_x in zip(status_types, fixed_positions):
+            status_positions[status_type] = center_x
+        source = 'form-grid'
+
+    if len(status_positions) < len(status_types):
+        for status_type in status_types:
+            if status_type in status_positions:
+                continue
+            aliases = _status_aliases(status_type, status_names.get(status_type))
+            matches = []
+            for item in items:
+                if item['top'] > height * 0.45:
+                    continue
+                normalized = item['normalized']
+                if not normalized:
+                    continue
+                if any(normalized == alias or alias in normalized or normalized in alias for alias in aliases):
+                    matches.append(item)
+            if matches:
+                status_positions[status_type] = int(sum(m['left'] + (m['width'] / 2) for m in matches) / len(matches))
+
+    if not status_positions:
+        warnings.append('Could not detect task columns from the claim sheet')
+        if status_types:
+            fallback_start = int(width * 0.52)
+            usable_width = max(width - fallback_start - 24, len(status_types) * 30)
+            step = usable_width / len(status_types)
+            for index, status_type in enumerate(status_types):
+                status_positions[status_type] = int(fallback_start + ((index + 0.5) * step))
+            warnings.append('Using fallback task column positions; confirm scan results before saving')
+
+    lbd_lookup, lbd_labels = _build_lbd_candidates(block)
+    row_candidates = {}
+    row_number_map = _map_form_rows_to_lbds(block, row_count=22)
+
+    if layout:
+        y_boundaries = layout['y_boundaries']
+        for row_number in range(1, min(22, len(y_boundaries) - 2) + 1):
+            lbd_id = row_number_map.get(row_number)
+            if not lbd_id:
+                continue
+            top = y_boundaries[row_number + 1]
+            bottom = y_boundaries[row_number + 2]
+            row_candidates[lbd_id] = {
+                'top': int((top + bottom) / 2),
+                'height': max(1, int(bottom - top)),
+                'width': max(1, int((layout['x_boundaries'][1] - layout['x_boundaries'][0]) * 0.5)),
+                'source': 'layout-row',
+            }
+
+    for item in items:
+        normalized = item['normalized']
+        if not normalized:
+            continue
+        candidate_tokens = {normalized, *_extract_digit_tokens(item['text'])}
+        matched_ids = set()
+        for token in candidate_tokens:
+            matched_ids.update(lbd_lookup.get(token, set()))
+        if len(matched_ids) != 1:
+            continue
+        lbd_id = next(iter(matched_ids))
+        existing = row_candidates.get(lbd_id)
+        if existing is None or item['conf'] > existing.get('conf', -1):
+            row_candidates[lbd_id] = item
+
+    if not row_candidates:
+        warnings.append('Could not match any LBD numbers from the claim sheet')
+
+    assignments = {status_type: [] for status_type in status_types}
+    preview_rows = []
+    for lbd_id, item in sorted(row_candidates.items(), key=lambda entry: entry[1]['top']):
+        row_y = int(item['top'] + (item['height'] / 2))
+        row_statuses = []
+        for status_type, center_x in status_positions.items():
+            if layout and source == 'form-grid':
+                x_boundaries = layout['x_boundaries']
+                try:
+                    status_index = status_types.index(status_type)
+                except ValueError:
+                    status_index = -1
+                if 0 <= status_index <= len(x_boundaries) - 3:
+                    left = max(0, x_boundaries[status_index + 1] + 2)
+                    right = min(width, x_boundaries[status_index + 2] - 2)
+                else:
+                    horizontal_padding = max(18, int(item['width'] * 1.15))
+                    left = max(0, center_x - horizontal_padding)
+                    right = min(width, center_x + horizontal_padding)
+                vertical_padding = max(10, int(item['height'] * 0.38))
+                top = max(0, row_y - vertical_padding)
+                bottom = min(height, row_y + vertical_padding)
+            else:
+                horizontal_padding = max(18, int(item['width'] * 1.15))
+                vertical_padding = max(12, int(item['height'] * 1.25))
+                left = max(0, center_x - horizontal_padding)
+                right = min(width, center_x + horizontal_padding)
+                top = max(0, row_y - vertical_padding)
+                bottom = min(height, row_y + vertical_padding)
+            roi = binary[top:bottom, left:right]
+            if roi.size == 0:
+                continue
+            fill_ratio = float((roi > 0).sum()) / float(roi.size)
+            threshold = 0.035 if layout and source == 'form-grid' else 0.07
+            if fill_ratio >= threshold:
+                assignments[status_type].append(lbd_id)
+                row_statuses.append(status_type)
+        preview_rows.append({
+            'lbd_id': lbd_id,
+            'lbd_label': lbd_labels.get(lbd_id, f'LBD {lbd_id}'),
+            'statuses': row_statuses,
+        })
+
+    assignments = {key: value for key, value in assignments.items() if value}
+
+    detected_date = _cst_today().isoformat()
+    date_candidates = []
+    for item in items:
+        match = re.search(r'(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})', item['text'])
+        if match:
+            date_candidates.append(match.group(1))
+    if date_candidates:
+        raw_date = date_candidates[0].replace('-', '/')
+        parts = raw_date.split('/')
+        if len(parts) == 3:
+            month, day, year = parts
+            if len(year) == 2:
+                year = f'20{year}'
+            try:
+                detected_date = date(int(year), int(month), int(day)).isoformat()
+            except ValueError:
+                pass
+
+    if not assignments:
+        warnings.append('No marked task cells were confidently detected; review selections manually')
+
+    return {
+        'assignments': assignments,
+        'preview_rows': preview_rows,
+        'warnings': warnings,
+        'source': source,
+        'detected_date': detected_date,
+    }
+
+
+def _append_claim_scan(report, scan_record):
+    data = report.get_data() or {}
+    scans = list(data.get('claim_scans') or [])
+    scans.append(scan_record)
+    data['claim_scans'] = scans
+    report.set_data(data)
+    report.generated_at = datetime.utcnow()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -276,6 +906,166 @@ def list_reports():
 def get_report(report_id):
     r = DailyReport.query.get_or_404(report_id)
     return jsonify({'success': True, 'data': r.to_dict()}), 200
+
+
+@bp.route('/reports/claim-scan-file/<path:relative_path>', methods=['GET'])
+def serve_claim_scan_file(relative_path):
+    abs_path = _resolve_claim_scan_file(relative_path)
+    if not abs_path:
+        return jsonify({'error': 'Scan file not found'}), 404
+    directory, filename = os.path.split(abs_path)
+    return send_from_directory(directory, filename)
+
+
+@bp.route('/reports/claim-scan/draft', methods=['POST'])
+def draft_claim_scan():
+    data = request.get_json() or {}
+    try:
+        block_id = int(data.get('power_block_id') or 0)
+    except (TypeError, ValueError):
+        block_id = 0
+    if block_id <= 0:
+        return jsonify({'error': 'power_block_id is required'}), 400
+
+    block = PowerBlock.query.options(
+        subqueryload(PowerBlock.lbds).subqueryload(LBD.statuses)
+    ).get_or_404(block_id)
+    tracker_id = data.get('tracker_id')
+    tracker = Tracker.query.get(tracker_id) if tracker_id else None
+
+    try:
+        image_bytes = _decode_claim_scan_image(data.get('image_base64'))
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 400
+
+    target_date = _cst_today()
+    stored = _save_claim_scan_file(data.get('file_name'), image_bytes, target_date)
+    parsed = _parse_claim_scan(block, tracker, image_bytes)
+
+    return jsonify({
+        'success': True,
+        'data': {
+            'power_block_id': block.id,
+            'power_block_name': block.name,
+            'work_date': parsed.get('detected_date') or target_date.isoformat(),
+            'assignments': parsed.get('assignments', {}),
+            'preview_rows': parsed.get('preview_rows', []),
+            'warnings': parsed.get('warnings', []),
+            'source': parsed.get('source', 'manual'),
+            'image_url': stored['image_url'],
+            'image_path': stored['relative_path'],
+            'image_name': stored['file_name'],
+        }
+    }), 200
+
+
+@bp.route('/reports/claim-scan/submit', methods=['POST'])
+def submit_claim_scan():
+    data = request.get_json() or {}
+    draft = data.get('draft') or {}
+
+    try:
+        block_id = int(data.get('power_block_id') or 0)
+    except (TypeError, ValueError):
+        block_id = 0
+    if block_id <= 0:
+        return jsonify({'error': 'power_block_id is required'}), 400
+
+    block = PowerBlock.query.options(
+        subqueryload(PowerBlock.lbds).subqueryload(LBD.statuses)
+    ).get_or_404(block_id)
+    tracker_id = data.get('tracker_id') or next((lbd.tracker_id for lbd in block.lbds if lbd.tracker_id), None)
+    tracker = Tracker.query.get(tracker_id) if tracker_id else None
+    people = _normalize_people(data.get('people') or [])
+    actor = _current_user_name()
+    if actor and actor.casefold() not in {name.casefold() for name in people}:
+        people = _normalize_people([actor, *people])
+    valid_lbd_ids = [lbd.id for lbd in block.lbds]
+    assignments = _normalize_claim_assignments(data.get('assignments') or {}, valid_lbd_ids)
+
+    try:
+        target = date.fromisoformat(str(draft.get('work_date') or data.get('work_date') or _cst_today().isoformat()))
+    except ValueError:
+        target = _cst_today()
+
+    _ensure_claim_workers(people)
+    db.session.flush()
+
+    workers_by_name = {
+        worker.name.casefold(): worker
+        for worker in Worker.query.filter(Worker.name.in_(people)).all()
+    }
+
+    created = 0
+    skipped = 0
+    for status_type, lbd_ids in assignments.items():
+        if not lbd_ids:
+            continue
+        for person in people:
+            worker = workers_by_name.get(person.casefold())
+            if not worker:
+                continue
+            exists = WorkEntry.query.filter_by(
+                worker_id=worker.id,
+                power_block_id=block.id,
+                task_type=status_type,
+                work_date=target,
+            ).first()
+            if exists:
+                skipped += 1
+                continue
+            db.session.add(WorkEntry(
+                worker_id=worker.id,
+                power_block_id=block.id,
+                tracker_id=tracker_id,
+                task_type=status_type,
+                work_date=target,
+                logged_by=actor,
+            ))
+            created += 1
+
+    block.claimed_by = actor or (people[0] if people else None)
+    block.set_claim_state(people, assignments)
+    block.claimed_at = datetime.utcnow()
+
+    report = _get_or_generate_report(target, tracker_id)
+    scan_record = {
+        'id': uuid.uuid4().hex,
+        'created_at': datetime.utcnow().isoformat(),
+        'created_by': actor,
+        'power_block_id': block.id,
+        'power_block_name': block.name,
+        'people': people,
+        'assignments': assignments,
+        'assignment_summary': {key: len(value) for key, value in assignments.items()},
+        'image_url': draft.get('image_url'),
+        'image_path': draft.get('image_path'),
+        'image_name': draft.get('image_name'),
+        'source': draft.get('source', 'manual'),
+        'warnings': list(draft.get('warnings') or []),
+    }
+    _append_claim_scan(report, scan_record)
+    db.session.commit()
+
+    try:
+        from app import socketio
+        socketio.emit('claim_update', {
+            'pb_id': block.id,
+            **_claim_payload(block),
+        })
+    except Exception:
+        pass
+
+    return jsonify({
+        'success': True,
+        'data': {
+            'created': created,
+            'skipped': skipped,
+            'report_id': report.id,
+            'scan_record': scan_record,
+            'claim': _claim_payload(block),
+        }
+    }), 200
 
 
 @bp.route('/reports/date/<date_str>', methods=['GET'])

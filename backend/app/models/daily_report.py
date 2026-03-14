@@ -37,10 +37,15 @@ class DailyReport(db.Model):
     def to_summary(self):
         """Lighter version for list views – no full data payload."""
         data = self.get_data()
+        claim_scans = list(data.get('claim_scans') or [])
+        latest_scan = claim_scans[-1] if claim_scans else {}
         return {
             'id':            self.id,
             'report_date':   self.report_date.isoformat() if self.report_date else None,
             'generated_at':  self.generated_at.isoformat() if self.generated_at else None,
             'total_entries': data.get('total_entries', 0),
             'workers':       data.get('worker_names', []),
+            'claim_scan_count': len(claim_scans),
+            'latest_claim_scan_image_url': latest_scan.get('image_url'),
+            'latest_claim_scan_power_block': latest_scan.get('power_block_name'),
         }

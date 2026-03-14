@@ -66,9 +66,43 @@ def _claim_payload(block):
     return {
         'claimed_by': block.claimed_by,
         'claimed_people': claimed_people,
+        'claim_assignments': block.get_claim_assignments(),
         'claimed_label': ', '.join(claimed_people),
         'claimed_at': block.claimed_at.isoformat() if block.claimed_at else None,
     }
+
+
+def _normalize_claim_assignments(assignments, valid_lbd_ids=None):
+    normalized = {}
+    if not isinstance(assignments, dict):
+        return normalized
+
+    valid_set = set(valid_lbd_ids or [])
+    enforce_valid_ids = bool(valid_set)
+
+    for status_type, lbd_ids in assignments.items():
+        key = str(status_type or '').strip()
+        if not key:
+            continue
+        if not isinstance(lbd_ids, list):
+            lbd_ids = [lbd_ids]
+        seen_ids = set()
+        normalized_ids = []
+        for lbd_id in lbd_ids:
+            try:
+                normalized_id = int(lbd_id)
+            except (TypeError, ValueError):
+                continue
+            if normalized_id <= 0 or normalized_id in seen_ids:
+                continue
+            if enforce_valid_ids and normalized_id not in valid_set:
+                continue
+            seen_ids.add(normalized_id)
+            normalized_ids.append(normalized_id)
+        if normalized_ids:
+            normalized[key] = normalized_ids
+
+    return normalized
 
 
 def _ensure_claim_workers(names):
@@ -183,6 +217,7 @@ def get_power_blocks():
                 'is_completed': b.is_completed,
                 'claimed_by': b.claimed_by,
                 'claimed_people': b.get_claimed_people(),
+                'claim_assignments': b.get_claim_assignments(),
                 'claimed_label': ', '.join(b.get_claimed_people()),
                 'claimed_at': b.claimed_at.isoformat() if b.claimed_at else None,
                 'last_updated_by': b.last_updated_by,
@@ -393,7 +428,7 @@ def claim_power_block(block_id):
 
         if action == 'unclaim':
             block.claimed_by = None
-            block.set_claimed_people([])
+            block.set_claim_state([], {})
             block.claimed_at = None
         else:
             if not actor:
@@ -404,8 +439,10 @@ def claim_power_block(block_id):
             people = _normalize_people([actor, *requested_people])
             if not people:
                 people = [actor]
+            valid_lbd_ids = [lbd_id for (lbd_id,) in db.session.query(LBD.id).filter_by(power_block_id=block_id).all()]
+            assignments = _normalize_claim_assignments(data.get('assignments') or {}, valid_lbd_ids)
             block.claimed_by = actor
-            block.set_claimed_people(people)
+            block.set_claim_state(people, assignments)
             block.claimed_at = datetime.utcnow()
             _ensure_claim_workers(people)
 

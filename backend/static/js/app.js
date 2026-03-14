@@ -129,10 +129,10 @@ const api = {
   getClaimPeople() {
     return this.call('/tracker/claim-people');
   },
-  claimBlock(blockId, action, people = []) {
+  claimBlock(blockId, action, people = [], assignments = {}) {
     return this.call(`/tracker/power-blocks/${blockId}/claim`, {
       method:'POST',
-      body: JSON.stringify({ action, people })
+      body: JSON.stringify({ action, people, assignments })
     });
   },
 
@@ -369,10 +369,73 @@ async function bulkCompleteAll(blockId, complete) {
   } catch(e) { alert('Error: ' + e.message); }
 }
 
-async function claimBlock(blockId, action, people = []) {
+function _getClaimAssignments(block) {
+  if (!block || typeof block.claim_assignments !== 'object' || block.claim_assignments === null) {
+    return {};
+  }
+  return block.claim_assignments;
+}
+
+function _buildClaimAssignmentSummary(block) {
+  const assignments = _getClaimAssignments(block);
+  const summary = Object.entries(assignments)
+    .map(([statusType, lbdIds]) => {
+      const count = Array.isArray(lbdIds) ? lbdIds.length : 0;
+      if (!count) return '';
+      const label = STATUS_LABELS[statusType] || statusType.replace(/_/g, ' ');
+      return `${label}: ${count}`;
+    })
+    .filter(Boolean);
+
+  if (!summary.length) {
+    return '';
+  }
+
+  return '<div style="margin-top:6px;color:#334155;font-size:11px;">Assigned work: ' + _escapeHtml(summary.join(' • ')) + '</div>';
+}
+
+function _renderClaimAssignmentSections(overlay, block) {
+  const container = overlay.querySelector('#claim-assignment-sections');
+  if (!container) return;
+
+  const selectedTypes = Array.from(overlay.querySelectorAll('.claim-status-type:checked')).map(input => input.value);
+  if (!selectedTypes.length) {
+    container.innerHTML = '<div style="color:#94a3b8;font-size:12px;">Select one or more work types if you want to claim specific LBDs.</div>';
+    return;
+  }
+
+  const assignments = _getClaimAssignments(block);
+  const lbds = Array.isArray(block.lbds) ? [...block.lbds] : [];
+  lbds.sort((left, right) => String(left.identifier || left.name || '').localeCompare(String(right.identifier || right.name || '')));
+
+  container.innerHTML = selectedTypes.map(statusType => {
+    const label = _escapeHtml(STATUS_LABELS[statusType] || statusType.replace(/_/g, ' '));
+    const selectedIds = new Set(Array.isArray(assignments[statusType]) ? assignments[statusType].map(Number) : []);
+    const options = lbds.map(lbd => {
+      const checked = selectedIds.has(Number(lbd.id)) ? 'checked' : '';
+      const name = _escapeHtml(lbd.identifier || lbd.name || `LBD ${lbd.id}`);
+      return `<label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid rgba(255,255,255,0.08);border-radius:10px;background:rgba(255,255,255,0.03);cursor:pointer;">
+        <input type="checkbox" class="claim-lbd-option" data-status-type="${_escapeHtml(statusType)}" value="${lbd.id}" ${checked} />
+        <span style="color:#eef2ff;font-size:12px;">${name}</span>
+      </label>`;
+    }).join('');
+
+    return `<div style="margin-top:14px;padding:12px;border:1px solid rgba(255,255,255,0.08);border-radius:14px;background:rgba(255,255,255,0.03);">
+      <div style="color:#eef2ff;font-size:13px;font-weight:700;margin-bottom:8px;">${label}</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;">
+        ${options || '<div style="color:#94a3b8;font-size:12px;">No LBDs found for this block.</div>'}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function claimBlock(blockId, action, people = [], assignments = {}) {
   try {
-    await api.claimBlock(blockId, action, people);
+    await api.claimBlock(blockId, action, people, assignments);
     loadBlockLBDs(blockId);
+    if (document.getElementById('blocks-list')) {
+      loadBlocks();
+    }
   } catch(e) { alert('Error: ' + e.message); }
 }
 
@@ -381,6 +444,7 @@ async function showClaimPeopleDialog(block) {
     const response = await api.getClaimPeople();
     const suggestions = Array.isArray(response.data) ? response.data : [];
     const selected = new Set((block.claimed_people || []).map(name => String(name)));
+    const existingAssignments = _getClaimAssignments(block);
     if (selected.size === 0 && currentUser?.name) selected.add(currentUser.name);
 
     const overlay = document.createElement('div');
@@ -391,22 +455,39 @@ async function showClaimPeopleDialog(block) {
       const escaped = _escapeHtml(name);
       const checked = selected.has(name) ? 'checked' : '';
       return `<label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid rgba(255,255,255,0.08);border-radius:10px;background:rgba(255,255,255,0.03);cursor:pointer;">
-        <input type="checkbox" value="${escaped}" ${checked} />
+        <input type="checkbox" class="claim-person-option" value="${escaped}" ${checked} />
         <span style="color:#eef2ff;font-size:13px;">${escaped}</span>
       </label>`;
     }).join('');
 
     overlay.innerHTML = `
-      <div style="width:min(560px,100%);max-height:80vh;overflow:auto;background:#0f172a;border:1px solid rgba(255,255,255,0.12);border-radius:18px;padding:18px;box-shadow:0 30px 80px rgba(0,0,0,0.45);">
+      <div style="width:min(760px,100%);max-height:80vh;overflow:auto;background:#0f172a;border:1px solid rgba(255,255,255,0.12);border-radius:18px;padding:18px;box-shadow:0 30px 80px rgba(0,0,0,0.45);">
         <div style="display:flex;align-items:start;justify-content:space-between;gap:12px;">
           <div>
             <div style="color:#eef2ff;font-size:18px;font-weight:700;">Claim ${_escapeHtml(block.name)}</div>
-            <div style="color:#94a3b8;font-size:12px;margin-top:4px;">Select everyone working this block together. Add names below for helpers without accounts.</div>
+            <div style="color:#94a3b8;font-size:12px;margin-top:4px;">Choose the team first, then choose which LBDs are being worked for each selected entry.</div>
           </div>
           <button type="button" id="claim-people-close" style="background:transparent;border:none;color:#94a3b8;font-size:20px;cursor:pointer;">×</button>
         </div>
         <div style="margin-top:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;">
           ${optionsHtml || '<div style="color:#94a3b8;font-size:12px;">No saved people yet.</div>'}
+        </div>
+        <div style="margin-top:16px;">
+          <label style="display:block;color:#cbd5e1;font-size:12px;margin-bottom:6px;">Work types</label>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;">
+            ${LBD_STATUS_TYPES.map(statusType => {
+              const label = _escapeHtml(STATUS_LABELS[statusType] || statusType.replace(/_/g, ' '));
+              const checked = Array.isArray(existingAssignments[statusType]) && existingAssignments[statusType].length ? 'checked' : '';
+              return `<label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid rgba(255,255,255,0.08);border-radius:10px;background:rgba(255,255,255,0.03);cursor:pointer;">
+                <input type="checkbox" class="claim-status-type" value="${_escapeHtml(statusType)}" ${checked} />
+                <span style="color:#eef2ff;font-size:12px;">${label}</span>
+              </label>`;
+            }).join('')}
+          </div>
+        </div>
+        <div style="margin-top:16px;">
+          <label style="display:block;color:#cbd5e1;font-size:12px;margin-bottom:6px;">LBD selection by work type</label>
+          <div id="claim-assignment-sections"></div>
         </div>
         <div style="margin-top:16px;">
           <label style="display:block;color:#cbd5e1;font-size:12px;margin-bottom:6px;">Extra names</label>
@@ -419,15 +500,19 @@ async function showClaimPeopleDialog(block) {
       </div>`;
 
     document.body.appendChild(overlay);
+    _renderClaimAssignmentSections(overlay, block);
 
     const close = () => overlay.remove();
     overlay.addEventListener('click', (event) => {
       if (event.target === overlay) close();
     });
+    overlay.querySelectorAll('.claim-status-type').forEach(input => {
+      input.addEventListener('change', () => _renderClaimAssignmentSections(overlay, block));
+    });
     overlay.querySelector('#claim-people-close').addEventListener('click', close);
     overlay.querySelector('#claim-people-cancel').addEventListener('click', close);
     overlay.querySelector('#claim-people-save').addEventListener('click', async () => {
-      const checked = Array.from(overlay.querySelectorAll('input[type="checkbox"]:checked'))
+      const checked = Array.from(overlay.querySelectorAll('.claim-person-option:checked'))
         .map(el => el.value.trim())
         .filter(Boolean);
       const extras = (overlay.querySelector('#claim-extra-names').value || '')
@@ -435,7 +520,17 @@ async function showClaimPeopleDialog(block) {
         .map(name => name.trim())
         .filter(Boolean);
       const people = [...checked, ...extras];
-      await claimBlock(block.id, 'claim', people);
+      const assignments = {};
+      Array.from(overlay.querySelectorAll('.claim-status-type:checked')).forEach(input => {
+        const statusType = input.value;
+        const lbdIds = Array.from(overlay.querySelectorAll(`.claim-lbd-option[data-status-type="${statusType}"]:checked`))
+          .map(option => Number(option.value))
+          .filter(Number.isFinite);
+        if (lbdIds.length > 0) {
+          assignments[statusType] = lbdIds;
+        }
+      });
+      await claimBlock(block.id, 'claim', people, assignments);
       close();
     });
   } catch (e) {
@@ -493,8 +588,10 @@ function _buildClaimedBanner(block) {
     lastPart = '<div style="margin-top:5px;color:#555;font-size:11px;">&#9998; Last updated by <strong>' + lastBy + '</strong> &mdash; ' + lastAt + '</div>';
   }
 
+  const assignmentSummary = _buildClaimAssignmentSummary(block);
+
   return '<div id="pb-claimed-banner" style="margin-bottom:12px;padding:9px 14px;background:#e8f5e9;border-radius:6px;border:1px solid #c8e6c9;">'
-    + '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;">' + claimPart + '</div>' + lastPart + '</div>';
+    + '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;">' + claimPart + '</div>' + assignmentSummary + lastPart + '</div>';
 }
 
 function addLBD(blockId) {
@@ -586,7 +683,7 @@ async function loadDashboard() {
       </div>
       <div class="thc-bar-wrap"><div class="thc-bar-fill" style="width:${t.pct}%;background:${barColor};"></div></div>
       <div class="thc-footer">
-        <span class="thc-open-btn">${openTrackerLabel} →</span>
+        <button type="button" class="thc-open-btn" onclick="event.stopPropagation(); openTracker(${t.id}); return false;">${openTrackerLabel} →</button>
       </div>
     </div>`;
   }).join('');
@@ -596,7 +693,11 @@ async function openTracker(trackerId) {
   const t = allTrackers.find(t => t.id == trackerId);
   if (!t) return;
   currentTracker = t;
-  await loadAdminSettings();
+  try {
+    await loadAdminSettings();
+  } catch (e) {
+    console.warn('Failed to load tracker settings:', e);
+  }
   updateTrackerCrumb();
   showPage('blocks');
 }
@@ -1301,9 +1402,25 @@ function _initSocket() {
     if (pb) {
       pb.claimed_by = data.claimed_by;
       pb.claimed_people = data.claimed_people || [];
+      pb.claim_assignments = data.claim_assignments || {};
       pb.claimed_label = data.claimed_label || '';
       pb.claimed_at = data.claimed_at;
     }
+    if (_blocksCache[data.pb_id]) {
+      _blocksCache[data.pb_id].claimed_by = data.claimed_by;
+      _blocksCache[data.pb_id].claimed_people = data.claimed_people || [];
+      _blocksCache[data.pb_id].claim_assignments = data.claim_assignments || {};
+      _blocksCache[data.pb_id].claimed_label = data.claimed_label || '';
+      _blocksCache[data.pb_id].claimed_at = data.claimed_at;
+    }
+    _allBlocksData = _allBlocksData.map(block => block.id === data.pb_id ? {
+      ...block,
+      claimed_by: data.claimed_by,
+      claimed_people: data.claimed_people || [],
+      claim_assignments: data.claim_assignments || {},
+      claimed_label: data.claimed_label || '',
+      claimed_at: data.claimed_at,
+    } : block);
     if (activePBId === data.pb_id) {
       const banner = document.getElementById('pb-claimed-banner');
       if (banner && pb) banner.outerHTML = _buildClaimedBanner(pb);
