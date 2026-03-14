@@ -573,6 +573,15 @@ def _parse_claim_scan(block, tracker, image_bytes):
         }
 
     items = ocr_result
+    if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
+        return {
+            'assignments': {},
+            'preview_rows': [],
+            'warnings': list(items) if isinstance(items, list) else ['Scan parsing unavailable'],
+            'source': 'manual',
+            'detected_date': _cst_today().isoformat(),
+        }
+
     height, width = binary.shape[:2]
     tracker = tracker or (Tracker.query.get(block.lbds[0].tracker_id) if block.lbds and block.lbds[0].tracker_id else None)
     status_types = tracker.all_column_keys() if tracker else AdminSettings.all_column_keys()

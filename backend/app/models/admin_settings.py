@@ -61,6 +61,24 @@ class AdminSettings(db.Model):
     }
 
     @classmethod
+    def get_claim_people(cls):
+        raw = cls.get('claim_people') or []
+        if not isinstance(raw, list):
+            raw = [raw]
+        normalized = []
+        seen = set()
+        for value in raw:
+            name = str(value or '').strip()
+            if not name:
+                continue
+            folded = name.casefold()
+            if folded in seen:
+                continue
+            seen.add(folded)
+            normalized.append(name)
+        return normalized
+
+    @classmethod
     def get_colors(cls):
         stored = cls.get('status_colors')
         if stored:

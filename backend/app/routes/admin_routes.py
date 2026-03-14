@@ -101,7 +101,7 @@ def list_audit_logs():
 # ------------------------------------------------------------------ #
 def _get_tracker():
     """Return the Tracker for the current request (from tracker_id param)."""
-    tid = request.args.get('tracker_id') or (request.get_json() or {}).get('tracker_id')
+    tid = request.args.get('tracker_id') or (request.get_json(silent=True) or {}).get('tracker_id')
     if tid:
         return Tracker.query.get(int(tid))
     return Tracker.query.filter_by(is_active=True).order_by(Tracker.sort_order, Tracker.id).first()
@@ -135,10 +135,39 @@ def get_settings():
                 'pb_label_font_size': AdminSettings.get('pb_label_font_size', 14),
                 'tracker_id': tracker.id if tracker else None,
                 'zone_names': zone_names if isinstance(zone_names, list) else [],
+                'claim_people': AdminSettings.get_claim_people(),
                 'appearance': AdminSettings.get('appearance') or {},
                 'ui_text': AdminSettings.get('ui_text') or {},
             }
         }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/settings/claim-people', methods=['PUT'])
+def update_claim_people():
+    try:
+        actor, err, status = require_permission('admin_settings')
+        if not actor:
+            return err, status
+        data = request.get_json() or {}
+        people = data.get('people', [])
+        if not isinstance(people, list):
+            return jsonify({'error': 'people must be a list'}), 400
+        normalized = []
+        seen = set()
+        for value in people:
+            name = str(value or '').strip()
+            if not name:
+                continue
+            folded = name.casefold()
+            if folded in seen:
+                continue
+            seen.add(folded)
+            normalized.append(name)
+        AdminSettings.set('claim_people', normalized)
+        log_action('settings.claim_people', 'global', 'claim_people', {'count': len(normalized)}, actor=actor)
+        return jsonify({'success': True, 'data': normalized}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

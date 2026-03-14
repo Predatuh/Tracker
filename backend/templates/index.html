@@ -626,6 +626,16 @@
                     </div>
                   </div>
 
+                  <div class="appearance-group" style="margin-bottom:24px;max-width:560px;">
+                    <div class="appearance-group-title">Claim Checkbox People</div>
+                    <label class="appearance-label">One person per line or comma-separated</label>
+                    <textarea id="admin-claim-people" class="appearance-input" rows="6" placeholder="Jordan&#10;Carlos&#10;Rush"></textarea>
+                    <div style="display:flex;gap:10px;align-items:center;margin-top:12px;">
+                      <button class="btn btn-primary" onclick="saveAdminClaimPeople()">Save Claim People</button>
+                      <span id="claim-people-save-status" style="font-size:12px;color:var(--green);"></span>
+                    </div>
+                  </div>
+
                   <div style="display:flex;gap:10px;align-items:center;">
                     <button class="btn btn-primary" onclick="saveAdminUIText()">Save Labels</button>
                     <button class="btn btn-secondary" onclick="resetAdminUIText()" style="font-size:12px;">Reset to Defaults</button>

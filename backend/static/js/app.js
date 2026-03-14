@@ -95,6 +95,7 @@ const api = {
   saveZoneNames(names) { return this.call(this._tq('/admin/settings/zone-names'), { method:'PUT', body: JSON.stringify({names}) }); },
   saveAppearance(appearance) { return this.call('/admin/settings/appearance', { method:'PUT', body: JSON.stringify({appearance}) }); },
   saveUIText(ui_text) { return this.call('/admin/settings/ui-text', { method:'PUT', body: JSON.stringify({ui_text}) }); },
+  saveClaimPeople(people) { return this.call('/admin/settings/claim-people', { method:'PUT', body: JSON.stringify({people}) }); },
   saveAdminColors(colors) {
     const body = { colors };
     if (currentTracker) body.tracker_id = currentTracker.id;
@@ -4007,6 +4008,7 @@ function resetAdminAppearance() {
 /* ── UI Text Admin Tab ── */
 function loadUILabelsTab() {
   const t = (adminSettings && adminSettings.ui_text) ? adminSettings.ui_text : {};
+  const claimPeople = (adminSettings && Array.isArray(adminSettings.claim_people)) ? adminSettings.claim_people : [];
   const setVal = (id, val, ph) => { const e = document.getElementById(id); if (e) { e.value = (val !== undefined && val !== '') ? val : ''; e.placeholder = ph; } };
   setVal('ul-nav-dashboard', t.nav_dashboard, 'Dashboard');
   setVal('ul-nav-upload',    t.nav_upload,    'Upload PDF');
@@ -4027,6 +4029,10 @@ function loadUILabelsTab() {
   setVal('ul-title-worklog',   t.title_worklog,   'Work Log');
   setVal('ul-title-reports',   t.title_reports,   'Daily Reports');
   setVal('ul-title-admin',     t.title_admin,     'Admin Controls');
+  const claimPeopleField = document.getElementById('admin-claim-people');
+  if (claimPeopleField) {
+    claimPeopleField.value = claimPeople.join('\n');
+  }
   document.getElementById('uilabels-save-status').textContent = '';
 }
 
@@ -4062,6 +4068,25 @@ function resetAdminUIText() {
    'ul-title-dashboard','ul-sub-dashboard','ul-dashboard-loading','ul-dashboard-empty','ul-dashboard-complete',
    'ul-dashboard-blocks','ul-dashboard-open','ul-title-blocks','ul-title-upload','ul-title-worklog','ul-title-reports','ul-title-admin']
     .forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
+}
+
+async function saveAdminClaimPeople() {
+  const field = document.getElementById('admin-claim-people');
+  if (!field) return;
+  const people = field.value
+    .split(/[\n,]/)
+    .map(name => name.trim())
+    .filter(Boolean);
+  try {
+    const response = await api.saveClaimPeople(people);
+    if (adminSettings) adminSettings.claim_people = response.data || people;
+    const fieldValue = Array.isArray(response.data) ? response.data : people;
+    field.value = fieldValue.join('\n');
+    const st = document.getElementById('claim-people-save-status');
+    if (st) { st.textContent = '✓ Saved'; setTimeout(() => { st.textContent = ''; }, 2500); }
+  } catch(e) {
+    showAdminAlert('Failed to save claim people: ' + e.message, 'error');
+  }
 }
 
 /* ── Trackers Admin Tab ── */

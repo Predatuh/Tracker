@@ -7,6 +7,7 @@ from app.models.tracker import Tracker
 from app.models.site_area import SiteArea
 from app.models.user import User
 from app.models.worker import Worker
+from app.models.admin_settings import AdminSettings
 from datetime import datetime
 import re
 
@@ -135,6 +136,7 @@ bp = Blueprint('tracker', __name__, url_prefix='/api/tracker')
 @bp.route('/claim-people', methods=['GET'])
 def get_claim_people():
     names = []
+    names.extend(AdminSettings.get_claim_people())
     names.extend(name for (name,) in db.session.query(User.name).order_by(User.name).all() if name)
     names.extend(name for (name,) in db.session.query(Worker.name).filter_by(is_active=True).order_by(Worker.name).all() if name)
     actor = _current_user_name()
