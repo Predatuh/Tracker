@@ -1109,7 +1109,11 @@ def _parse_claim_scan(block, tracker, image_bytes):
 
     fitted_rows = _fit_claim_scan_rows_from_ocr(items, row_number_map, width, row_count=scan_row_count)
     for lbd_id, row_data in fitted_rows.items():
-        row_candidates[lbd_id] = row_data
+        # Only use OCR-fitted rows when layout didn't already provide them.
+        # Layout rows come from detected grid lines and are far more accurate
+        # than OCR-estimated Y positions.
+        if lbd_id not in row_candidates:
+            row_candidates[lbd_id] = row_data
 
     if not layout and not row_candidates:
         for item in items:
@@ -1132,6 +1136,7 @@ def _parse_claim_scan(block, tracker, image_bytes):
 
     assignments = {status_type: [] for status_type in status_types}
     preview_rows = []
+    debug_cells = []
     for lbd_id, item in sorted(row_candidates.items(), key=lambda entry: entry[1]['top']):
         row_y = int(item['top'] + (item['height'] / 2))
         row_statuses = []
@@ -1164,7 +1169,20 @@ def _parse_claim_scan(block, tracker, image_bytes):
             if roi.size == 0:
                 continue
             metrics = _claim_mark_metrics(roi)
-            if _is_claim_marked(metrics, use_form_layout=bool(layout and source == 'form-grid')):
+            is_marked = _is_claim_marked(metrics, use_form_layout=bool(layout and source == 'form-grid'))
+            debug_cells.append({
+                'lbd_id': lbd_id,
+                'lbd_label': lbd_labels.get(lbd_id, f'LBD {lbd_id}'),
+                'status_type': status_type,
+                'marked': is_marked,
+                'center_ratio': round(metrics.get('center_ratio', 0), 5),
+                'center_pixels': metrics.get('center_pixels', 0),
+                'raw_fill': round(metrics.get('raw_fill_ratio', 0), 5),
+                'roi_shape': f'{roi.shape[0]}x{roi.shape[1]}' if roi.size else '0x0',
+                'cell_bbox': [int(left), int(top), int(right), int(bottom)],
+                'row_source': item.get('source', 'ocr'),
+            })
+            if is_marked:
                 assignments[status_type].append(lbd_id)
                 row_statuses.append(status_type)
         preview_rows.append({
@@ -1202,6 +1220,7 @@ def _parse_claim_scan(block, tracker, image_bytes):
         'warnings': warnings,
         'source': source,
         'detected_date': detected_date,
+        'debug_cells': debug_cells,
     }
 
 
@@ -1428,6 +1447,7 @@ def draft_claim_scan():
             'image_url': stored['image_url'],
             'image_path': stored['relative_path'],
             'image_name': stored['file_name'],
+            'debug_cells': parsed.get('debug_cells', []),
         }
     }), 200
 
