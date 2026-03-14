@@ -1027,10 +1027,19 @@ def _parse_claim_scan(block, tracker, image_bytes):
             rectified_blur = cv2.GaussianBlur(rectified_gray, (5, 5), 0)
             _, rectified_binary = cv2.threshold(rectified_blur, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
             scan_binary = rectified_binary
+            # Adaptive threshold captures faint pen marks that global Otsu misses
+            mark_binary = cv2.adaptiveThreshold(
+                rectified_blur, 255,
+                cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                cv2.THRESH_BINARY_INV,
+                blockSize=51, C=10,
+            )
         except Exception:
             scan_binary = binary
+            mark_binary = binary
     else:
         scan_binary = binary
+        mark_binary = binary
 
     height, width = scan_binary.shape[:2]
     tracker = tracker or (Tracker.query.get(block.lbds[0].tracker_id) if block.lbds and block.lbds[0].tracker_id else None)
@@ -1165,7 +1174,7 @@ def _parse_claim_scan(block, tracker, image_bytes):
                 right = min(width, center_x + horizontal_padding)
                 top = max(0, row_y - vertical_padding)
                 bottom = min(height, row_y + vertical_padding)
-            roi = _extract_claim_cell_roi(scan_binary, left, right, top, bottom)
+            roi = _extract_claim_cell_roi(mark_binary, left, right, top, bottom)
             if roi.size == 0:
                 continue
             metrics = _claim_mark_metrics(roi)
