@@ -36,6 +36,7 @@ import uuid
 bp = Blueprint('reports', __name__, url_prefix='/api')
 
 CST = pytz.timezone('America/Chicago')
+CLAIM_SCAN_FORM_ROWS = 22
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -367,7 +368,7 @@ def _select_evenly_spaced_lines(lines, expected_count, tolerance=0.35):
     return sorted(center for center, _ in ranked)
 
 
-def _extract_term_form_layout(binary, row_count=20, status_column_count=4):
+def _extract_term_form_layout(binary, row_count=CLAIM_SCAN_FORM_ROWS, status_column_count=4):
     try:
         import cv2
         import numpy as np
@@ -725,7 +726,7 @@ def _parse_claim_scan(block, tracker, image_bytes):
     status_positions = {}
     warnings = []
     source = 'ocr-grid'
-    form_row_count = max(1, min(max(len(block.lbds), 1), 20))
+    form_row_count = CLAIM_SCAN_FORM_ROWS
     layout = _extract_term_form_layout(binary, row_count=form_row_count, status_column_count=len(status_types))
 
     if layout and status_types:

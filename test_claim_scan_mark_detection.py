@@ -9,7 +9,7 @@ import numpy as np
 REPO_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(REPO_ROOT / 'backend'))
 
-from app.routes.report_routes import _claim_mark_metrics, _claim_scan_status_types, _is_claim_marked  # noqa: E402
+from app.routes.report_routes import CLAIM_SCAN_FORM_ROWS, _claim_mark_metrics, _claim_scan_status_types, _is_claim_marked  # noqa: E402
 
 
 def _make_checkbox(mark=None):
@@ -52,6 +52,9 @@ class ClaimScanMarkDetectionTests(unittest.TestCase):
             _claim_scan_status_types(TrackerStub()),
             ['ground_brackets', 'stuff', 'term', 'stickers'],
         )
+
+    def test_claim_scan_uses_fixed_22_row_sheet(self):
+        self.assertEqual(CLAIM_SCAN_FORM_ROWS, 22)
 
 
 if __name__ == '__main__':
