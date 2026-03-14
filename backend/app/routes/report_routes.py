@@ -561,6 +561,116 @@ def _run_tesseract_tsv(gray_image, executable, psm='6'):
         return columns
 
 
+def _extract_claim_cell_roi(binary, left, right, top, bottom):
+    left = max(0, int(left))
+    right = min(binary.shape[1], int(right))
+    top = max(0, int(top))
+    bottom = min(binary.shape[0], int(bottom))
+    if right <= left or bottom <= top:
+        return binary[0:0, 0:0]
+
+    roi = binary[top:bottom, left:right]
+    if roi.size == 0:
+        return roi
+
+    inset_y = min(max(1, roi.shape[0] // 12), 8)
+    inset_x = min(max(1, roi.shape[1] // 12), 8)
+    if roi.shape[0] > (inset_y * 2) + 4 and roi.shape[1] > (inset_x * 2) + 4:
+        roi = roi[inset_y:roi.shape[0] - inset_y, inset_x:roi.shape[1] - inset_x]
+    return roi
+
+
+def _claim_mark_metrics(roi):
+    try:
+        import cv2
+        import numpy as np
+    except Exception:
+        if roi.size == 0:
+            return {
+                'raw_fill_ratio': 0.0,
+                'fill_ratio': 0.0,
+                'peak_ratio': 0.0,
+                'component_ratio': 0.0,
+                'ink_pixels': 0,
+            }
+        fill_ratio = float((roi > 0).sum()) / float(roi.size)
+        return {
+            'raw_fill_ratio': fill_ratio,
+            'fill_ratio': fill_ratio,
+            'peak_ratio': fill_ratio,
+            'component_ratio': fill_ratio,
+            'ink_pixels': int((roi > 0).sum()),
+        }
+
+    if roi.size == 0:
+        return {
+            'raw_fill_ratio': 0.0,
+            'fill_ratio': 0.0,
+            'peak_ratio': 0.0,
+            'component_ratio': 0.0,
+            'ink_pixels': 0,
+        }
+
+    work = (roi > 0).astype(np.uint8) * 255
+    raw_fill_ratio = float((work > 0).sum()) / float(work.size)
+    height, width = work.shape[:2]
+    horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (max(5, width // 3), 1))
+    vertical_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, max(5, height // 3)))
+    horizontal_lines = cv2.morphologyEx(work, cv2.MORPH_OPEN, horizontal_kernel)
+    vertical_lines = cv2.morphologyEx(work, cv2.MORPH_OPEN, vertical_kernel)
+    residual = cv2.subtract(work, cv2.max(horizontal_lines, vertical_lines))
+
+    noise_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
+    residual = cv2.morphologyEx(residual, cv2.MORPH_OPEN, noise_kernel)
+    ink_mask = (residual > 0).astype(np.uint8)
+    ink_pixels = int(ink_mask.sum())
+    if ink_pixels <= 0:
+        return {
+            'raw_fill_ratio': raw_fill_ratio,
+            'fill_ratio': 0.0,
+            'peak_ratio': 0.0,
+            'component_ratio': 0.0,
+            'ink_pixels': 0,
+        }
+
+    window_h = max(4, min(ink_mask.shape[0], max(4, ink_mask.shape[0] // 3)))
+    window_w = max(4, min(ink_mask.shape[1], max(4, ink_mask.shape[1] // 3)))
+    density = cv2.blur(ink_mask.astype(np.float32), (window_w, window_h))
+
+    component_ratio = 0.0
+    count, _, stats, _ = cv2.connectedComponentsWithStats(ink_mask, 8)
+    if count > 1:
+        largest_component = int(stats[1:, cv2.CC_STAT_AREA].max())
+        component_ratio = float(largest_component) / float(ink_mask.size)
+
+    return {
+        'raw_fill_ratio': raw_fill_ratio,
+        'fill_ratio': float(ink_pixels) / float(ink_mask.size),
+        'peak_ratio': float(density.max()) if density.size else 0.0,
+        'component_ratio': component_ratio,
+        'ink_pixels': ink_pixels,
+    }
+
+
+def _is_claim_marked(metrics, use_form_layout=False):
+    if metrics.get('raw_fill_ratio', 0.0) >= 0.11:
+        return True
+
+    if metrics.get('ink_pixels', 0) < 8:
+        return False
+
+    peak_threshold = 0.14 if use_form_layout else 0.17
+    component_threshold = 0.025 if use_form_layout else 0.03
+    if metrics.get('peak_ratio', 0.0) >= peak_threshold:
+        return True
+    if metrics.get('component_ratio', 0.0) >= component_threshold:
+        return True
+
+    fill_ratio = metrics.get('fill_ratio', 0.0)
+    peak_ratio = metrics.get('peak_ratio', 0.0)
+    return fill_ratio >= 0.008 and peak_ratio >= 0.055
+
+
 def _parse_claim_scan(block, tracker, image_bytes):
     frame, binary, ocr_result = _ocr_scan_items(image_bytes)
     if frame is None or binary is None:
@@ -695,12 +805,11 @@ def _parse_claim_scan(block, tracker, image_bytes):
                 right = min(width, center_x + horizontal_padding)
                 top = max(0, row_y - vertical_padding)
                 bottom = min(height, row_y + vertical_padding)
-            roi = binary[top:bottom, left:right]
+            roi = _extract_claim_cell_roi(binary, left, right, top, bottom)
             if roi.size == 0:
                 continue
-            fill_ratio = float((roi > 0).sum()) / float(roi.size)
-            threshold = 0.035 if layout and source == 'form-grid' else 0.07
-            if fill_ratio >= threshold:
+            metrics = _claim_mark_metrics(roi)
+            if _is_claim_marked(metrics, use_form_layout=bool(layout and source == 'form-grid')):
                 assignments[status_type].append(lbd_id)
                 row_statuses.append(status_type)
         preview_rows.append({
