@@ -9,7 +9,7 @@ import numpy as np
 REPO_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(REPO_ROOT / 'backend'))
 
-from app.routes.report_routes import CLAIM_SCAN_FORM_ROWS, _claim_mark_metrics, _claim_scan_status_types, _is_claim_marked  # noqa: E402
+from app.routes.report_routes import CLAIM_SCAN_FORM_ROWS, _claim_mark_metrics, _claim_scan_status_types, _fit_claim_scan_rows_from_ocr, _is_claim_marked  # noqa: E402
 
 
 def _make_checkbox(mark=None):
@@ -55,6 +55,26 @@ class ClaimScanMarkDetectionTests(unittest.TestCase):
 
     def test_claim_scan_uses_fixed_22_row_sheet(self):
         self.assertEqual(CLAIM_SCAN_FORM_ROWS, 22)
+
+    def test_row_fit_interpolates_from_sparse_even_rows(self):
+        row_number_map = {row_number: 1000 + row_number for row_number in range(1, 11)}
+        items = []
+        for row_number in [2, 4, 6, 8]:
+            items.append({
+                'text': str(row_number),
+                'left': 24,
+                'top': 100 + ((row_number - 1) * 18),
+                'width': 14,
+                'height': 12,
+                'conf': 92.0,
+            })
+
+        fitted = _fit_claim_scan_rows_from_ocr(items, row_number_map, image_width=800, row_count=10)
+
+        self.assertEqual(set(fitted.keys()), set(row_number_map.values()))
+        self.assertLess(fitted[1001]['top'], fitted[1002]['top'])
+        self.assertLess(fitted[1002]['top'], fitted[1003]['top'])
+        self.assertLess(fitted[1009]['top'], fitted[1010]['top'])
 
 
 if __name__ == '__main__':

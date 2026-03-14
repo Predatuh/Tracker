@@ -37,6 +37,7 @@ bp = Blueprint('reports', __name__, url_prefix='/api')
 
 CST = pytz.timezone('America/Chicago')
 CLAIM_SCAN_FORM_ROWS = 22
+CLAIM_SCAN_LABEL_COLUMN_RATIO = 0.19
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -299,6 +300,122 @@ def _claim_scan_status_types(tracker):
     return ordered or available
 
 
+def _find_claim_scan_table_bbox(binary):
+    try:
+        import cv2
+    except Exception:
+        return None
+
+    height, width = binary.shape[:2]
+    vertical_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, max(20, height // 25)))
+    horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (max(20, width // 12), 1))
+    vertical_lines = cv2.morphologyEx(binary, cv2.MORPH_OPEN, vertical_kernel)
+    horizontal_lines = cv2.morphologyEx(binary, cv2.MORPH_OPEN, horizontal_kernel)
+    grid_mask = cv2.add(vertical_lines, horizontal_lines)
+
+    contours, _ = cv2.findContours(grid_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return None
+
+    table_bbox = None
+    table_area = 0
+    for contour in contours:
+        x, y, w, h = cv2.boundingRect(contour)
+        area = w * h
+        if w < width * 0.45 or h < height * 0.45:
+            continue
+        if area > table_area:
+            table_area = area
+            table_bbox = (x, y, w, h)
+    return table_bbox
+
+
+def _estimate_claim_scan_x_boundaries(table_bbox, status_column_count):
+    if not table_bbox or status_column_count <= 0:
+        return None
+
+    x, _, w, _ = table_bbox
+    total_columns = status_column_count + 1
+    label_ratio = CLAIM_SCAN_LABEL_COLUMN_RATIO
+    remaining_ratio = max(0.0, 1.0 - label_ratio)
+    task_width_ratio = remaining_ratio / max(1, total_columns - 1)
+
+    boundaries = [x]
+    boundaries.append(int(round(x + (w * label_ratio))))
+    for index in range(1, total_columns):
+        boundaries.append(int(round(x + (w * (label_ratio + (task_width_ratio * index))))))
+
+    boundaries[-1] = x + w
+    return boundaries
+
+
+def _fit_claim_scan_rows_from_ocr(items, row_number_map, image_width, row_count=CLAIM_SCAN_FORM_ROWS):
+    if not items or not row_number_map:
+        return {}
+
+    row_markers = {}
+    left_threshold = image_width * 0.28
+    for item in items:
+        if item.get('left', 0) > left_threshold:
+            continue
+        if item.get('width', 0) > image_width * 0.12:
+            continue
+
+        tokens = []
+        for token in _extract_digit_tokens(item.get('text')):
+            if token.isdigit():
+                number = int(token)
+                if 1 <= number <= row_count:
+                    tokens.append(number)
+        if len(tokens) != 1:
+            continue
+
+        row_number = tokens[0]
+        center_y = float(item['top'] + (item['height'] / 2.0))
+        existing = row_markers.get(row_number)
+        if existing is None or item.get('conf', 0) > existing['conf']:
+            row_markers[row_number] = {
+                'center_y': center_y,
+                'conf': float(item.get('conf', 0.0)),
+                'height': max(1.0, float(item.get('height', 1.0))),
+                'width': max(1.0, float(item.get('width', 1.0))),
+            }
+
+    if len(row_markers) < 4:
+        return {}
+
+    ordered_rows = sorted(row_markers.items())
+    xs = [float(row_number) for row_number, _ in ordered_rows]
+    ys = [entry['center_y'] for _, entry in ordered_rows]
+    count = float(len(xs))
+    sum_x = sum(xs)
+    sum_y = sum(ys)
+    sum_xx = sum(value * value for value in xs)
+    sum_xy = sum(row * center for row, center in zip(xs, ys))
+    denominator = (count * sum_xx) - (sum_x * sum_x)
+    if abs(denominator) < 1e-6:
+        return {}
+
+    slope = ((count * sum_xy) - (sum_x * sum_y)) / denominator
+    intercept = (sum_y - (slope * sum_x)) / count
+    if slope <= 0:
+        return {}
+
+    estimated_height = max(8.0, abs(slope) * 0.88)
+    estimated_width = max(entry['width'] for entry in row_markers.values())
+    fitted = {}
+    for row_number, lbd_id in row_number_map.items():
+        center_y = row_markers.get(row_number, {}).get('center_y', (slope * row_number) + intercept)
+        fitted[lbd_id] = {
+            'top': int(round(center_y - (estimated_height / 2.0))),
+            'height': int(round(estimated_height)),
+            'width': int(round(estimated_width)),
+            'source': 'ocr-row-fit',
+            'conf': row_markers.get(row_number, {}).get('conf', 0.0),
+        }
+    return fitted
+
+
 def _build_lbd_candidates(block):
     lookup = {}
     labels = {}
@@ -371,34 +488,18 @@ def _select_evenly_spaced_lines(lines, expected_count, tolerance=0.35):
 def _extract_term_form_layout(binary, row_count=CLAIM_SCAN_FORM_ROWS, status_column_count=4):
     try:
         import cv2
-        import numpy as np
     except Exception:
         return None
 
     height, width = binary.shape[:2]
+    table_bbox = _find_claim_scan_table_bbox(binary)
+    if not table_bbox:
+        return None
+
     vertical_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, max(20, height // 25)))
     horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (max(20, width // 12), 1))
     vertical_lines = cv2.morphologyEx(binary, cv2.MORPH_OPEN, vertical_kernel)
     horizontal_lines = cv2.morphologyEx(binary, cv2.MORPH_OPEN, horizontal_kernel)
-    grid_mask = cv2.add(vertical_lines, horizontal_lines)
-
-    contours, _ = cv2.findContours(grid_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if not contours:
-        return None
-
-    table_bbox = None
-    table_area = 0
-    for contour in contours:
-        x, y, w, h = cv2.boundingRect(contour)
-        area = w * h
-        if w < width * 0.45 or h < height * 0.45:
-            continue
-        if area > table_area:
-            table_area = area
-            table_bbox = (x, y, w, h)
-
-    if not table_bbox:
-        return None
 
     x, y, w, h = table_bbox
     vertical_crop = vertical_lines[y:y + h, x:x + w]
@@ -418,19 +519,26 @@ def _extract_term_form_layout(binary, row_count=CLAIM_SCAN_FORM_ROWS, status_col
     expected_x_boundaries = status_column_count + 2
     expected_y_boundaries = row_count + 3
 
-    if len(x_lines) < expected_x_boundaries or len(y_lines) < expected_y_boundaries:
-        return None
+    x_boundaries = None
+    if len(x_lines) >= expected_x_boundaries:
+        x_boundaries = _select_evenly_spaced_lines(x_lines, expected_x_boundaries, tolerance=0.55)
+        if len(x_boundaries) == expected_x_boundaries:
+            x_boundaries = [x + value for value in x_boundaries]
+        else:
+            x_boundaries = None
+    if x_boundaries is None:
+        x_boundaries = _estimate_claim_scan_x_boundaries(table_bbox, status_column_count)
 
-    x_boundaries = _select_evenly_spaced_lines(x_lines, expected_x_boundaries, tolerance=0.55)
-    y_boundaries = _select_evenly_spaced_lines(y_lines, expected_y_boundaries, tolerance=0.55)
-
-    if len(x_boundaries) != expected_x_boundaries or len(y_boundaries) != expected_y_boundaries:
-        return None
+    y_boundaries = None
+    if len(y_lines) >= expected_y_boundaries:
+        selected = _select_evenly_spaced_lines(y_lines, expected_y_boundaries, tolerance=0.55)
+        if len(selected) == expected_y_boundaries:
+            y_boundaries = [y + value for value in selected]
 
     return {
         'bbox': table_bbox,
-        'x_boundaries': [x + value for value in x_boundaries],
-        'y_boundaries': [y + value for value in y_boundaries],
+        'x_boundaries': x_boundaries,
+        'y_boundaries': y_boundaries,
     }
 
 
@@ -729,7 +837,7 @@ def _parse_claim_scan(block, tracker, image_bytes):
     form_row_count = CLAIM_SCAN_FORM_ROWS
     layout = _extract_term_form_layout(binary, row_count=form_row_count, status_column_count=len(status_types))
 
-    if layout and status_types:
+    if layout and layout.get('x_boundaries') and status_types:
         x_boundaries = layout['x_boundaries']
         fixed_positions = []
         for index in range(min(len(status_types), len(x_boundaries) - 2)):
@@ -738,7 +846,7 @@ def _parse_claim_scan(block, tracker, image_bytes):
             fixed_positions.append(int((left + right) / 2))
         for status_type, center_x in zip(status_types, fixed_positions):
             status_positions[status_type] = center_x
-        source = 'form-grid'
+        source = 'form-grid' if layout.get('y_boundaries') else 'form-bbox'
 
     if len(status_positions) < len(status_types):
         for status_type in status_types:
@@ -771,7 +879,7 @@ def _parse_claim_scan(block, tracker, image_bytes):
     row_candidates = {}
     row_number_map = _map_form_rows_to_lbds(block, row_count=form_row_count)
 
-    if layout:
+    if layout and layout.get('y_boundaries'):
         y_boundaries = layout['y_boundaries']
         for row_number in range(1, min(form_row_count, len(y_boundaries) - 2) + 1):
             lbd_id = row_number_map.get(row_number)
@@ -786,7 +894,11 @@ def _parse_claim_scan(block, tracker, image_bytes):
                 'source': 'layout-row',
             }
 
-    if not layout:
+    fitted_rows = _fit_claim_scan_rows_from_ocr(items, row_number_map, width, row_count=form_row_count)
+    for lbd_id, row_data in fitted_rows.items():
+        row_candidates.setdefault(lbd_id, row_data)
+
+    if not layout and not row_candidates:
         for item in items:
             normalized = item['normalized']
             if not normalized:
