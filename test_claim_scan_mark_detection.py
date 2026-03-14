@@ -9,7 +9,7 @@ import numpy as np
 REPO_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(REPO_ROOT / 'backend'))
 
-from app.routes.report_routes import CLAIM_SCAN_FORM_ROWS, _claim_mark_metrics, _claim_scan_status_types, _estimate_claim_scan_y_boundaries, _fit_claim_scan_rows_from_ocr, _is_claim_marked  # noqa: E402
+from app.routes.report_routes import CLAIM_SCAN_FORM_ROWS, CLAIM_SCAN_PAGE_HEIGHT, CLAIM_SCAN_PAGE_WIDTH, _claim_mark_metrics, _claim_scan_status_types, _estimate_claim_scan_y_boundaries, _fit_claim_scan_rows_from_ocr, _is_claim_marked, _order_claim_scan_quad  # noqa: E402
 
 
 def _make_checkbox(mark=None):
@@ -84,6 +84,17 @@ class ClaimScanMarkDetectionTests(unittest.TestCase):
         self.assertLess(boundaries[1], boundaries[2])
         self.assertLess(boundaries[2], boundaries[3])
         self.assertLess(boundaries[-2], boundaries[-1])
+
+    def test_claim_scan_quad_is_ordered_consistently(self):
+        ordered = _order_claim_scan_quad([(400, 1800), (1200, 150), (200, 120), (1250, 1850)])
+
+        self.assertEqual(ordered[0], (200, 120))
+        self.assertEqual(ordered[1], (1200, 150))
+        self.assertEqual(ordered[2], (1250, 1850))
+        self.assertEqual(ordered[3], (400, 1800))
+
+    def test_claim_scan_page_constants_are_portrait(self):
+        self.assertGreater(CLAIM_SCAN_PAGE_HEIGHT, CLAIM_SCAN_PAGE_WIDTH)
 
 
 if __name__ == '__main__':

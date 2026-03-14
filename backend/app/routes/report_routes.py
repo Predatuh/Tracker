@@ -38,6 +38,8 @@ bp = Blueprint('reports', __name__, url_prefix='/api')
 CST = pytz.timezone('America/Chicago')
 CLAIM_SCAN_FORM_ROWS = 22
 CLAIM_SCAN_LABEL_COLUMN_RATIO = 0.19
+CLAIM_SCAN_PAGE_WIDTH = 1400
+CLAIM_SCAN_PAGE_HEIGHT = 1980
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -298,6 +300,90 @@ def _claim_scan_status_types(tracker):
     available = tracker.all_column_keys() if tracker else AdminSettings.all_column_keys()
     ordered = [status_type for status_type in preferred_order if status_type in available]
     return ordered or available
+
+
+def _order_claim_scan_quad(points):
+    ordered = [None, None, None, None]
+    sums = [point[0] + point[1] for point in points]
+    diffs = [point[1] - point[0] for point in points]
+    ordered[0] = points[sums.index(min(sums))]
+    ordered[2] = points[sums.index(max(sums))]
+    ordered[1] = points[diffs.index(min(diffs))]
+    ordered[3] = points[diffs.index(max(diffs))]
+    return ordered
+
+
+def _find_claim_scan_page_quad(frame):
+    try:
+        import cv2
+        import numpy as np
+    except Exception:
+        return None
+
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    _, threshold = cv2.threshold(blurred, 170, 255, cv2.THRESH_BINARY)
+    threshold = cv2.morphologyEx(threshold, cv2.MORPH_CLOSE, np.ones((9, 9), dtype=np.uint8))
+
+    contours, _ = cv2.findContours(threshold, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return None
+
+    image_area = frame.shape[0] * frame.shape[1]
+    best_quad = None
+    best_area = 0
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        if area < image_area * 0.35:
+            continue
+        perimeter = cv2.arcLength(contour, True)
+        approx = cv2.approxPolyDP(contour, 0.02 * perimeter, True)
+        points = approx.reshape(-1, 2) if approx is not None else None
+        if points is None or len(points) < 4:
+            rect = cv2.minAreaRect(contour)
+            points = cv2.boxPoints(rect)
+        elif len(points) > 4:
+            rect = cv2.minAreaRect(contour)
+            points = cv2.boxPoints(rect)
+
+        if points is None or len(points) != 4:
+            continue
+        if area > best_area:
+            best_area = area
+            best_quad = _order_claim_scan_quad([tuple(map(float, point)) for point in points])
+
+    return best_quad
+
+
+def _rectify_claim_scan(frame):
+    try:
+        import cv2
+        import numpy as np
+    except Exception:
+        gray = None
+        try:
+            import cv2  # type: ignore
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        except Exception:
+            return frame, None
+        return frame, gray
+
+    quad = _find_claim_scan_page_quad(frame)
+    if not quad:
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        return frame, gray
+
+    source = np.array(quad, dtype=np.float32)
+    destination = np.array([
+        [0.0, 0.0],
+        [float(CLAIM_SCAN_PAGE_WIDTH - 1), 0.0],
+        [float(CLAIM_SCAN_PAGE_WIDTH - 1), float(CLAIM_SCAN_PAGE_HEIGHT - 1)],
+        [0.0, float(CLAIM_SCAN_PAGE_HEIGHT - 1)],
+    ], dtype=np.float32)
+    matrix = cv2.getPerspectiveTransform(source, destination)
+    warped = cv2.warpPerspective(frame, matrix, (CLAIM_SCAN_PAGE_WIDTH, CLAIM_SCAN_PAGE_HEIGHT))
+    gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
+    return warped, gray
 
 
 def _find_claim_scan_table_bbox(binary):
@@ -874,7 +960,19 @@ def _parse_claim_scan(block, tracker, image_bytes):
             'detected_date': _cst_today().isoformat(),
         }
 
-    height, width = binary.shape[:2]
+    rectified_frame, rectified_gray = _rectify_claim_scan(frame)
+    if rectified_gray is not None:
+        try:
+            import cv2
+            rectified_blur = cv2.GaussianBlur(rectified_gray, (5, 5), 0)
+            _, rectified_binary = cv2.threshold(rectified_blur, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+            scan_binary = rectified_binary
+        except Exception:
+            scan_binary = binary
+    else:
+        scan_binary = binary
+
+    height, width = scan_binary.shape[:2]
     tracker = tracker or (Tracker.query.get(block.lbds[0].tracker_id) if block.lbds and block.lbds[0].tracker_id else None)
     status_types = _claim_scan_status_types(tracker)
     status_names = tracker.get_status_names() if tracker else AdminSettings.get_names()
@@ -882,7 +980,7 @@ def _parse_claim_scan(block, tracker, image_bytes):
     warnings = []
     source = 'ocr-grid'
     form_row_count = CLAIM_SCAN_FORM_ROWS
-    layout = _extract_term_form_layout(binary, row_count=form_row_count, status_column_count=len(status_types))
+    layout = _extract_term_form_layout(scan_binary, row_count=form_row_count, status_column_count=len(status_types))
 
     if layout and layout.get('x_boundaries') and status_types:
         x_boundaries = layout['x_boundaries']
@@ -998,7 +1096,7 @@ def _parse_claim_scan(block, tracker, image_bytes):
                 right = min(width, center_x + horizontal_padding)
                 top = max(0, row_y - vertical_padding)
                 bottom = min(height, row_y + vertical_padding)
-            roi = _extract_claim_cell_roi(binary, left, right, top, bottom)
+            roi = _extract_claim_cell_roi(scan_binary, left, right, top, bottom)
             if roi.size == 0:
                 continue
             metrics = _claim_mark_metrics(roi)
