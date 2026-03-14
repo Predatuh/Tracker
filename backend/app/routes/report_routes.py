@@ -877,6 +877,8 @@ def _claim_mark_metrics(roi):
             'peak_ratio': 0.0,
             'component_ratio': 0.0,
             'ink_pixels': 0,
+            'inner_ratio': 0.0,
+            'edge_touch_count': 0,
         }
 
     work = (roi > 0).astype(np.uint8) * 255
@@ -899,11 +901,24 @@ def _claim_mark_metrics(roi):
             'peak_ratio': 0.0,
             'component_ratio': 0.0,
             'ink_pixels': 0,
+            'inner_ratio': 0.0,
+            'edge_touch_count': 0,
         }
 
     window_h = max(4, min(ink_mask.shape[0], max(4, ink_mask.shape[0] // 3)))
     window_w = max(4, min(ink_mask.shape[1], max(4, ink_mask.shape[1] // 3)))
     density = cv2.blur(ink_mask.astype(np.float32), (window_w, window_h))
+
+    inner_margin_y = max(2, height // 10)
+    inner_margin_x = max(2, width // 10)
+    if height > inner_margin_y * 2 and width > inner_margin_x * 2:
+        inner_mask = ink_mask[
+            inner_margin_y:height - inner_margin_y,
+            inner_margin_x:width - inner_margin_x,
+        ]
+        inner_ratio = float(inner_mask.sum()) / float(inner_mask.size) if inner_mask.size else 0.0
+    else:
+        inner_ratio = float(ink_pixels) / float(ink_mask.size)
 
     component_ratio = 0.0
     count, _, stats, _ = cv2.connectedComponentsWithStats(ink_mask, 8)
@@ -911,12 +926,32 @@ def _claim_mark_metrics(roi):
         largest_component = int(stats[1:, cv2.CC_STAT_AREA].max())
         component_ratio = float(largest_component) / float(ink_mask.size)
 
+    ys, xs = np.where(ink_mask > 0)
+    edge_touch_count = 0
+    if len(xs) and len(ys):
+        min_x = int(xs.min())
+        max_x = int(xs.max())
+        min_y = int(ys.min())
+        max_y = int(ys.max())
+        edge_margin_x = max(1, width // 12)
+        edge_margin_y = max(1, height // 12)
+        if min_x <= edge_margin_x:
+            edge_touch_count += 1
+        if max_x >= width - edge_margin_x - 1:
+            edge_touch_count += 1
+        if min_y <= edge_margin_y:
+            edge_touch_count += 1
+        if max_y >= height - edge_margin_y - 1:
+            edge_touch_count += 1
+
     return {
         'raw_fill_ratio': raw_fill_ratio,
         'fill_ratio': float(ink_pixels) / float(ink_mask.size),
         'peak_ratio': float(density.max()) if density.size else 0.0,
         'component_ratio': component_ratio,
         'ink_pixels': ink_pixels,
+        'inner_ratio': inner_ratio,
+        'edge_touch_count': edge_touch_count,
     }
 
 
@@ -924,11 +959,16 @@ def _is_claim_marked(metrics, use_form_layout=False):
     if metrics.get('raw_fill_ratio', 0.0) >= 0.11:
         return True
 
-    if metrics.get('ink_pixels', 0) < 8:
+    minimum_ink = 10 if use_form_layout else 8
+    if metrics.get('ink_pixels', 0) < minimum_ink:
         return False
 
-    peak_threshold = 0.14 if use_form_layout else 0.17
-    component_threshold = 0.025 if use_form_layout else 0.03
+    if use_form_layout:
+        if metrics.get('edge_touch_count', 0) >= 2 and metrics.get('inner_ratio', 0.0) < 0.01:
+            return False
+
+    peak_threshold = 0.17 if use_form_layout else 0.17
+    component_threshold = 0.03 if use_form_layout else 0.03
     if metrics.get('peak_ratio', 0.0) >= peak_threshold:
         return True
     if metrics.get('component_ratio', 0.0) >= component_threshold:
@@ -936,6 +976,9 @@ def _is_claim_marked(metrics, use_form_layout=False):
 
     fill_ratio = metrics.get('fill_ratio', 0.0)
     peak_ratio = metrics.get('peak_ratio', 0.0)
+    inner_ratio = metrics.get('inner_ratio', fill_ratio)
+    if use_form_layout:
+        return fill_ratio >= 0.01 and peak_ratio >= 0.07 and inner_ratio >= 0.008
     return fill_ratio >= 0.008 and peak_ratio >= 0.055
 
 
@@ -980,6 +1023,7 @@ def _parse_claim_scan(block, tracker, image_bytes):
     warnings = []
     source = 'ocr-grid'
     form_row_count = CLAIM_SCAN_FORM_ROWS
+    scan_row_count = max(1, min(form_row_count, len(block.lbds) or form_row_count))
     layout = _extract_term_form_layout(scan_binary, row_count=form_row_count, status_column_count=len(status_types))
 
     if layout and layout.get('x_boundaries') and status_types:
@@ -1027,11 +1071,11 @@ def _parse_claim_scan(block, tracker, image_bytes):
 
     lbd_lookup, lbd_labels = _build_lbd_candidates(block)
     row_candidates = {}
-    row_number_map = _map_form_rows_to_lbds(block, row_count=form_row_count)
+    row_number_map = _map_form_rows_to_lbds(block, row_count=scan_row_count)
 
     if layout and layout.get('y_boundaries'):
         y_boundaries = layout['y_boundaries']
-        for row_number in range(1, min(form_row_count, len(y_boundaries) - 2) + 1):
+        for row_number in range(1, min(scan_row_count, len(y_boundaries) - 2) + 1):
             lbd_id = row_number_map.get(row_number)
             if not lbd_id:
                 continue
@@ -1044,7 +1088,7 @@ def _parse_claim_scan(block, tracker, image_bytes):
                 'source': 'layout-row',
             }
 
-    fitted_rows = _fit_claim_scan_rows_from_ocr(items, row_number_map, width, row_count=form_row_count)
+    fitted_rows = _fit_claim_scan_rows_from_ocr(items, row_number_map, width, row_count=scan_row_count)
     for lbd_id, row_data in fitted_rows.items():
         row_candidates.setdefault(lbd_id, row_data)
 

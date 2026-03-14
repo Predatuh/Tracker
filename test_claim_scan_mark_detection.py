@@ -9,7 +9,7 @@ import numpy as np
 REPO_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(REPO_ROOT / 'backend'))
 
-from app.routes.report_routes import CLAIM_SCAN_FORM_ROWS, CLAIM_SCAN_PAGE_HEIGHT, CLAIM_SCAN_PAGE_WIDTH, _claim_mark_metrics, _claim_scan_status_types, _estimate_claim_scan_y_boundaries, _fit_claim_scan_rows_from_ocr, _is_claim_marked, _order_claim_scan_quad  # noqa: E402
+from app.routes.report_routes import CLAIM_SCAN_FORM_ROWS, CLAIM_SCAN_PAGE_HEIGHT, CLAIM_SCAN_PAGE_WIDTH, _claim_mark_metrics, _claim_scan_status_types, _estimate_claim_scan_y_boundaries, _fit_claim_scan_rows_from_ocr, _is_claim_marked, _map_form_rows_to_lbds, _order_claim_scan_quad  # noqa: E402
 
 
 def _make_checkbox(mark=None):
@@ -43,6 +43,18 @@ class ClaimScanMarkDetectionTests(unittest.TestCase):
         metrics = _claim_mark_metrics(_make_checkbox('fill'))
         self.assertTrue(_is_claim_marked(metrics, use_form_layout=True))
 
+    def test_edge_noise_is_not_marked_on_form_layout(self):
+        metrics = {
+            'raw_fill_ratio': 0.03,
+            'fill_ratio': 0.02,
+            'peak_ratio': 0.19,
+            'component_ratio': 0.04,
+            'ink_pixels': 24,
+            'inner_ratio': 0.003,
+            'edge_touch_count': 3,
+        }
+        self.assertFalse(_is_claim_marked(metrics, use_form_layout=True))
+
     def test_claim_scan_uses_paper_column_order(self):
         class TrackerStub:
             def all_column_keys(self):
@@ -55,6 +67,24 @@ class ClaimScanMarkDetectionTests(unittest.TestCase):
 
     def test_claim_scan_uses_fixed_22_row_sheet(self):
         self.assertEqual(CLAIM_SCAN_FORM_ROWS, 22)
+
+    def test_form_row_mapping_caps_to_block_lbd_count(self):
+        class LbdStub:
+            def __init__(self, idx):
+                self.id = idx
+                self.identifier = f'LBD-{idx:02d}'
+                self.inventory_number = None
+                self.name = f'LBD {idx}'
+
+        class BlockStub:
+            def __init__(self, count):
+                self.lbds = [LbdStub(idx) for idx in range(1, count + 1)]
+
+        mapping = _map_form_rows_to_lbds(BlockStub(18), row_count=18)
+
+        self.assertEqual(len(mapping), 18)
+        self.assertNotIn(19, mapping)
+        self.assertEqual(mapping[18], 18)
 
     def test_row_fit_interpolates_from_sparse_even_rows(self):
         row_number_map = {row_number: 1000 + row_number for row_number in range(1, 11)}
