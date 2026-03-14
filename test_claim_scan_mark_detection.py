@@ -349,6 +349,53 @@ class ClaimScanMarkDetectionTests(unittest.TestCase):
     def test_claim_scan_page_constants_are_portrait(self):
         self.assertGreater(CLAIM_SCAN_PAGE_HEIGHT, CLAIM_SCAN_PAGE_WIDTH)
 
+    def test_thin_pen_x_mark_is_detected(self):
+        """Thin pen strokes (2px) should still be detected — matches real blue pen marks."""
+        roi = np.zeros((CELL_H, CELL_W), dtype=np.uint8)
+        # 2px grid lines
+        roi[0:2, :] = 255
+        roi[-2:, :] = 255
+        roi[:, 0:2] = 255
+        roi[:, -2:] = 255
+        # Thin X mark with 2px-wide strokes
+        cx, cy = CELL_W // 2, CELL_H // 2
+        pad = min(cx, cy) - 8
+        cv2.line(roi, (cx - pad, cy - pad), (cx + pad, cy + pad), 255, 2)
+        cv2.line(roi, (cx + pad, cy - pad), (cx - pad, cy + pad), 255, 2)
+        metrics = _claim_mark_metrics(roi)
+        self.assertTrue(_is_claim_marked(metrics, use_form_layout=True),
+                        f'Thin (2px) X-mark missed: {metrics}')
+
+    def test_full_form_page_all_18_rows_marked(self):
+        """All 18 LBD rows marked in 2 columns — scanner should find all 36."""
+        marked = set()
+        for row in range(1, 19):
+            marked.add((row, 0))  # B/G column
+            marked.add((row, 1))  # Stuffed column
+        page, bbox, x_bounds, y_bounds = _build_form_page(marked)
+
+        false_negatives = []
+        false_positives = []
+        for row in range(1, 23):
+            for col in range(4):
+                left = x_bounds[col + 1]
+                right = x_bounds[col + 2]
+                top = y_bounds[row + 1]
+                bottom = y_bounds[row + 2]
+                roi = _extract_claim_cell_roi(page, left, right, top, bottom)
+                metrics = _claim_mark_metrics(roi)
+                detected = _is_claim_marked(metrics, use_form_layout=True)
+                expected = (row, col) in marked
+                if detected and not expected:
+                    false_positives.append((row, col, metrics))
+                if not detected and expected:
+                    false_negatives.append((row, col, metrics))
+
+        self.assertEqual(false_negatives, [],
+                         f'Missed marks: {false_negatives}')
+        self.assertEqual(false_positives, [],
+                         f'False positives: {false_positives}')
+
 
 if __name__ == '__main__':
     unittest.main()

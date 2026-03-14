@@ -894,7 +894,7 @@ def _claim_mark_metrics(roi):
     vertical_lines = cv2.morphologyEx(work, cv2.MORPH_OPEN, vertical_kernel)
     residual = cv2.subtract(work, cv2.max(horizontal_lines, vertical_lines))
 
-    noise_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    noise_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
     residual = cv2.morphologyEx(residual, cv2.MORPH_OPEN, noise_kernel)
     ink_mask = (residual > 0).astype(np.uint8)
     ink_pixels = int(ink_mask.sum())
@@ -968,7 +968,7 @@ def _is_claim_marked(metrics, use_form_layout=False):
         if metrics.get('raw_fill_ratio', 0.0) >= 0.18:
             return True
 
-        if metrics.get('ink_pixels', 0) < 25:
+        if metrics.get('ink_pixels', 0) < 10:
             return False
 
         inner_ratio = metrics.get('inner_ratio', 0.0)
@@ -978,24 +978,24 @@ def _is_claim_marked(metrics, use_form_layout=False):
         edge_touch_count = metrics.get('edge_touch_count', 0)
 
         # Reject edge-only residue (grid line fragments)
-        if edge_touch_count >= 2 and inner_ratio < 0.02:
+        if edge_touch_count >= 2 and inner_ratio < 0.015:
             return False
 
         # All form detections require central ink
-        if inner_ratio < 0.012:
+        if inner_ratio < 0.006:
             return False
 
         # Strong overall fill with central ink
-        if fill_ratio >= 0.06 and inner_ratio >= 0.025:
+        if fill_ratio >= 0.04 and inner_ratio >= 0.015:
             return True
         # Strong local density peak with central ink
-        if peak_ratio >= 0.25 and inner_ratio >= 0.02:
+        if peak_ratio >= 0.18 and inner_ratio >= 0.012:
             return True
         # Significant connected component with central ink
-        if component_ratio >= 0.035 and inner_ratio >= 0.02:
+        if component_ratio >= 0.02 and inner_ratio >= 0.012:
             return True
         # Combined moderate signals
-        if fill_ratio >= 0.02 and peak_ratio >= 0.10 and inner_ratio >= 0.015:
+        if fill_ratio >= 0.012 and peak_ratio >= 0.07 and inner_ratio >= 0.008:
             return True
         return False
 
