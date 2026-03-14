@@ -534,12 +534,16 @@ def _fit_claim_scan_rows_from_ocr(items, row_number_map, image_width, row_count=
     fitted = {}
     for row_number, lbd_id in row_number_map.items():
         center_y = row_markers.get(row_number, {}).get('center_y', (slope * row_number) + intercept)
+        row_top = int(round(center_y - (estimated_height / 2.0)))
+        row_height = int(round(estimated_height))
         fitted[lbd_id] = {
-            'top': int(round(center_y - (estimated_height / 2.0))),
-            'height': int(round(estimated_height)),
+            'top': row_top,
+            'height': row_height,
             'width': int(round(estimated_width)),
             'source': 'ocr-row-fit',
             'conf': row_markers.get(row_number, {}).get('conf', 0.0),
+            'row_top': row_top,
+            'row_bottom': row_top + row_height,
         }
     return fitted
 
@@ -1086,11 +1090,13 @@ def _parse_claim_scan(block, tracker, image_bytes):
                 'height': max(1, int(bottom - top)),
                 'width': max(1, int((layout['x_boundaries'][1] - layout['x_boundaries'][0]) * 0.5)),
                 'source': 'layout-row',
+                'row_top': int(top),
+                'row_bottom': int(bottom),
             }
 
     fitted_rows = _fit_claim_scan_rows_from_ocr(items, row_number_map, width, row_count=scan_row_count)
     for lbd_id, row_data in fitted_rows.items():
-        row_candidates.setdefault(lbd_id, row_data)
+        row_candidates[lbd_id] = row_data
 
     if not layout and not row_candidates:
         for item in items:
@@ -1130,9 +1136,10 @@ def _parse_claim_scan(block, tracker, image_bytes):
                     horizontal_padding = max(18, int(item['width'] * 1.15))
                     left = max(0, center_x - horizontal_padding)
                     right = min(width, center_x + horizontal_padding)
-                vertical_padding = max(10, int(item['height'] * 0.38))
-                top = max(0, row_y - vertical_padding)
-                bottom = min(height, row_y + vertical_padding)
+                row_top = int(item.get('row_top', row_y - max(10, int(item['height'] * 0.38))))
+                row_bottom = int(item.get('row_bottom', row_y + max(10, int(item['height'] * 0.38))))
+                top = max(0, row_top + 2)
+                bottom = min(height, row_bottom - 2)
             else:
                 horizontal_padding = max(18, int(item['width'] * 1.15))
                 vertical_padding = max(12, int(item['height'] * 1.25))
