@@ -853,6 +853,17 @@ def _extract_claim_cell_roi(binary, left, right, top, bottom):
 
 
 def _claim_mark_metrics(roi):
+    """Compute detection metrics for a cell ROI.
+
+    The primary metric for form-layout mode is ``center_ratio`` — the fill
+    ratio of the innermost 50 % of the cell *before* any morphological
+    processing.  Grid lines live at cell borders, so the center crop is
+    naturally line-free, making the measurement immune to the destructive
+    line-removal that was previously eating thin pen strokes.
+
+    The morphology-based metrics (fill_ratio, peak_ratio, …) are still
+    computed as a secondary signal and used for non-form (freestyle) mode.
+    """
     try:
         import cv2
         import numpy as np
@@ -860,6 +871,8 @@ def _claim_mark_metrics(roi):
         if roi.size == 0:
             return {
                 'raw_fill_ratio': 0.0,
+                'center_ratio': 0.0,
+                'center_pixels': 0,
                 'fill_ratio': 0.0,
                 'peak_ratio': 0.0,
                 'component_ratio': 0.0,
@@ -868,6 +881,8 @@ def _claim_mark_metrics(roi):
         fill_ratio = float((roi > 0).sum()) / float(roi.size)
         return {
             'raw_fill_ratio': fill_ratio,
+            'center_ratio': fill_ratio,
+            'center_pixels': int((roi > 0).sum()),
             'fill_ratio': fill_ratio,
             'peak_ratio': fill_ratio,
             'component_ratio': fill_ratio,
@@ -877,17 +892,31 @@ def _claim_mark_metrics(roi):
     if roi.size == 0:
         return {
             'raw_fill_ratio': 0.0,
+            'center_ratio': 0.0,
+            'center_pixels': 0,
             'fill_ratio': 0.0,
             'peak_ratio': 0.0,
             'component_ratio': 0.0,
             'ink_pixels': 0,
-            'inner_ratio': 0.0,
-            'edge_touch_count': 0,
         }
 
     work = (roi > 0).astype(np.uint8) * 255
     raw_fill_ratio = float((work > 0).sum()) / float(work.size)
     height, width = work.shape[:2]
+
+    # ---- CENTER-CROP metric (no morphology — primary for form layout) ----
+    # Use the inner 50 % of the ROI.  Since the ROI already has a 1/8 inset
+    # from cell borders, this center region is very far from any grid line.
+    margin_y = max(2, height // 4)
+    margin_x = max(2, width // 4)
+    if height > margin_y * 2 + 2 and width > margin_x * 2 + 2:
+        center_crop = work[margin_y:height - margin_y, margin_x:width - margin_x]
+    else:
+        center_crop = work
+    center_pixels = int((center_crop > 0).sum())
+    center_ratio = float(center_pixels) / float(center_crop.size) if center_crop.size else 0.0
+
+    # ---- Morphology-based metrics (for non-form / freestyle mode) ----
     horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (max(5, width // 3), 1))
     vertical_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, max(5, height // 3)))
     horizontal_lines = cv2.morphologyEx(work, cv2.MORPH_OPEN, horizontal_kernel)
@@ -898,31 +927,21 @@ def _claim_mark_metrics(roi):
     residual = cv2.morphologyEx(residual, cv2.MORPH_OPEN, noise_kernel)
     ink_mask = (residual > 0).astype(np.uint8)
     ink_pixels = int(ink_mask.sum())
+
     if ink_pixels <= 0:
         return {
             'raw_fill_ratio': raw_fill_ratio,
+            'center_ratio': center_ratio,
+            'center_pixels': center_pixels,
             'fill_ratio': 0.0,
             'peak_ratio': 0.0,
             'component_ratio': 0.0,
             'ink_pixels': 0,
-            'inner_ratio': 0.0,
-            'edge_touch_count': 0,
         }
 
     window_h = max(4, min(ink_mask.shape[0], max(4, ink_mask.shape[0] // 3)))
     window_w = max(4, min(ink_mask.shape[1], max(4, ink_mask.shape[1] // 3)))
     density = cv2.blur(ink_mask.astype(np.float32), (window_w, window_h))
-
-    inner_margin_y = max(2, height // 10)
-    inner_margin_x = max(2, width // 10)
-    if height > inner_margin_y * 2 and width > inner_margin_x * 2:
-        inner_mask = ink_mask[
-            inner_margin_y:height - inner_margin_y,
-            inner_margin_x:width - inner_margin_x,
-        ]
-        inner_ratio = float(inner_mask.sum()) / float(inner_mask.size) if inner_mask.size else 0.0
-    else:
-        inner_ratio = float(ink_pixels) / float(ink_mask.size)
 
     component_ratio = 0.0
     count, _, stats, _ = cv2.connectedComponentsWithStats(ink_mask, 8)
@@ -930,73 +949,40 @@ def _claim_mark_metrics(roi):
         largest_component = int(stats[1:, cv2.CC_STAT_AREA].max())
         component_ratio = float(largest_component) / float(ink_mask.size)
 
-    ys, xs = np.where(ink_mask > 0)
-    edge_touch_count = 0
-    if len(xs) and len(ys):
-        min_x = int(xs.min())
-        max_x = int(xs.max())
-        min_y = int(ys.min())
-        max_y = int(ys.max())
-        edge_margin_x = max(1, width // 12)
-        edge_margin_y = max(1, height // 12)
-        if min_x <= edge_margin_x:
-            edge_touch_count += 1
-        if max_x >= width - edge_margin_x - 1:
-            edge_touch_count += 1
-        if min_y <= edge_margin_y:
-            edge_touch_count += 1
-        if max_y >= height - edge_margin_y - 1:
-            edge_touch_count += 1
-
     return {
         'raw_fill_ratio': raw_fill_ratio,
+        'center_ratio': center_ratio,
+        'center_pixels': center_pixels,
         'fill_ratio': float(ink_pixels) / float(ink_mask.size),
         'peak_ratio': float(density.max()) if density.size else 0.0,
         'component_ratio': component_ratio,
         'ink_pixels': ink_pixels,
-        'inner_ratio': inner_ratio,
-        'edge_touch_count': edge_touch_count,
     }
 
 
 def _is_claim_marked(metrics, use_form_layout=False):
     if use_form_layout:
-        # Form-layout mode: grid cells always have line residue so we require
-        # meaningful interior ink to distinguish real marks from artifacts.
+        # ----- Form-layout mode -----
+        # Primary signal: center_ratio — fill ratio of the innermost 50 %
+        # of the ROI, computed directly on the binary image with NO
+        # morphological processing.  Grid lines are at cell borders and
+        # cannot reach this center crop, so blank cells read ~0 while any
+        # pen mark (X, check, fill) crossing the center reads > 0.01.
+        center_ratio = metrics.get('center_ratio', 0.0)
+        center_pixels = metrics.get('center_pixels', 0)
 
-        # Solid fill: line-removal strips everything, but raw_fill stays high
+        # Need at least a few real pixels to avoid noise
+        if center_pixels < 5:
+            return False
+
+        # Any meaningful ink in the center region → marked
+        if center_ratio >= 0.01:
+            return True
+
+        # Solid fill fallback (line-removal destroys ink but raw_fill stays)
         if metrics.get('raw_fill_ratio', 0.0) >= 0.18:
             return True
 
-        if metrics.get('ink_pixels', 0) < 10:
-            return False
-
-        inner_ratio = metrics.get('inner_ratio', 0.0)
-        fill_ratio = metrics.get('fill_ratio', 0.0)
-        peak_ratio = metrics.get('peak_ratio', 0.0)
-        component_ratio = metrics.get('component_ratio', 0.0)
-        edge_touch_count = metrics.get('edge_touch_count', 0)
-
-        # Reject edge-only residue (grid line fragments)
-        if edge_touch_count >= 2 and inner_ratio < 0.015:
-            return False
-
-        # All form detections require central ink
-        if inner_ratio < 0.006:
-            return False
-
-        # Strong overall fill with central ink
-        if fill_ratio >= 0.04 and inner_ratio >= 0.015:
-            return True
-        # Strong local density peak with central ink
-        if peak_ratio >= 0.18 and inner_ratio >= 0.012:
-            return True
-        # Significant connected component with central ink
-        if component_ratio >= 0.02 and inner_ratio >= 0.012:
-            return True
-        # Combined moderate signals
-        if fill_ratio >= 0.012 and peak_ratio >= 0.07 and inner_ratio >= 0.008:
-            return True
         return False
 
     # Non-form-layout (freestyle scanning)
