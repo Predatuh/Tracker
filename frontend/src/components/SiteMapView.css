@@ -397,6 +397,12 @@
   font-size: 13px;
 }
 
+.smv-admin-note {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .font-size-sidebar h3 {
   font-size: 13px;
   font-weight: 600;

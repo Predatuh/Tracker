@@ -37,7 +37,8 @@ function SiteMapView() {
   const [powerBlocks, setPowerBlocks] = useState([]);
   const [mapSearch, setMapSearch] = useState('');
   const [showLabels, setShowLabels] = useState(false);
-  const [showOutlines, setShowOutlines] = useState(true);
+  const [showOutlines, setShowOutlines] = useState(false);
+  const [showAllAreas, setShowAllAreas] = useState(false);
 
   // ---- Load admin font size + power blocks on mount ----
   useEffect(() => {
@@ -79,14 +80,26 @@ function SiteMapView() {
   const trackerBlockNames = useMemo(() => new Set(powerBlocks.map((block) => block.name)), [powerBlocks]);
   const trackerBlockIds = useMemo(() => new Set(powerBlocks.map((block) => block.id)), [powerBlocks]);
 
-  const visibleMapAreas = useMemo(() => {
-    if (!powerBlocks.length) return mapAreas;
-    const matchingAreas = mapAreas.filter((area) => (
+  const trackerMatchedAreas = useMemo(() => {
+    if (!powerBlocks.length) {
+      return [];
+    }
+
+    return mapAreas.filter((area) => (
       (area.power_block_id && trackerBlockIds.has(area.power_block_id))
       || (area.name && trackerBlockNames.has(area.name))
     ));
-    return matchingAreas.length ? matchingAreas : mapAreas;
   }, [mapAreas, powerBlocks, trackerBlockIds, trackerBlockNames]);
+
+  const visibleMapAreas = useMemo(() => {
+    if (showAllAreas) {
+      return mapAreas;
+    }
+    if (!powerBlocks.length) {
+      return [];
+    }
+    return trackerMatchedAreas;
+  }, [mapAreas, powerBlocks.length, showAllAreas, trackerMatchedAreas]);
 
   const handleMapSelect = useCallback(async (map) => {
     setSelectedMap(map);
@@ -278,8 +291,10 @@ function SiteMapView() {
   const trackerTitle = currentTracker?.name || 'Tracker';
 
   useEffect(() => {
-    setShowLabels(visibleMapAreas.length > 0 && visibleMapAreas.length <= 24);
-  }, [selectedMap?.id, visibleMapAreas.length]);
+    setShowLabels(false);
+    setShowOutlines(false);
+    setShowAllAreas(false);
+  }, [selectedMap?.id]);
 
   // ---- Calculate font-size to fit label inside a box ----
   const calcFontSize = (label, boxWpx, boxHpx, basePx) => {
@@ -466,6 +481,13 @@ function SiteMapView() {
                 <input type="checkbox" checked={showLabels} onChange={(e) => setShowLabels(e.target.checked)} />
                 <span>Show PB labels</span>
               </label>
+              <label className="smv-toggle-row">
+                <input type="checkbox" checked={showAllAreas} onChange={(e) => setShowAllAreas(e.target.checked)} />
+                <span>Show all saved areas</span>
+              </label>
+              <div className="smv-admin-note">
+                Showing {visibleMapAreas.length} visible areas out of {mapAreas.length} saved.
+              </div>
               <button className="btn btn-secondary" onClick={handleDeleteAllAreas}>Clear Saved Areas</button>
               <button className="btn btn-danger" onClick={handleDeleteMap}>Delete Map</button>
             </div>
@@ -746,7 +768,13 @@ function SiteMapView() {
             </div>
           ) : (
             <div className="placeholder">
-              <p>No maps uploaded yet.</p>
+              <p>{maps.length ? 'Select visibility controls to inspect this map.' : 'No maps uploaded yet.'}</p>
+            </div>
+          )}
+
+          {selectedMap && !showAllAreas && powerBlocks.length > 0 && visibleMapAreas.length === 0 && (
+            <div className="alert alert-info">
+              No saved areas match the selected tracker yet. Turn on "Show all saved areas" if you need to inspect the full map data.
             </div>
           )}
         </div>
