@@ -26,14 +26,18 @@ def _store_map_blob(file_path, filename):
         # Update existing or create
         sm = SiteMap.query.first()
         if sm:
+            sm.name = filename
+            sm.file_path = file_path
             sm.image_data = data
             sm.image_mime = mime
         else:
             sm = SiteMap(name=filename, file_path=file_path, image_data=data, image_mime=mime)
             db.session.add(sm)
         db.session.commit()
+        return sm
     except Exception as e:
         logger.error(f"Failed to store map blob: {e}")
+        return None
 
 
 # Global progress tracking for scanning
@@ -126,10 +130,11 @@ def upload_map():
         logger.info(f"Map saved to {map_path}")
         
         # Also store in DB as blob so it survives container redeploys
-        _store_map_blob(map_path, map_filename)
+        site_map = _store_map_blob(map_path, map_filename)
         
-        # Return a URL, not a file path
         map_url = f'/api/pdf/serve-map/{map_filename}'
+        if site_map:
+            map_url = f'/api/map/sitemap/{site_map.id}/image'
         
         return jsonify({
             'success': True,
@@ -172,6 +177,14 @@ def serve_map(filename):
 def get_map():
     """Get the current map URL if one exists"""
     try:
+        from app.models import SiteMap
+        site_map = SiteMap.query.first()
+        if site_map:
+            return jsonify({
+                'success': True,
+                'map_url': f'/api/map/sitemap/{site_map.id}/image'
+            }), 200
+
         upload_folder = current_app.config['UPLOAD_FOLDER']
         maps_folder = os.path.join(upload_folder, 'maps')
         # Check maps/ subfolder first, then root
@@ -184,15 +197,6 @@ def get_map():
                         'success': True,
                         'map_url': f'/api/pdf/serve-map/{fname}'
                     }), 200
-
-        # Fall back to DB blob
-        from app.models import SiteMap
-        site_map = SiteMap.query.filter(SiteMap.image_data.isnot(None)).first()
-        if site_map:
-            return jsonify({
-                'success': True,
-                'map_url': f'/api/pdf/serve-map/{site_map.name}'
-            }), 200
 
         return jsonify({'success': False, 'map_url': None}), 200
     except Exception as e:
