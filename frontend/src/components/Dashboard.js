@@ -97,11 +97,10 @@ function Dashboard() {
     <div className="dashboard-shell">
       <section className="dashboard-hero">
         <div className="dashboard-hero-copy">
-          <span className="dashboard-kicker">Princess Trackers</span>
-          <h1 className="section-title">Same tracker flow, wherever your team logs in.</h1>
+          <span className="dashboard-kicker">{currentTracker?.name || 'Tracker Overview'}</span>
+          <h1 className="section-title">Keep work moving.</h1>
           <p className="dashboard-subtitle">
-            The web and EXE dashboard now starts from the same tracker-first model as the app,
-            so users can switch surfaces without relearning where to go next.
+            Check block progress, jump into the map, and pick up exactly where the crew left off.
           </p>
           <div className="dashboard-hero-actions">
             <button className="app-btn app-btn-primary" onClick={() => navigate('/power-blocks')}>
@@ -137,7 +136,7 @@ function Dashboard() {
         <div className="dashboard-section-head">
           <div>
             <span className="dashboard-kicker">Trackers</span>
-            <h2 className="section-title">Choose the same tracker hub your app users see first</h2>
+            <h2 className="section-title">Choose a tracker</h2>
           </div>
         </div>
 
@@ -225,7 +224,7 @@ function Dashboard() {
           <div className="dashboard-section-head">
             <div>
               <span className="dashboard-kicker">Recent Power Blocks</span>
-              <h2 className="section-title">Jump back into the active tracker</h2>
+              <h2 className="section-title">Recent activity</h2>
             </div>
             <Link to="/power-blocks" className="dashboard-inline-link">See all</Link>
           </div>
@@ -252,24 +251,24 @@ function Dashboard() {
         <div className="dashboard-section-head">
           <div>
             <span className="dashboard-kicker">Quick Actions</span>
-            <h2 className="section-title">Move between the same core areas your app uses</h2>
+            <h2 className="section-title">Open a workspace</h2>
           </div>
         </div>
         <div className="dashboard-action-grid">
           <Link to="/power-blocks" className="dashboard-action-card">
             <span>01</span>
             <strong>{currentTracker?.dashboard_blocks_label || 'Power Blocks'}</strong>
-            <p>Review claim status, open the current tracker, and continue work without leaving the same workflow.</p>
+            <p>Review claim status, open the current tracker, and continue work.</p>
           </Link>
           <Link to="/site-map" className="dashboard-action-card dashboard-action-card--map">
             <span>02</span>
             <strong>Map</strong>
-            <p>Open the interactive tracker map from the dashboard using the currently selected tracker context.</p>
+            <p>Open the active site map and adjust labels or placements.</p>
           </Link>
           <Link to="/reports" className="dashboard-action-card dashboard-action-card--reports">
             <span>03</span>
             <strong>Reports</strong>
-            <p>Keep reporting and review in the same visual system as the app-aligned dashboard and blocks flow.</p>
+            <p>Review daily progress, logs, and generated reports.</p>
           </Link>
         </div>
       </section>

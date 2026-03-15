@@ -72,7 +72,7 @@ function SiteMapView() {
     mappedBlocks: mapAreas.filter((area) => powerBlocks.some((block) => block.name === area.name)).length,
   }), [mapAreas, maps.length, powerBlocks]);
 
-  const handleMapSelect = async (map) => {
+  const handleMapSelect = useCallback(async (map) => {
     setSelectedMap(map);
     setDetectedRegions([]);
     setAssignments({});
@@ -86,7 +86,23 @@ function SiteMapView() {
     } catch (err) {
       setError(err.response?.data?.error || 'Error fetching map');
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (!maps.length) {
+      setSelectedMap(null);
+      setMapAreas([]);
+      return;
+    }
+
+    const matchingMap = selectedMap ? maps.find((map) => map.id === selectedMap.id) : null;
+    if (matchingMap) {
+      setSelectedMap(matchingMap);
+      return;
+    }
+
+    handleMapSelect(maps[0]);
+  }, [maps, selectedMap, handleMapSelect]);
 
   const handleUpload = async () => {
     if (!file || !mapName) { setError('Please select a file and enter a name'); return; }
@@ -281,11 +297,10 @@ function SiteMapView() {
     <div className="site-map-view smv-shell">
       <section className="container smv-hero">
         <div>
-          <span className="dashboard-kicker">{trackerTitle} Map Context</span>
+          <span className="dashboard-kicker">{trackerTitle}</span>
           <h1 className="section-title">Site Map</h1>
           <p className="smv-subtitle">
-            The selected tracker now drives the power block set used for map labeling and placement,
-            so the map screen follows the same tracker context as the dashboard and blocks views.
+            Manage uploaded maps, label areas, and place power blocks for the selected tracker.
           </p>
         </div>
         <div className="smv-hero-grid">
@@ -318,7 +333,7 @@ function SiteMapView() {
             <span className="dashboard-kicker">Selected Tracker</span>
             <h2 className="section-subtitle">{trackerTitle}</h2>
             <p className="smv-sidebar-copy">
-              Placement and auto-assign controls below use the currently selected tracker's block list.
+              Placement and labeling use this tracker's power block list.
             </p>
           </div>
 
@@ -513,7 +528,7 @@ function SiteMapView() {
                 ) : (
                   <img
                     ref={imgRef}
-                    src={`/${selectedMap.file_path.replace(/\\/g, '/')}`}
+                    src={selectedMap.image_url}
                     alt={selectedMap.name}
                     className="map-image"
                     onLoad={onImgLoad}
@@ -667,7 +682,7 @@ function SiteMapView() {
             </div>
           ) : (
             <div className="placeholder">
-              <p>Select a site map from the list to view</p>
+              <p>No maps uploaded yet.</p>
             </div>
           )}
         </div>

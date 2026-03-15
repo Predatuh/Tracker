@@ -1,6 +1,7 @@
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify, current_app, send_file
 from werkzeug.utils import secure_filename
 import os, shutil, json
+from io import BytesIO
 from sqlalchemy import func
 from app import db
 from app.models import SiteMap, SiteArea, PowerBlock
@@ -133,6 +134,31 @@ def get_sitemap(map_id):
             'success': True,
             'data': site_map.to_dict()
         }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/sitemap/<int:map_id>/image', methods=['GET'])
+def get_sitemap_image(map_id):
+    """Serve a site map image from DB blob storage or filesystem."""
+    try:
+        site_map = SiteMap.query.get_or_404(map_id)
+
+        if site_map.image_data:
+            return send_file(
+                BytesIO(site_map.image_data),
+                mimetype=site_map.image_mime or 'image/png',
+                download_name=site_map.name,
+                max_age=0,
+            )
+
+        if site_map.svg_content:
+            return current_app.response_class(site_map.svg_content, mimetype='image/svg+xml')
+
+        if site_map.file_path and os.path.exists(site_map.file_path):
+            return send_file(site_map.file_path, max_age=0)
+
+        return jsonify({'error': 'Map image not found'}), 404
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

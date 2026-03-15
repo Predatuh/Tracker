@@ -26,10 +26,10 @@
   gap: 10px;
   text-decoration: none;
   color: var(--text-strong);
-  font-family: 'Syne', 'Segoe UI', sans-serif;
+  font-family: 'Manrope', 'Segoe UI', sans-serif;
   font-size: 1.1rem;
-  font-weight: 700;
-  letter-spacing: -0.04em;
+  font-weight: 800;
+  letter-spacing: -0.03em;
 }
 
 .navbar-brand strong {
