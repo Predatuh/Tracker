@@ -40,6 +40,18 @@ function SiteMapView() {
   const [showOutlines, setShowOutlines] = useState(false);
   const [showAllAreas, setShowAllAreas] = useState(false);
 
+  const formatMapLabel = useCallback((name) => {
+    const raw = String(name || '').trim();
+    if (!raw) return 'Site Map';
+
+    return raw
+      .replace(/^map[_-]*/i, '')
+      .replace(/\.(svg|png|jpe?g)$/i, '')
+      .replace(/[_-]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim() || 'Site Map';
+  }, []);
+
   // ---- Load admin font size + power blocks on mount ----
   useEffect(() => {
     admin_api.getTrackerSettings(currentTrackerId).then(res => {
@@ -447,7 +459,7 @@ function SiteMapView() {
                   className={`map-item ${selectedMap?.id === map.id ? 'active' : ''}`}
                   onClick={() => handleMapSelect(map)}
                 >
-                  {map.name}
+                  {formatMapLabel(map.name)}
                 </button>
               ))}
             </div>
@@ -530,7 +542,7 @@ function SiteMapView() {
               <div className="map-toolbar">
                 <div>
                   <span className="dashboard-kicker">{trackerTitle}</span>
-                  <h2>{selectedMap.name}</h2>
+                  <h2>Current Site Map</h2>
                 </div>
                 <div className="toolbar-buttons">
                   <button

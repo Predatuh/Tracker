@@ -88,6 +88,8 @@ function Dashboard() {
     ? Math.round((summary.termedItems / summary.totalItems) * 100)
     : 0;
 
+  const trackerCountLabel = `${trackers.length} tracker${trackers.length === 1 ? '' : 's'}`;
+
   const openTracker = (trackerId) => {
     setCurrentTrackerId(trackerId);
     navigate('/power-blocks');
@@ -113,7 +115,7 @@ function Dashboard() {
           <div className="hero-progress-chip">{globalPercentage}% complete</div>
           <div className="hero-grid">
             <div>
-              <span>Total power blocks</span>
+              <span>Total power blocks across {trackerCountLabel}</span>
               <strong>{summary.totalBlocks}</strong>
             </div>
             <div>
