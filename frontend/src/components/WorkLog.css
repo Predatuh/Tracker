@@ -1,54 +1,79 @@
-/* WorkLog page ─────────────────────────────────────────────────────────── */
-.worklog-page {
-  padding: 24px;
-  max-width: 1400px;
-  margin: 0 auto;
+.worklog-shell {
+  display: grid;
+  gap: 24px;
   position: relative;
 }
 
-.wl-header {
-  display: flex;
+.wl-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.95fr);
+  gap: 20px;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 28px;
 }
 
-.wl-header h1 {
-  font-size: 1.8rem;
+.wl-hero-copy {
+  margin: 14px 0 0;
+  color: var(--text-soft);
+  line-height: 1.8;
+}
+
+.wl-hero-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.wl-hero-card {
+  display: grid;
+  gap: 8px;
+  padding: 18px;
+  border-radius: 24px;
+  background: rgba(15, 23, 42, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.wl-hero-card span {
+  color: var(--text-muted);
+  font-size: 0.76rem;
   font-weight: 700;
-  color: #1a1a2e;
-  margin: 0;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.wl-hero-card strong {
+  font-size: 1.65rem;
+}
+
+.wl-hero-card--date strong {
+  font-size: 1rem;
 }
 
 .wl-date-picker {
-  padding: 8px 12px;
-  border: 1.5px solid #d0d0e0;
-  border-radius: 8px;
-  font-size: 0.95rem;
-  background: #fff;
-  cursor: pointer;
+  min-height: 46px;
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(8, 15, 29, 0.84);
+  color: var(--text-strong);
+  padding: 0 14px;
 }
-.wl-date-picker:focus { outline: none; border-color: #4e54c8; }
 
-/* Flash banner */
 .wl-flash {
   position: fixed;
   top: 20px;
   left: 50%;
   transform: translateX(-50%);
-  padding: 12px 28px;
-  border-radius: 8px;
-  font-weight: 600;
+  padding: 12px 24px;
+  border-radius: 16px;
+  font-weight: 700;
   font-size: 0.95rem;
   z-index: 9999;
-  box-shadow: 0 4px 20px rgba(0,0,0,.18);
+  box-shadow: 0 18px 40px rgba(2, 6, 23, 0.28);
   animation: wlSlideIn .2s ease;
 }
-.wl-flash--success { background: #22c55e; color: #fff; }
-.wl-flash--error   { background: #ef4444; color: #fff; }
+.wl-flash--success { background: rgba(74, 222, 128, 0.94); color: #042012; }
+.wl-flash--error   { background: rgba(251, 113, 133, 0.94); color: #fff7fb; }
 @keyframes wlSlideIn { from { top:0; opacity:0; } to { top:20px; opacity:1; } }
 
-/* Body layout */
 .wl-body {
   display: grid;
   grid-template-columns: 280px 1fr 300px;
@@ -56,19 +81,15 @@
   align-items: start;
 }
 
-/* Panels */
 .wl-panel {
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
 
-/* Sections */
 .wl-section {
-  background: #fff;
-  border-radius: 14px;
-  padding: 20px;
-  box-shadow: 0 2px 12px rgba(0,0,0,.07);
+  display: grid;
+  gap: 16px;
 }
 
 .wl-section-header {
@@ -79,31 +100,39 @@
 }
 
 .wl-section h2 {
-  font-size: 1rem;
+  font-size: 0.9rem;
   font-weight: 700;
-  color: #374151;
+  color: var(--text-muted);
   margin: 0 0 12px 0;
   text-transform: uppercase;
-  letter-spacing: .05em;
+  letter-spacing: 0.08em;
 }
 .wl-section-header h2 { margin: 0; }
 
-/* Add worker row */
 .wl-add-row {
   display: flex;
   gap: 8px;
   margin-bottom: 12px;
 }
+
 .wl-input {
   flex: 1;
-  padding: 8px 12px;
-  border: 1.5px solid #d0d0e0;
-  border-radius: 8px;
-  font-size: 0.9rem;
+  min-height: 48px;
+  padding: 0 14px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 16px;
+  background: rgba(8, 15, 29, 0.84);
+  color: var(--text-strong);
 }
-.wl-input:focus { outline: none; border-color: #4e54c8; }
 
-/* Worker chips */
+.wl-input--search {
+  width: 100%;
+}
+
+.wl-search-row {
+  display: flex;
+}
+
 .wl-chip-list {
   display: flex;
   flex-wrap: wrap;
@@ -114,130 +143,149 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 7px 12px;
-  border-radius: 20px;
-  background: #f3f4f6;
-  border: 2px solid transparent;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.12);
   cursor: pointer;
   transition: all .15s;
   font-size: 0.9rem;
 }
-.wl-chip:hover { background: #e5e7eb; }
+.wl-chip:hover { border-color: rgba(79, 227, 213, 0.28); }
 .wl-chip--active {
-  background: #eef2ff;
-  border-color: #4e54c8;
-  color: #4e54c8;
-  font-weight: 600;
+  background: rgba(79, 227, 213, 0.12);
+  border-color: rgba(79, 227, 213, 0.34);
+  color: var(--text-strong);
+  font-weight: 700;
 }
 .wl-chip-label { white-space: nowrap; }
 .wl-chip-del {
   background: none;
   border: none;
-  color: #9ca3af;
+  color: var(--text-muted);
   cursor: pointer;
   font-size: 1rem;
   padding: 0;
   line-height: 1;
 }
-.wl-chip-del:hover { color: #ef4444; }
+.wl-chip-del:hover { color: #fecdd3; }
 
-/* Task grid */
 .wl-task-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
 }
 .wl-task-btn {
+  min-height: 48px;
   padding: 10px 8px;
-  border: 2px solid #e5e7eb;
-  border-radius: 10px;
-  background: #f9fafb;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 16px;
+  background: rgba(15, 23, 42, 0.62);
   font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
   transition: all .15s;
   text-align: center;
-  color: #374151;
+  color: var(--text-soft);
 }
-.wl-task-btn:hover { background: #e5e7eb; }
+.wl-task-btn:hover { border-color: rgba(79, 227, 213, 0.26); }
 .wl-task-btn--active {
-  background: #4e54c8;
-  border-color: #4e54c8;
-  color: #fff;
+  background: rgba(79, 227, 213, 0.16);
+  border-color: rgba(79, 227, 213, 0.34);
+  color: var(--text-strong);
 }
 
-/* Power block grid */
 .wl-pb-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
   max-height: 500px;
   overflow-y: auto;
   padding-right: 4px;
 }
+
 .wl-pb-card {
-  padding: 10px 6px;
-  border: 2px solid #e5e7eb;
-  border-radius: 10px;
-  background: #f9fafb;
-  text-align: center;
-  font-size: 0.82rem;
-  font-weight: 600;
+  display: grid;
+  gap: 6px;
+  padding: 14px 12px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 18px;
+  background: rgba(15, 23, 42, 0.62);
+  text-align: left;
   cursor: pointer;
   transition: all .15s;
-  color: #374151;
-}
-.wl-pb-card:hover { background: #e5e7eb; }
-.wl-pb-card--active {
-  background: #4e54c8;
-  border-color: #4e54c8;
-  color: #fff;
+  color: var(--text-soft);
 }
 
-/* Utility buttons */
+.wl-pb-card strong {
+  color: var(--text-strong);
+  font-size: 0.9rem;
+}
+
+.wl-pb-card span {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.wl-pb-card:hover { border-color: rgba(79, 227, 213, 0.26); }
+.wl-pb-card--active {
+  background: rgba(79, 227, 213, 0.12);
+  border-color: rgba(79, 227, 213, 0.34);
+}
+
+.wl-pb-card--active span {
+  color: var(--text-soft);
+}
+
 .wl-btn-primary {
-  padding: 8px 16px;
-  background: #4e54c8;
-  color: #fff;
+  min-height: 48px;
+  padding: 0 16px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  color: #04141a;
   border: none;
-  border-radius: 8px;
-  font-weight: 600;
+  border-radius: 999px;
+  font-weight: 700;
   cursor: pointer;
   font-size: 0.9rem;
 }
-.wl-btn-primary:hover { background: #3a40b0; }
 
 .wl-btn-ghost {
-  padding: 6px 12px;
-  background: none;
-  border: 1.5px solid #d0d0e0;
-  border-radius: 8px;
+  min-height: 40px;
+  padding: 0 14px;
+  background: rgba(15, 23, 42, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 999px;
   font-size: 0.85rem;
   cursor: pointer;
-  color: #374151;
+  color: var(--text-soft);
 }
-.wl-btn-ghost:hover { border-color: #4e54c8; color: #4e54c8; }
+.wl-btn-ghost:hover { border-color: rgba(79, 227, 213, 0.26); color: var(--text-strong); }
 
 .wl-btn-row { display: flex; gap: 8px; }
 
-/* Summary + submit */
 .wl-summary {
   display: flex;
   flex-direction: column;
   gap: 8px;
   font-size: 0.9rem;
-  color: #374151;
+  color: var(--text-soft);
   margin-bottom: 16px;
 }
-.wl-summary em { color: #9ca3af; }
+
+.wl-summary strong {
+  color: var(--text-strong);
+}
+
+.wl-summary em { color: var(--text-muted); }
 
 .wl-btn-submit {
   width: 100%;
-  padding: 14px;
-  background: linear-gradient(135deg, #4e54c8, #8f94fb);
-  color: #fff;
+  min-height: 52px;
+  padding: 0 18px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  color: #04141a;
   border: none;
-  border-radius: 12px;
+  border-radius: 999px;
   font-size: 1rem;
   font-weight: 700;
   cursor: pointer;
@@ -246,12 +294,11 @@
 .wl-btn-submit:disabled { opacity: .5; cursor: not-allowed; }
 .wl-btn-submit:not(:disabled):hover { opacity: .9; }
 
-/* Entry cards */
 .wl-entry-card {
-  background: #f9fafb;
-  border: 1.5px solid #e5e7eb;
-  border-radius: 10px;
-  padding: 12px;
+  background: rgba(15, 23, 42, 0.62);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 18px;
+  padding: 14px;
   margin-bottom: 8px;
   position: relative;
 }
@@ -264,15 +311,15 @@
 .wl-entry-worker { font-weight: 700; color: #1a1a2e; font-size: 0.9rem; }
 .wl-entry-task {
   font-size: 0.78rem;
-  background: #eef2ff;
-  color: #4e54c8;
+  background: rgba(79, 227, 213, 0.12);
+  color: var(--text-strong);
   padding: 2px 8px;
   border-radius: 12px;
   font-weight: 600;
 }
 .wl-entry-blocks {
   font-size: 0.82rem;
-  color: #6b7280;
+  color: var(--text-soft);
   line-height: 1.5;
 }
 .wl-entry-del {
@@ -281,7 +328,7 @@
   right: 10px;
   background: none;
   border: none;
-  color: #ef4444;
+  color: #fecdd3;
   font-size: 0.75rem;
   cursor: pointer;
   opacity: 0;
@@ -289,13 +336,24 @@
 }
 .wl-entry-card:hover .wl-entry-del { opacity: 1; }
 
-.wl-empty { color: #9ca3af; font-size: 0.88rem; font-style: italic; }
+.wl-empty { color: var(--text-muted); font-size: 0.88rem; font-style: italic; }
 
-/* Responsive */
 @media (max-width: 1100px) {
+  .wl-hero,
   .wl-body { grid-template-columns: 240px 1fr; }
   .wl-panel:last-child { grid-column: 1 / -1; }
 }
+
 @media (max-width: 720px) {
+  .wl-hero,
+  .wl-hero-card-grid,
   .wl-body { grid-template-columns: 1fr; }
+
+  .wl-section-header,
+  .wl-add-row,
+  .wl-btn-row,
+  .wl-entry-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { reports_api, admin_api } from '../api/apiClient';
 import './Reports.css';
+import { useAppContext } from '../context/AppContext';
 
 // ── Date helpers ────────────────────────────────────────────────────────────
 const pad  = n => String(n).padStart(2, '0');
@@ -23,6 +24,7 @@ const isoDate = (y, m, d) => `${y}-${pad(m)}-${pad(d)}`;
 const VIEWS = ['Calendar', 'List', 'Weekly', 'Monthly'];
 
 export default function Reports() {
+  const { currentTracker, currentTrackerId, trackerSettings } = useAppContext();
   const [view, setView]         = useState('Calendar');
   const [allReports, setAllReports] = useState([]);  // summaries for calendar/list
   const [taskLabels, setTaskLabels] = useState({});
@@ -45,13 +47,13 @@ export default function Reports() {
   const loadSummaries = useCallback(async () => {
     try {
       const [rRes, sRes] = await Promise.all([
-        reports_api.list(),
-        admin_api.getSettings(),
+        reports_api.list(currentTrackerId),
+        admin_api.getTrackerSettings(currentTrackerId),
       ]);
       setAllReports(rRes.data.data || []);
       setTaskLabels(sRes.data.data.names || {});
     } catch { }
-  }, []);
+  }, [currentTrackerId]);
 
   useEffect(() => { loadSummaries(); }, [loadSummaries]);
 
@@ -60,11 +62,11 @@ export default function Reports() {
     setLoading(true);
     setSelected(null);
     try {
-      const res = await reports_api.getByDate(dateStr);
+      const res = await reports_api.getByDate(dateStr, currentTrackerId);
       setSelected(res.data.data);
     } catch { }
     setLoading(false);
-  }, []);
+  }, [currentTrackerId]);
 
   // ── Helper: set of dates that have reports ──────────────────────────────
   const reportDateSet = new Set(allReports.map(r => r.report_date));
@@ -213,11 +215,11 @@ export default function Reports() {
   const loadWeek = useCallback(async (d) => {
     setLoading(true);
     try {
-      const res = await reports_api.getRange('week', { date: d });
+      const res = await reports_api.getRange('week', { date: d }, currentTrackerId);
       setWeekData(res.data);
     } catch { }
     setLoading(false);
-  }, []);
+  }, [currentTrackerId]);
 
   useEffect(() => {
     if (view === 'Weekly') loadWeek(weekDate);
@@ -286,11 +288,11 @@ export default function Reports() {
   const loadMonth = useCallback(async (y, m) => {
     setLoading(true);
     try {
-      const res = await reports_api.getRange('month', { year: y, month: m });
+      const res = await reports_api.getRange('month', { year: y, month: m }, currentTrackerId);
       setMonthData(res.data);
     } catch { }
     setLoading(false);
-  }, []);
+  }, [currentTrackerId]);
 
   useEffect(() => {
     if (view === 'Monthly') loadMonth(monthYear, monthMonth);
@@ -391,13 +393,47 @@ export default function Reports() {
     );
   };
 
+  const totalEntries = allReports.reduce((sum, report) => sum + (report.total_entries || 0), 0);
+  const workerCount = new Set(allReports.flatMap((report) => report.workers || [])).size;
+  const subtitle = trackerSettings?.ui_text?.sub_dashboard
+    || 'Review daily output, weekly activity, and monthly rollups without leaving the current tracker context.';
+
   // ═══════════════════════════════════════════════════════════════════════
   // PAGE LAYOUT
   // ═══════════════════════════════════════════════════════════════════════
   return (
-    <div className="reports-page">
-      <div className="rp-topbar">
-        <h1>Daily Reports</h1>
+    <div className="reports-page reports-shell">
+      <section className="container rp-hero">
+        <div>
+          <span className="dashboard-kicker">{currentTracker?.name || 'Tracker'} Reports</span>
+          <h1 className="section-title">Daily Reports</h1>
+          <p className="rp-hero-copy">{subtitle}</p>
+        </div>
+        <div className="rp-hero-grid">
+          <div className="rp-hero-card">
+            <span>Saved Reports</span>
+            <strong>{allReports.length}</strong>
+          </div>
+          <div className="rp-hero-card">
+            <span>Total Entries</span>
+            <strong>{totalEntries}</strong>
+          </div>
+          <div className="rp-hero-card">
+            <span>Workers Seen</span>
+            <strong>{workerCount}</strong>
+          </div>
+          <div className="rp-hero-card">
+            <span>View</span>
+            <strong>{view}</strong>
+          </div>
+        </div>
+      </section>
+
+      <div className="container rp-topbar">
+        <div className="rp-topbar-copy">
+          <span className="dashboard-kicker">Insights</span>
+          <h2 className="section-title">Browse by day, week, or month</h2>
+        </div>
         <div className="rp-tabs">
           {VIEWS.map(v => (
             <button
@@ -411,16 +447,16 @@ export default function Reports() {
 
       {(view === 'Calendar' || view === 'List') ? (
         <div className="rp-split">
-          <div className="rp-left">
+          <div className="rp-left container">
             {view === 'Calendar' && renderCalendar()}
             {view === 'List'     && renderList()}
           </div>
-          <div className="rp-right">
+          <div className="rp-right container">
             {renderDetail()}
           </div>
         </div>
       ) : (
-        <div className="rp-full">
+        <div className="rp-full container">
           {view === 'Weekly'  && renderWeekly()}
           {view === 'Monthly' && renderMonthly()}
         </div>

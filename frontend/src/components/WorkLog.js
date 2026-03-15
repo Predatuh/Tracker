@@ -1,10 +1,12 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { workers_api, worklog_api, tracker_api, admin_api } from '../api/apiClient';
 import './WorkLog.css';
+import { useAppContext } from '../context/AppContext';
 
 const today = () => new Date().toISOString().split('T')[0];
 
 export default function WorkLog() {
+  const { currentTracker, currentTrackerId, trackerSettings } = useAppContext();
   const [workers, setWorkers]           = useState([]);
   const [powerBlocks, setPowerBlocks]   = useState([]);
   const [taskLabels, setTaskLabels]     = useState({});
@@ -20,22 +22,23 @@ export default function WorkLog() {
   const [addingWorker, setAddingWorker]  = useState(false);
   const [saving, setSaving]             = useState(false);
   const [flash, setFlash]               = useState(null);
+  const [blockSearch, setBlockSearch]   = useState('');
 
   // ── load data ──────────────────────────────────────────────────────────
   const loadEntries = useCallback(async (d) => {
     try {
-      const res = await worklog_api.getEntries(d);
+      const res = await worklog_api.getEntries(d, currentTrackerId);
       setEntries(res.data.data || []);
     } catch { setEntries([]); }
-  }, []);
+  }, [currentTrackerId]);
 
   useEffect(() => {
     (async () => {
       try {
         const [wRes, pbRes, settRes] = await Promise.all([
           workers_api.list(),
-          tracker_api.getPowerBlocks(),
-          admin_api.getSettings(),
+          tracker_api.getPowerBlocks({ trackerId: currentTrackerId }),
+          admin_api.getTrackerSettings(currentTrackerId),
         ]);
         setWorkers(wRes.data.data || []);
         setPowerBlocks(pbRes.data.data || []);
@@ -43,11 +46,11 @@ export default function WorkLog() {
         const keys  = settRes.data.data.all_columns || Object.keys(names);
         setTaskLabels(names);
         setTaskKeys(keys);
-        if (keys.length) setSelectedTask(keys[0]);
+        setSelectedTask((previous) => (previous && keys.includes(previous) ? previous : (keys[0] || '')));
       } catch (e) { console.error(e); }
     })();
     loadEntries(workDate);
-  }, []); // eslint-disable-line
+  }, [currentTrackerId, loadEntries, workDate]);
 
   useEffect(() => { loadEntries(workDate); }, [workDate, loadEntries]);
 
@@ -93,7 +96,7 @@ export default function WorkLog() {
         worker_ids: selectedWorkers,
         power_block_ids: selectedBlocks,
         task_type: selectedTask,
-      });
+      }, currentTrackerId);
       const { created, skipped } = res.data;
       showFlash(`Logged ${created} entr${created === 1 ? 'y' : 'ies'}${skipped ? ` (${skipped} already existed)` : ''}`);
       setSelectedWorkers([]);
@@ -124,24 +127,68 @@ export default function WorkLog() {
     return acc;
   }, {});
 
+  const filteredBlocks = useMemo(() => {
+    const query = blockSearch.trim().toLowerCase();
+    if (!query) return powerBlocks;
+    return powerBlocks.filter((block) => {
+      const name = String(block.name || '').toLowerCase();
+      const zone = String(block.zone || '').toLowerCase();
+      return name.includes(query) || zone.includes(query);
+    });
+  }, [blockSearch, powerBlocks]);
+
+  const selectedWorkerNames = workers
+    .filter((worker) => selectedWorkers.includes(worker.id))
+    .map((worker) => worker.name)
+    .join(', ');
+
+  const selectedBlockNames = powerBlocks
+    .filter((block) => selectedBlocks.includes(block.id))
+    .slice(0, 4)
+    .map((block) => block.name);
+
+  const subtitle = trackerSettings?.ui_text?.sub_dashboard
+    || 'Log worker activity against the same tracker context used on the dashboard and blocks screens.';
+
   return (
-    <div className="worklog-page">
+    <div className="worklog-page worklog-shell">
       {flash && <div className={`wl-flash wl-flash--${flash.type}`}>{flash.msg}</div>}
 
-      <div className="wl-header">
-        <h1>Work Log</h1>
-        <input
-          type="date"
-          className="wl-date-picker"
-          value={workDate}
-          onChange={e => setWorkDate(e.target.value)}
-        />
-      </div>
+      <section className="container wl-hero">
+        <div>
+          <span className="dashboard-kicker">{currentTracker?.name || 'Tracker'} Work Log</span>
+          <h1 className="section-title">Work Log</h1>
+          <p className="wl-hero-copy">{subtitle}</p>
+        </div>
+        <div className="wl-hero-card-grid">
+          <div className="wl-hero-card">
+            <span>Workers</span>
+            <strong>{workers.length}</strong>
+          </div>
+          <div className="wl-hero-card">
+            <span>{currentTracker?.dashboard_blocks_label || 'Power Blocks'}</span>
+            <strong>{powerBlocks.length}</strong>
+          </div>
+          <div className="wl-hero-card">
+            <span>Entries Today</span>
+            <strong>{entries.length}</strong>
+          </div>
+          <div className="wl-hero-card wl-hero-card--date">
+            <span>Log Date</span>
+            <input
+              type="date"
+              className="wl-date-picker"
+              value={workDate}
+              onChange={e => setWorkDate(e.target.value)}
+            />
+          </div>
+        </div>
+      </section>
 
       <div className="wl-body">
         {/* ── LEFT: People + Task selection ── */}
         <div className="wl-panel">
-          <section className="wl-section">
+          <section className="wl-section container">
             <div className="wl-section-header">
               <h2>Workers</h2>
               <button className="wl-btn-ghost" onClick={() => setAddingWorker(a => !a)}>
@@ -182,7 +229,7 @@ export default function WorkLog() {
             </div>
           </section>
 
-          <section className="wl-section">
+          <section className="wl-section container">
             <h2>Task</h2>
             <div className="wl-task-grid">
               {taskKeys.map(k => (
@@ -200,7 +247,7 @@ export default function WorkLog() {
 
         {/* ── MIDDLE: Power block selection ── */}
         <div className="wl-panel wl-panel--wide">
-          <section className="wl-section wl-section--full">
+          <section className="wl-section wl-section--full container">
             <div className="wl-section-header">
               <h2>Power Blocks</h2>
               <div className="wl-btn-row">
@@ -208,28 +255,41 @@ export default function WorkLog() {
                 <button className="wl-btn-ghost" onClick={clearAllBlocks}>None</button>
               </div>
             </div>
+            <div className="wl-search-row">
+              <input
+                className="wl-input wl-input--search"
+                placeholder={`Search ${currentTracker?.dashboard_blocks_label || 'power blocks'} by name or zone`}
+                value={blockSearch}
+                onChange={(e) => setBlockSearch(e.target.value)}
+              />
+            </div>
             <div className="wl-pb-grid">
-              {powerBlocks.map(pb => (
+              {filteredBlocks.map(pb => (
                 <div
                   key={pb.id}
                   className={`wl-pb-card ${selectedBlocks.includes(pb.id) ? 'wl-pb-card--active' : ''}`}
                   onClick={() => toggle(pb.id, selectedBlocks, setSelectedBlocks)}
                 >
-                  {pb.name}
+                  <strong>{pb.name}</strong>
+                  <span>{pb.zone || 'No zone'}</span>
                 </div>
               ))}
+              {filteredBlocks.length === 0 && <p className="wl-empty">No power blocks match that search.</p>}
             </div>
           </section>
         </div>
 
         {/* ── RIGHT: Submit + Today's log ── */}
         <div className="wl-panel">
-          <section className="wl-section">
+          <section className="wl-section container">
             <h2>Submit</h2>
             <div className="wl-summary">
-              <div><strong>Workers:</strong> {selectedWorkers.length ? workers.filter(w => selectedWorkers.includes(w.id)).map(w => w.name).join(', ') : <em>none</em>}</div>
+              <div><strong>Workers:</strong> {selectedWorkers.length ? selectedWorkerNames : <em>none</em>}</div>
               <div><strong>Task:</strong> {taskLabels[selectedTask] || selectedTask || <em>none</em>}</div>
               <div><strong>Blocks:</strong> {selectedBlocks.length} selected</div>
+              {selectedBlockNames.length ? (
+                <div><strong>Preview:</strong> {selectedBlockNames.join(', ')}{selectedBlocks.length > selectedBlockNames.length ? '...' : ''}</div>
+              ) : null}
             </div>
             <button
               className="wl-btn-submit"
@@ -240,7 +300,7 @@ export default function WorkLog() {
             </button>
           </section>
 
-          <section className="wl-section">
+          <section className="wl-section container">
             <h2>Today's Entries</h2>
             {Object.values(grouped).length === 0 && (
               <p className="wl-empty">No work logged for this day yet.</p>

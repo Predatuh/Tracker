@@ -1,10 +1,13 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import { useParams } from 'react-router-dom';
 import { tracker_api, lbd_api, admin_api } from '../api/apiClient';
 import './PowerBlockDetail.css';
+import { useAppContext } from '../context/AppContext';
 
 function PowerBlockDetail() {
   const { id } = useParams();
+  const { currentTracker, currentTrackerId } = useAppContext();
   const [block, setBlock] = useState(null);
   const [lbds, setLbds] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -29,7 +32,7 @@ function PowerBlockDetail() {
       const [blockRes, lbdsRes, settingsRes] = await Promise.all([
         tracker_api.getPowerBlock(id),
         lbd_api.getPowerBlockLBDs(id),
-        admin_api.getSettings()
+        admin_api.getTrackerSettings(currentTrackerId)
       ]);
 
       setBlock(blockRes.data.data);
@@ -44,7 +47,7 @@ function PowerBlockDetail() {
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [currentTrackerId, id]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -122,6 +125,29 @@ function PowerBlockDetail() {
     });
   };
 
+  const summary = useMemo(() => {
+    const total = lbds.length;
+    const completedStatuses = allColumns.reduce((sum, column) => {
+      return sum + lbds.reduce((columnSum, lbd) => {
+        const status = (lbd.statuses || []).find((entry) => entry.status_type === column);
+        return columnSum + (status?.is_completed ? 1 : 0);
+      }, 0);
+    }, 0);
+    const totalSteps = total * Math.max(1, allColumns.length);
+    const overallPercent = totalSteps > 0 ? Math.round((completedStatuses / totalSteps) * 100) : 0;
+    return {
+      total,
+      completedStatuses,
+      totalSteps,
+      overallPercent,
+    };
+  }, [allColumns, lbds]);
+
+  const toImagePath = (imagePath) => {
+    if (!imagePath) return null;
+    return `/${String(imagePath).replace(/\\/g, '/')}`;
+  };
+
   if (loading) {
     return (
       <div className="container">
@@ -141,29 +167,73 @@ function PowerBlockDetail() {
   return (
     <div className="power-block-detail container">
       {block && (
-        <div>
-          <h1 className="section-title">{block.name}</h1>
+        <div className="pbd-shell">
+          <section className="pbd-hero">
+            <div className="pbd-hero-copy">
+              <Link to="/power-blocks" className="pbd-back-link">← Back to {currentTracker?.dashboard_blocks_label || 'Power Blocks'}</Link>
+              <span className="dashboard-kicker">{currentTracker?.name || 'Tracker'} · {block.zone || 'No zone'}</span>
+              <h1 className="section-title">{block.name}</h1>
+              <p className="pbd-subtitle">
+                {block.description || 'Review status progress, claimed work, and all LBD rows from one screen.'}
+              </p>
+              <div className="pbd-claim-banner">
+                <div>
+                  <span>Claim</span>
+                  <strong>{block.claimed_label || 'Not claimed yet'}</strong>
+                </div>
+                <div>
+                  <span>Last updated</span>
+                  <strong>{block.last_updated_by || 'No updates yet'}</strong>
+                </div>
+              </div>
+            </div>
+            <div className="pbd-hero-stats">
+              <div className="pbd-stat-card">
+                <span>Overall progress</span>
+                <strong>{summary.overallPercent}%</strong>
+              </div>
+              <div className="pbd-stat-card">
+                <span>LBDs</span>
+                <strong>{block.lbd_count || 0}</strong>
+              </div>
+              <div className="pbd-stat-card">
+                <span>Page</span>
+                <strong>{block.page_number || 'N/A'}</strong>
+              </div>
+              <div className="pbd-stat-card">
+                <span>Status</span>
+                <strong>{block.is_completed ? 'Done' : 'In Progress'}</strong>
+              </div>
+            </div>
+          </section>
 
           {block.image_path && (
-            <div className="block-image-main">
-              <img src={block.image_path} alt={block.name} />
-            </div>
+            <section className="pbd-media-grid">
+              <div className="block-image-main">
+                <img src={toImagePath(block.image_path)} alt={block.name} />
+              </div>
+              <div className="pbd-status-overview">
+                <div className="pbd-status-overview-head">
+                  <h2 className="section-subtitle">Status Overview</h2>
+                  <span>{summary.completedStatuses}/{summary.totalSteps || 0} completed steps</span>
+                </div>
+                <div className="pbd-status-overview-grid">
+                  {allColumns.map((column) => {
+                    const doneCount = lbds.reduce((sum, lbd) => {
+                      const status = (lbd.statuses || []).find((entry) => entry.status_type === column);
+                      return sum + (status?.is_completed ? 1 : 0);
+                    }, 0);
+                    return (
+                      <div key={column} className="pbd-overview-chip" style={{ '--chip-color': adminColors[column] || '#56AB91' }}>
+                        <span>{getLabel(column)}</span>
+                        <strong>{doneCount}/{lbds.length || 0}</strong>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </section>
           )}
-
-          <div className="block-info">
-            <div className="info-group">
-              <label>Page Number</label>
-              <p>{block.page_number || 'N/A'}</p>
-            </div>
-            <div className="info-group">
-              <label>Status</label>
-              <p>{block.is_completed ? '✅ Completed' : '⏳ In Progress'}</p>
-            </div>
-            <div className="info-group">
-              <label>LBD Count</label>
-              <p>{block.lbd_count || 0}</p>
-            </div>
-          </div>
 
           {/* ─ Bulk Actions ─ */}
           {lbds.length > 0 && (
@@ -214,7 +284,12 @@ function PowerBlockDetail() {
             </div>
           )}
 
-          <h2 className="section-subtitle">LBDs</h2>
+          <div className="pbd-section-head">
+            <div>
+              <span className="dashboard-kicker">LBD Grid</span>
+              <h2 className="section-title">LBDs</h2>
+            </div>
+          </div>
 
           {lbds.length === 0 ? (
             <div className="alert alert-info">No LBDs yet. Add one below.</div>
@@ -223,7 +298,10 @@ function PowerBlockDetail() {
               {lbds.map(lbd => (
                 <div key={lbd.id} className="lbd-card">
                   <div className="lbd-header">
-                    <h3>{lbd.identifier || lbd.name}</h3>
+                    <div className="lbd-header-copy">
+                      <h3>{lbd.identifier || lbd.name}</h3>
+                      <span>{lbd.name}</span>
+                    </div>
                     <span className="completion-percent">{lbd.completion_percentage}%</span>
                   </div>
 
@@ -258,7 +336,12 @@ function PowerBlockDetail() {
             </div>
           )}
 
-          <h2 className="section-subtitle">Add New LBD</h2>
+          <div className="pbd-section-head">
+            <div>
+              <span className="dashboard-kicker">Add Item</span>
+              <h2 className="section-title">Add New LBD</h2>
+            </div>
+          </div>
           <form className="add-lbd-form" onSubmit={handleCreateLBD}>
             <div className="form-row">
               <div className="form-group">

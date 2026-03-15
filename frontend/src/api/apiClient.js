@@ -1,55 +1,74 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'http://localhost:5000/api';
+const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || '/api';
+
+const client = axios.create({
+  baseURL: API_BASE_URL,
+  withCredentials: true,
+});
 
 export const pdf_api = {
   uploadPDF: (file) => {
     const formData = new FormData();
     formData.append('file', file);
-    return axios.post(`${API_BASE_URL}/pdf/upload`, formData, {
+    return client.post('/pdf/upload', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     });
   },
 
   extractPages: (pdfPath, pageNumbers) => {
-    return axios.post(`${API_BASE_URL}/pdf/extract-pages`, {
+    return client.post('/pdf/extract-pages', {
       pdf_path: pdfPath,
       page_numbers: pageNumbers
     });
   },
 
   createPowerBlocks: (pages) => {
-    return axios.post(`${API_BASE_URL}/pdf/create-power-blocks`, { pages });
+    return client.post('/pdf/create-power-blocks', { pages });
   }
 };
 
+export const auth_api = {
+  me: () => client.get('/auth/me'),
+  login: (payload) => client.post('/auth/login', payload),
+  register: (payload) => client.post('/auth/register', payload),
+  logout: () => client.post('/auth/logout'),
+  listUsers: () => client.get('/auth/users'),
+};
+
 export const tracker_api = {
-  getPowerBlocks: () => {
-    return axios.get(`${API_BASE_URL}/tracker/power-blocks`);
+  getPowerBlocks: (options = {}) => {
+    const params = {};
+    if (options.trackerId) params.tracker_id = options.trackerId;
+    return client.get('/tracker/power-blocks', { params });
   },
 
   getPowerBlock: (blockId) => {
-    return axios.get(`${API_BASE_URL}/tracker/power-blocks/${blockId}`);
+    return client.get(`/tracker/power-blocks/${blockId}`);
   },
 
   updatePowerBlock: (blockId, data) => {
-    return axios.put(`${API_BASE_URL}/tracker/power-blocks/${blockId}`, data);
+    return client.put(`/tracker/power-blocks/${blockId}`, data);
   },
 
   createLBD: (data) => {
-    return axios.post(`${API_BASE_URL}/tracker/lbds`, data);
+    return client.post('/tracker/lbds', data);
   },
 
   getLBD: (lbdId) => {
-    return axios.get(`${API_BASE_URL}/tracker/lbds/${lbdId}`);
+    return client.get(`/tracker/lbds/${lbdId}`);
   },
 
   updateLBD: (lbdId, data) => {
-    return axios.put(`${API_BASE_URL}/tracker/lbds/${lbdId}`, data);
+    return client.put(`/tracker/lbds/${lbdId}`, data);
   },
 
   updateLBDStatus: (lbdId, statusType, data) => {
-    return axios.put(`${API_BASE_URL}/tracker/lbds/${lbdId}/status/${statusType}`, data);
+    return client.put(`/tracker/lbds/${lbdId}/status/${statusType}`, data);
+  },
+
+  getClaimPeople: () => {
+    return client.get('/tracker/claim-people');
   }
 };
 
@@ -58,81 +77,99 @@ export const map_api = {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('name', name);
-    return axios.post(`${API_BASE_URL}/map/upload`, formData, {
+    return client.post('/map/upload', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     });
   },
 
   getSiteMap: (mapId) => {
-    return axios.get(`${API_BASE_URL}/map/sitemap/${mapId}`);
+    return client.get(`/map/sitemap/${mapId}`);
   },
 
   getAllSiteMaps: () => {
-    return axios.get(`${API_BASE_URL}/map/sitemaps`);
+    return client.get('/map/sitemaps');
   },
 
   createSiteArea: (data) => {
-    return axios.post(`${API_BASE_URL}/map/area`, data);
+    return client.post('/map/area', data);
   },
 
   updateSiteArea: (areaId, data) => {
-    return axios.put(`${API_BASE_URL}/map/area/${areaId}`, data);
+    return client.put(`/map/area/${areaId}`, data);
   },
 
   getMapStatus: (mapId) => {
-    return axios.get(`${API_BASE_URL}/map/map-status/${mapId}`);
+    return client.get(`/map/map-status/${mapId}`);
   },
 
   scanMap: (mapId) => {
-    return axios.post(`${API_BASE_URL}/map/scan/${mapId}`);
+    return client.post(`/map/scan/${mapId}`);
   },
 
   snapOutline: (mapId, x_pct, y_pct) => {
-    return axios.post(`${API_BASE_URL}/map/snap-outline/${mapId}`, { x_pct, y_pct });
+    return client.post(`/map/snap-outline/${mapId}`, { x_pct, y_pct });
   },
 
   deleteSiteArea: (areaId) => {
-    return axios.delete(`${API_BASE_URL}/map/area/${areaId}`);
+    return client.delete(`/map/area/${areaId}`);
   }
 };
 
 export const lbd_api = {
   getPowerBlockLBDs: (blockId) => {
-    return axios.get(`${API_BASE_URL}/lbd/power-block/${blockId}/lbds`);
+    return client.get(`/lbd/power-block/${blockId}/lbds`);
   },
 
   getStatusColors: () => {
-    return axios.get(`${API_BASE_URL}/lbd/status-colors`);
+    return client.get('/lbd/status-colors');
   }
 };
 
 export const admin_api = {
+  listTrackers: () => {
+    return client.get('/admin/trackers');
+  },
+
   getSettings: () => {
-    return axios.get(`${API_BASE_URL}/admin/settings`);
+    return client.get('/admin/settings');
   },
 
-  updateColors: (colors) => {
-    return axios.put(`${API_BASE_URL}/admin/settings/colors`, { colors });
+  getTrackerSettings: (trackerId) => {
+    const params = trackerId ? { tracker_id: trackerId } : {};
+    return client.get('/admin/settings', { params });
   },
 
-  updateNames: (names) => {
-    return axios.put(`${API_BASE_URL}/admin/settings/names`, { names });
+  updateColors: (colors, trackerId) => {
+    const payload = { colors };
+    if (trackerId) payload.tracker_id = trackerId;
+    return client.put('/admin/settings/colors', payload);
   },
 
-  addColumn: (key, label, color) => {
-    return axios.post(`${API_BASE_URL}/admin/settings/columns`, { key, label, color });
+  updateNames: (names, trackerId) => {
+    const payload = { names };
+    if (trackerId) payload.tracker_id = trackerId;
+    return client.put('/admin/settings/names', payload);
   },
 
-  deleteColumn: (columnKey) => {
-    return axios.delete(`${API_BASE_URL}/admin/settings/columns/${columnKey}`);
+  addColumn: (key, label, color, trackerId) => {
+    const payload = { key, label, color };
+    if (trackerId) payload.tracker_id = trackerId;
+    return client.post('/admin/settings/columns', payload);
   },
 
-  updateFontSize: (size) => {
-    return axios.put(`${API_BASE_URL}/admin/settings/font-size`, { size });
+  deleteColumn: (columnKey, trackerId) => {
+    const config = trackerId ? { data: { tracker_id: trackerId } } : undefined;
+    return client.delete(`/admin/settings/columns/${columnKey}`, config);
+  },
+
+  updateFontSize: (size, trackerId) => {
+    const payload = { size };
+    if (trackerId) payload.tracker_id = trackerId;
+    return client.put('/admin/settings/font-size', payload);
   },
 
   bulkComplete: (powerBlockId, statusTypes, isCompleted) => {
-    return axios.post(`${API_BASE_URL}/admin/bulk-complete`, {
+    return client.post('/admin/bulk-complete', {
       power_block_id: powerBlockId,
       status_types: statusTypes,
       is_completed: isCompleted
@@ -142,33 +179,35 @@ export const admin_api = {
 
 export const workers_api = {
   list: (includeInactive = false) =>
-    axios.get(`${API_BASE_URL}/workers${includeInactive ? '?all=true' : ''}`),
+    client.get(`/workers${includeInactive ? '?all=true' : ''}`),
   create: (name) =>
-    axios.post(`${API_BASE_URL}/workers`, { name }),
+    client.post('/workers', { name }),
   update: (id, data) =>
-    axios.put(`${API_BASE_URL}/workers/${id}`, data),
+    client.put(`/workers/${id}`, data),
   remove: (id) =>
-    axios.delete(`${API_BASE_URL}/workers/${id}`),
+    client.delete(`/workers/${id}`),
 };
 
 export const worklog_api = {
-  getEntries: (date) =>
-    axios.get(`${API_BASE_URL}/work-entries${date ? `?date=${date}` : ''}`),
-  logWork: (payload) =>
-    axios.post(`${API_BASE_URL}/work-entries`, payload),
+  getEntries: (date, trackerId) =>
+    client.get('/work-entries', { params: { ...(date ? { date } : {}), ...(trackerId ? { tracker_id: trackerId } : {}) } }),
+  logWork: (payload, trackerId) =>
+    client.post('/work-entries', { ...payload, ...(trackerId ? { tracker_id: trackerId } : {}) }),
   deleteEntry: (id) =>
-    axios.delete(`${API_BASE_URL}/work-entries/${id}`),
+    client.delete(`/work-entries/${id}`),
 };
 
 export const reports_api = {
-  list: () =>
-    axios.get(`${API_BASE_URL}/reports`),
-  get: (id) =>
-    axios.get(`${API_BASE_URL}/reports/${id}`),
-  getByDate: (dateStr) =>
-    axios.get(`${API_BASE_URL}/reports/date/${dateStr}`),
-  generate: (dateStr) =>
-    axios.post(`${API_BASE_URL}/reports/generate`, dateStr ? { date: dateStr } : {}),
-  getRange: (type, params) =>
-    axios.get(`${API_BASE_URL}/reports/range`, { params: { type, ...params } }),
+  list: (trackerId) =>
+    client.get('/reports', { params: trackerId ? { tracker_id: trackerId } : {} }),
+  get: (id, trackerId) =>
+    client.get(`/reports/${id}`, { params: trackerId ? { tracker_id: trackerId } : {} }),
+  getByDate: (dateStr, trackerId) =>
+    client.get(`/reports/date/${dateStr}`, { params: trackerId ? { tracker_id: trackerId } : {} }),
+  generate: (dateStr, trackerId) =>
+    client.post('/reports/generate', { ...(dateStr ? { date: dateStr } : {}), ...(trackerId ? { tracker_id: trackerId } : {}) }),
+  getRange: (type, params, trackerId) =>
+    client.get('/reports/range', { params: { type, ...params, ...(trackerId ? { tracker_id: trackerId } : {}) } }),
 };
+
+export { client };

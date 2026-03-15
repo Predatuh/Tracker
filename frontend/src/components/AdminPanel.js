@@ -1,10 +1,12 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { admin_api } from '../api/apiClient';
 import './AdminPanel.css';
+import { useAppContext } from '../context/AppContext';
 
 const TABS = ['Colors', 'Column Names', 'Columns', 'Map Labels'];
 
 function AdminPanel() {
+  const { currentTracker, currentTrackerId } = useAppContext();
   const [activeTab, setActiveTab] = useState('Colors');
   const [settings, setSettings] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -22,7 +24,7 @@ function AdminPanel() {
 
   const fetchSettings = useCallback(async () => {
     try {
-      const res = await admin_api.getSettings();
+      const res = await admin_api.getTrackerSettings(currentTrackerId);
       const d = res.data.data;
       setSettings(d);
       setColors(d.colors || {});
@@ -33,7 +35,7 @@ function AdminPanel() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [currentTrackerId]);
 
   useEffect(() => { fetchSettings(); }, [fetchSettings]);
 
@@ -47,7 +49,7 @@ function AdminPanel() {
   const saveColors = async () => {
     setSaving(true);
     try {
-      await admin_api.updateColors(colors);
+      await admin_api.updateColors(colors, currentTrackerId);
       flash('Colors saved!');
       fetchSettings();
     } catch (e) {
@@ -59,7 +61,7 @@ function AdminPanel() {
   const saveNames = async () => {
     setSaving(true);
     try {
-      await admin_api.updateNames(names);
+      await admin_api.updateNames(names, currentTrackerId);
       flash('Names saved!');
       fetchSettings();
     } catch (e) {
@@ -71,7 +73,7 @@ function AdminPanel() {
   const saveFontSize = async () => {
     setSaving(true);
     try {
-      await admin_api.updateFontSize(fontSize);
+      await admin_api.updateFontSize(fontSize, currentTrackerId);
       flash('Font size saved!');
       fetchSettings();
     } catch (e) {
@@ -87,7 +89,7 @@ function AdminPanel() {
     }
     setSaving(true);
     try {
-      await admin_api.addColumn(newCol.key, newCol.label, newCol.color);
+      await admin_api.addColumn(newCol.key, newCol.label, newCol.color, currentTrackerId);
       flash(`Column "${newCol.label}" added!`);
       setNewCol({ key: '', label: '', color: '#888888' });
       fetchSettings();
@@ -101,7 +103,7 @@ function AdminPanel() {
     if (!window.confirm(`Delete column "${names[key] || key}"? This cannot be undone.`)) return;
     setSaving(true);
     try {
-      await admin_api.deleteColumn(key);
+      await admin_api.deleteColumn(key, currentTrackerId);
       flash('Column deleted');
       fetchSettings();
     } catch (e) {
@@ -124,26 +126,53 @@ function AdminPanel() {
   const allKeys = settings?.all_columns || builtinKeys;
 
   return (
-    <div className="admin-panel container">
-      <h1 className="section-title">⚙️ Admin Controls</h1>
+    <div className="admin-panel admin-shell">
+      <section className="container admin-hero">
+        <div>
+          <span className="dashboard-kicker">{currentTracker?.name || 'Tracker'} Admin</span>
+          <h1 className="section-title">Admin Controls</h1>
+          <p className="admin-hero-copy">
+            Manage tracker-specific column colors, labels, and map typography from the same visual system as the rest of the app-aligned web UI.
+          </p>
+        </div>
+        <div className="admin-hero-grid">
+          <div className="admin-hero-card">
+            <span>Status Columns</span>
+            <strong>{allKeys.length}</strong>
+          </div>
+          <div className="admin-hero-card">
+            <span>Custom Columns</span>
+            <strong>{customKeys.length}</strong>
+          </div>
+          <div className="admin-hero-card">
+            <span>Map Label Size</span>
+            <strong>{fontSize}px</strong>
+          </div>
+          <div className="admin-hero-card">
+            <span>Active Scope</span>
+            <strong>{currentTracker?.name || 'Global'}</strong>
+          </div>
+        </div>
+      </section>
 
-      {error && <div className="alert alert-error">{error}</div>}
-      {success && <div className="alert alert-success">{success}</div>}
+      <div className="admin-panel container">
 
-      {/* Tab bar */}
-      <div className="admin-tabs">
-        {TABS.map(t => (
-          <button
-            key={t}
-            className={`admin-tab-btn ${activeTab === t ? 'active' : ''}`}
-            onClick={() => setActiveTab(t)}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
+        {error && <div className="alert alert-error">{error}</div>}
+        {success && <div className="alert alert-success">{success}</div>}
 
-      <div className="admin-tab-content">
+        <div className="admin-tabs">
+          {TABS.map(t => (
+            <button
+              key={t}
+              className={`admin-tab-btn ${activeTab === t ? 'active' : ''}`}
+              onClick={() => setActiveTab(t)}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+
+        <div className="admin-tab-content">
 
         {/* ─────────── COLORS ─────────── */}
         {activeTab === 'Colors' && (
@@ -334,6 +363,7 @@ function AdminPanel() {
             </button>
           </div>
         )}
+        </div>
       </div>
     </div>
   );

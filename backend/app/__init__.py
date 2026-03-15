@@ -1,4 +1,4 @@
-from flask import Flask, render_template
+from flask import Flask, render_template, send_from_directory
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from flask_socketio import SocketIO
@@ -21,6 +21,9 @@ def create_app():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     template_dir = os.path.join(os.path.dirname(base_dir), 'templates')
     static_dir = os.path.join(os.path.dirname(base_dir), 'static')
+    workspace_dir = os.path.dirname(os.path.dirname(base_dir))
+    frontend_build_dir = os.path.join(workspace_dir, 'frontend', 'build')
+    frontend_build_index = os.path.join(frontend_build_dir, 'index.html')
 
     app = Flask(__name__, template_folder=template_dir, static_folder=static_dir)
 
@@ -127,6 +130,17 @@ def create_app():
 
     @app.route('/')
     def index():
+        if os.path.exists(frontend_build_index):
+            return send_from_directory(frontend_build_dir, 'index.html')
+        return render_template('index.html')
+
+    @app.route('/<path:path>')
+    def frontend(path):
+        if os.path.exists(frontend_build_index):
+            requested_path = os.path.join(frontend_build_dir, path)
+            if os.path.isfile(requested_path):
+                return send_from_directory(frontend_build_dir, path)
+            return send_from_directory(frontend_build_dir, 'index.html')
         return render_template('index.html')
 
     @app.route('/manifest.json')

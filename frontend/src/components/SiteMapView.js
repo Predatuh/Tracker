@@ -1,8 +1,10 @@
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import { map_api, admin_api, tracker_api } from '../api/apiClient';
 import './SiteMapView.css';
+import { useAppContext } from '../context/AppContext';
 
 function SiteMapView() {
+  const { currentTracker, currentTrackerId } = useAppContext();
   const [maps, setMaps] = useState([]);
   const [selectedMap, setSelectedMap] = useState(null);
   const [mapAreas, setMapAreas] = useState([]);   // saved SiteArea rows
@@ -33,28 +35,42 @@ function SiteMapView() {
 
   // Power block list for dropdown
   const [powerBlocks, setPowerBlocks] = useState([]);
+  const [mapSearch, setMapSearch] = useState('');
 
   // ---- Load admin font size + power blocks on mount ----
   useEffect(() => {
-    admin_api.getSettings().then(res => {
+    admin_api.getTrackerSettings(currentTrackerId).then(res => {
       setGlobalFontSize(res.data.data.pb_label_font_size || 14);
     }).catch(() => {});
-    tracker_api.getPowerBlocks().then(res => {
+    tracker_api.getPowerBlocks({ trackerId: currentTrackerId }).then(res => {
       const blocks = res.data.data || res.data || [];
       setPowerBlocks(blocks);
     }).catch(() => {});
-  }, []);
+  }, [currentTrackerId]);
 
-  useEffect(() => { fetchMaps(); }, []);
-
-  const fetchMaps = async () => {
+  const fetchMaps = useCallback(async () => {
     try {
       const res = await map_api.getAllSiteMaps();
       setMaps(res.data.data);
     } catch (err) {
       setError(err.response?.data?.error || 'Error fetching maps');
     }
-  };
+  }, []);
+
+  useEffect(() => { fetchMaps(); }, [fetchMaps]);
+
+  const filteredMaps = useMemo(() => {
+    const query = mapSearch.trim().toLowerCase();
+    if (!query) return maps;
+    return maps.filter((map) => (map.name || '').toLowerCase().includes(query));
+  }, [mapSearch, maps]);
+
+  const mapSummary = useMemo(() => ({
+    totalMaps: maps.length,
+    totalPlacedAreas: mapAreas.length,
+    availableBlocks: powerBlocks.length,
+    mappedBlocks: mapAreas.filter((area) => powerBlocks.some((block) => block.name === area.name)).length,
+  }), [mapAreas, maps.length, powerBlocks]);
 
   const handleMapSelect = async (map) => {
     setSelectedMap(map);
@@ -203,6 +219,8 @@ function SiteMapView() {
   // Get names of PBs already placed on map
   const placedNames = new Set(mapAreas.map(a => a.name));
 
+  const trackerTitle = currentTracker?.name || 'Tracker';
+
   // ---- Calculate font-size to fit label inside a box ----
   const calcFontSize = (label, boxWpx, boxHpx, basePx) => {
     // Rough estimate: each char ~0.6em wide, line height 1.2
@@ -260,16 +278,52 @@ function SiteMapView() {
   };
 
   return (
-    <div className="site-map-view container">
-      <h1 className="section-title">Site Map Interactive View</h1>
+    <div className="site-map-view smv-shell">
+      <section className="container smv-hero">
+        <div>
+          <span className="dashboard-kicker">{trackerTitle} Map Context</span>
+          <h1 className="section-title">Site Map</h1>
+          <p className="smv-subtitle">
+            The selected tracker now drives the power block set used for map labeling and placement,
+            so the map screen follows the same tracker context as the dashboard and blocks views.
+          </p>
+        </div>
+        <div className="smv-hero-grid">
+          <div className="smv-hero-card">
+            <span>Maps</span>
+            <strong>{mapSummary.totalMaps}</strong>
+          </div>
+          <div className="smv-hero-card">
+            <span>Placed Areas</span>
+            <strong>{mapSummary.totalPlacedAreas}</strong>
+          </div>
+          <div className="smv-hero-card">
+            <span>{currentTracker?.dashboard_blocks_label || 'Power Blocks'}</span>
+            <strong>{mapSummary.availableBlocks}</strong>
+          </div>
+          <div className="smv-hero-card">
+            <span>Mapped Blocks</span>
+            <strong>{mapSummary.mappedBlocks}</strong>
+          </div>
+        </div>
+      </section>
 
       {error && <div className="alert alert-error">{error}</div>}
       {success && <div className="alert alert-success">{success}</div>}
 
       <div className="sitemap-layout">
         {/* ───── Sidebar ───── */}
-        <div className="sitemap-sidebar">
-          <h2 className="section-subtitle">Upload Site Map</h2>
+        <div className="sitemap-sidebar container">
+          <div className="smv-sidebar-section">
+            <span className="dashboard-kicker">Selected Tracker</span>
+            <h2 className="section-subtitle">{trackerTitle}</h2>
+            <p className="smv-sidebar-copy">
+              Placement and auto-assign controls below use the currently selected tracker's block list.
+            </p>
+          </div>
+
+          <div className="smv-sidebar-section">
+            <h2 className="section-subtitle">Upload Site Map</h2>
           <div className="form-group">
             <label>Map Name</label>
             <input
@@ -294,13 +348,24 @@ function SiteMapView() {
           >
             {loading ? 'Uploading...' : 'Upload Map'}
           </button>
+          </div>
 
-          <h2 className="section-subtitle" style={{ marginTop: '20px' }}>Available Maps</h2>
-          {maps.length === 0 ? (
+          <div className="smv-sidebar-section">
+          <h2 className="section-subtitle">Available Maps</h2>
+          <div className="form-group">
+            <label>Search Maps</label>
+            <input
+              type="text"
+              value={mapSearch}
+              onChange={(e) => setMapSearch(e.target.value)}
+              placeholder="Search saved maps"
+            />
+          </div>
+          {filteredMaps.length === 0 ? (
             <p className="no-maps">No site maps uploaded yet.</p>
           ) : (
             <div className="maps-list">
-              {maps.map(map => (
+              {filteredMaps.map(map => (
                 <button
                   key={map.id}
                   className={`map-item ${selectedMap?.id === map.id ? 'active' : ''}`}
@@ -311,10 +376,11 @@ function SiteMapView() {
               ))}
             </div>
           )}
+          </div>
 
           {/* ── Global font-size slider ── */}
           {selectedMap && (
-            <div className="font-size-sidebar">
+            <div className="font-size-sidebar smv-sidebar-section">
               <h3>PB Label Size</h3>
               <label>Global: <strong>{globalFontSize}px</strong></label>
               <input
@@ -330,7 +396,7 @@ function SiteMapView() {
 
           {/* ── Saved areas list ── */}
           {mapAreas.length > 0 && (
-            <div className="areas-sidebar">
+            <div className="areas-sidebar smv-sidebar-section">
               <h3>Saved Areas ({mapAreas.length})</h3>
               {mapAreas.map(area => (
                 <div key={area.id} className="area-sidebar-item">
@@ -359,11 +425,14 @@ function SiteMapView() {
         </div>
 
         {/* ───── Main View ───── */}
-        <div className="sitemap-main">
+        <div className="sitemap-main container">
           {selectedMap ? (
             <div className="map-display">
               <div className="map-toolbar">
-                <h2>{selectedMap.name}</h2>
+                <div>
+                  <span className="dashboard-kicker">{trackerTitle}</span>
+                  <h2>{selectedMap.name}</h2>
+                </div>
                 <div className="toolbar-buttons">
                   <button
                     className={`btn ${placementMode ? 'btn-warning' : 'btn-primary'}`}
@@ -444,7 +513,7 @@ function SiteMapView() {
                 ) : (
                   <img
                     ref={imgRef}
-                    src={`http://localhost:5000/${selectedMap.file_path.replace(/\\/g, '/')}`}
+                    src={`/${selectedMap.file_path.replace(/\\/g, '/')}`}
                     alt={selectedMap.name}
                     className="map-image"
                     onLoad={onImgLoad}
@@ -554,7 +623,7 @@ function SiteMapView() {
               {/* ── Detected regions assignment panel ── */}
               {detectedRegions.length > 0 && (
                 <div className="assign-panel">
-                  <h3>Assign PB Names to Detected Regions</h3>
+                  <h3>Assign {currentTracker?.dashboard_blocks_label || 'Power Block'} Names to Detected Regions</h3>
                   <p className="admin-hint">
                     Enter the PB name for each detected region. Leave blank to skip saving it.
                   </p>

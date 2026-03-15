@@ -1,173 +1,278 @@
-import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { tracker_api } from '../api/apiClient';
 import './Dashboard.css';
+import { useAppContext } from '../context/AppContext';
 
 function Dashboard() {
-  const [stats, setStats] = useState({
-    totalBlocks: 0,
-    completedBlocks: 0,
-    totalLBDs: 0,
-    completedLBDs: 0
-  });
-  const [blocks, setBlocks] = useState([]);
+  const navigate = useNavigate();
+  const { trackers, currentTracker, currentTrackerId, setCurrentTrackerId, trackerSettings } = useAppContext();
+  const [trackerCards, setTrackerCards] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchStats();
-  }, []);
+    let mounted = true;
 
-  const fetchStats = async () => {
-    try {
-      const res = await tracker_api.getPowerBlocks();
-      const allBlocks = res.data.data;
-
-      let totalLBDs = 0;
-      let completedLBDs = 0;
-      let completedBlocks = 0;
-
-      allBlocks.forEach(block => {
-        totalLBDs += block.lbd_count;
-        if (block.is_completed) completedBlocks++;
-
-        // Estimate completed LBDs (this is simplified)
-        const blockTotal = block.lbd_count;
-        if (blockTotal > 0 && block.lbd_summary) {
-          const totalStatuses = blockTotal * 6; // 6 status types per LBD
-          const completedStatuses = Object.values(block.lbd_summary)
-            .slice(1)
-            .reduce((a, b) => a + b, 0);
-          completedLBDs += (completedStatuses / 6); // Rough estimate
+    const loadTrackerCards = async () => {
+      if (!trackers.length) {
+        if (mounted) {
+          setTrackerCards([]);
+          setLoading(false);
         }
-      });
+        return;
+      }
 
-      setStats({
-        totalBlocks: allBlocks.length,
-        completedBlocks,
-        totalLBDs,
-        completedLBDs: Math.round(completedLBDs)
-      });
-      setBlocks(allBlocks.slice(0, 5)); // Show 5 recent blocks
-    } catch (err) {
-      console.error('Error fetching stats:', err);
-    } finally {
-      setLoading(false);
-    }
+      setLoading(true);
+      try {
+        const cards = await Promise.all(trackers.map(async (tracker) => {
+          const response = await tracker_api.getPowerBlocks({ trackerId: tracker.id });
+          const blocks = response.data.data || [];
+          const totalBlocks = blocks.length;
+          const completedBlocks = blocks.filter((block) => block.is_completed).length;
+          const totalItems = blocks.reduce((sum, block) => sum + (block.lbd_count || 0), 0);
+          const termedItems = blocks.reduce((sum, block) => sum + ((block.lbd_summary && block.lbd_summary.term) || 0), 0);
+          const percentage = totalItems > 0 ? Math.round((termedItems / totalItems) * 100) : 0;
+          return {
+            ...tracker,
+            blocks,
+            totalBlocks,
+            completedBlocks,
+            totalItems,
+            termedItems,
+            percentage,
+            recentBlocks: blocks.slice(0, 4),
+          };
+        }));
+
+        if (mounted) {
+          setTrackerCards(cards);
+        }
+      } catch (error) {
+        if (mounted) {
+          setTrackerCards([]);
+        }
+      } finally {
+        if (mounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    loadTrackerCards();
+
+    return () => {
+      mounted = false;
+    };
+  }, [trackers]);
+
+  const activeCard = useMemo(() => {
+    if (!trackerCards.length) return null;
+    return trackerCards.find((card) => card.id === currentTrackerId) || trackerCards[0];
+  }, [currentTrackerId, trackerCards]);
+
+  const summary = useMemo(() => {
+    return trackerCards.reduce((accumulator, card) => ({
+      totalBlocks: accumulator.totalBlocks + card.totalBlocks,
+      completedBlocks: accumulator.completedBlocks + card.completedBlocks,
+      totalItems: accumulator.totalItems + card.totalItems,
+      termedItems: accumulator.termedItems + card.termedItems,
+    }), {
+      totalBlocks: 0,
+      completedBlocks: 0,
+      totalItems: 0,
+      termedItems: 0,
+    });
+  }, [trackerCards]);
+
+  const globalPercentage = summary.totalItems > 0
+    ? Math.round((summary.termedItems / summary.totalItems) * 100)
+    : 0;
+
+  const openTracker = (trackerId) => {
+    setCurrentTrackerId(trackerId);
+    navigate('/power-blocks');
   };
 
   return (
-    <div className="dashboard">
-      <h1 className="section-title">Dashboard</h1>
-
-      <div className="stats-grid">
-        <div className="stat-card">
-          <div className="stat-icon">📦</div>
-          <div className="stat-content">
-            <div className="stat-label">Power Blocks</div>
-            <div className="stat-value">{stats.totalBlocks}</div>
-            <div className="stat-subtext">
-              {stats.completedBlocks} completed
+    <div className="dashboard-shell">
+      <section className="dashboard-hero">
+        <div className="dashboard-hero-copy">
+          <span className="dashboard-kicker">Princess Trackers</span>
+          <h1 className="section-title">Same tracker flow, wherever your team logs in.</h1>
+          <p className="dashboard-subtitle">
+            The web and EXE dashboard now starts from the same tracker-first model as the app,
+            so users can switch surfaces without relearning where to go next.
+          </p>
+          <div className="dashboard-hero-actions">
+            <button className="app-btn app-btn-primary" onClick={() => navigate('/power-blocks')}>
+              Open {currentTracker?.name || 'current tracker'}
+            </button>
+            <Link to="/site-map" className="app-btn app-btn-secondary">Open map</Link>
+          </div>
+        </div>
+        <div className="dashboard-hero-panel">
+          <div className="hero-progress-chip">{globalPercentage}% complete</div>
+          <div className="hero-grid">
+            <div>
+              <span>Total power blocks</span>
+              <strong>{summary.totalBlocks}</strong>
+            </div>
+            <div>
+              <span>Completed blocks</span>
+              <strong>{summary.completedBlocks}</strong>
+            </div>
+            <div>
+              <span>Tracked LBDs</span>
+              <strong>{summary.totalItems}</strong>
+            </div>
+            <div>
+              <span>Termed items</span>
+              <strong>{summary.termedItems}</strong>
             </div>
           </div>
         </div>
+      </section>
 
-        <div className="stat-card">
-          <div className="stat-icon">🔌</div>
-          <div className="stat-content">
-            <div className="stat-label">Total LBDs</div>
-            <div className="stat-value">{stats.totalLBDs}</div>
-            <div className="stat-subtext">
-              {stats.completedLBDs} completed
-            </div>
+      <section className="dashboard-section dashboard-section--trackers container">
+        <div className="dashboard-section-head">
+          <div>
+            <span className="dashboard-kicker">Trackers</span>
+            <h2 className="section-title">Choose the same tracker hub your app users see first</h2>
           </div>
         </div>
 
-        <div className="stat-card">
-          <div className="stat-icon">📊</div>
-          <div className="stat-content">
-            <div className="stat-label">Overall Progress</div>
-            <div className="progress-bar">
-              <div
-                className="progress-fill"
-                style={{
-                  width: stats.totalLBDs > 0 
-                    ? `${(stats.completedLBDs / stats.totalLBDs) * 100}%`
-                    : '0%'
-                }}
-              ></div>
-            </div>
-            <div className="stat-subtext">
-              {stats.totalLBDs > 0 
-                ? `${Math.round((stats.completedLBDs / stats.totalLBDs) * 100)}%`
-                : '0%'}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="dashboard-section">
-        <div className="section-header">
-          <h2 className="section-subtitle">Recent Power Blocks</h2>
-          <Link to="/power-blocks" className="view-all-link">View All</Link>
-        </div>
-
-        {blocks.length === 0 ? (
-          <div className="empty-state">
-            <p>No power blocks yet.</p>
-            <Link to="/upload" className="btn btn-success">
-              Upload PDF to Get Started
-            </Link>
-          </div>
+        {loading ? (
+          <div className="loading"><div className="spinner" /></div>
         ) : (
-          <div className="block-preview-grid">
-            {blocks.map(block => (
-              <Link
-                key={block.id}
-                to={`/power-block/${block.id}`}
-                className="block-preview"
+          <div className="tracker-card-grid">
+            {trackerCards.map((tracker) => (
+              <article
+                key={tracker.id}
+                className={`tracker-card ${tracker.id === currentTrackerId ? 'tracker-card--active' : ''}`}
               >
-                <h3>{block.name}</h3>
-                <p className="block-meta">
-                  {block.lbd_count} LBDs • Page {block.page_number || 'N/A'}
-                </p>
-                <div className="progress-bar small">
-                  <div
-                    className="progress-fill"
-                    style={{
-                      width: block.lbd_count > 0 
-                        ? `${Math.min(100, (block.lbd_count * 20))}%`
-                        : '0%'
-                    }}
-                  ></div>
+                <div className="tracker-card-head">
+                  <div className="tracker-card-icon">{tracker.icon || '📋'}</div>
+                  <div>
+                    <h3>{tracker.name}</h3>
+                    <p>{tracker.stat_label || tracker.item_name_plural || 'Items'}</p>
+                  </div>
                 </div>
-              </Link>
+                <div className="tracker-card-progress-row">
+                  <span>{tracker.percentage}% complete</span>
+                  <span>{tracker.totalBlocks} blocks</span>
+                </div>
+                <div className="tracker-progress-bar">
+                  <div className="tracker-progress-fill" style={{ width: `${tracker.percentage}%` }} />
+                </div>
+                <div className="tracker-card-stats">
+                  <div>
+                    <strong>{tracker.completedBlocks}</strong>
+                    <span>Completed</span>
+                  </div>
+                  <div>
+                    <strong>{tracker.totalItems}</strong>
+                    <span>{tracker.item_name_plural || 'Items'}</span>
+                  </div>
+                  <div>
+                    <strong>{tracker.termedItems}</strong>
+                    <span>{tracker.dashboard_progress_label || 'Complete'}</span>
+                  </div>
+                </div>
+                <button className="tracker-card-link" onClick={() => openTracker(tracker.id)}>
+                  {tracker.dashboard_open_label || 'Open Tracker'}
+                </button>
+              </article>
             ))}
           </div>
         )}
-      </div>
+      </section>
 
-      <div className="dashboard-section">
-        <h2 className="section-subtitle">Quick Actions</h2>
-        <div className="actions-grid">
-          <Link to="/upload" className="action-card">
-            <div className="action-icon">📤</div>
-            <h3>Upload PDF</h3>
-            <p>Add new power block pages from PDF</p>
+      <section className="dashboard-detail-grid">
+        <div className="dashboard-section container">
+          <div className="dashboard-section-head">
+            <div>
+              <span className="dashboard-kicker">Current Tracker</span>
+              <h2 className="section-title">{activeCard?.name || 'No tracker selected'}</h2>
+            </div>
+            <button
+              className="app-btn app-btn-secondary"
+              onClick={() => currentTrackerId && navigate('/power-blocks')}
+              disabled={!currentTrackerId}
+            >
+              View blocks
+            </button>
+          </div>
+          <p className="dashboard-panel-copy">
+            {trackerSettings?.ui_text?.sub_dashboard || 'Select a tracker to view and manage its progress.'}
+          </p>
+          <div className="dashboard-mini-grid">
+            <div className="dashboard-mini-card">
+              <span>Current progress</span>
+              <strong>{activeCard?.percentage || 0}%</strong>
+            </div>
+            <div className="dashboard-mini-card">
+              <span>Power blocks</span>
+              <strong>{activeCard?.totalBlocks || 0}</strong>
+            </div>
+            <div className="dashboard-mini-card">
+              <span>{activeCard?.item_name_plural || 'Items'}</span>
+              <strong>{activeCard?.totalItems || 0}</strong>
+            </div>
+          </div>
+        </div>
+
+        <div className="dashboard-section container">
+          <div className="dashboard-section-head">
+            <div>
+              <span className="dashboard-kicker">Recent Power Blocks</span>
+              <h2 className="section-title">Jump back into the active tracker</h2>
+            </div>
+            <Link to="/power-blocks" className="dashboard-inline-link">See all</Link>
+          </div>
+
+          {activeCard?.recentBlocks?.length ? (
+            <div className="recent-block-list">
+              {activeCard.recentBlocks.map((block) => (
+                <Link key={block.id} to={`/power-block/${block.id}`} className="recent-block-item">
+                  <div>
+                    <strong>{block.name}</strong>
+                    <span>{block.zone || 'No zone'} · {block.lbd_count || 0} LBDs</span>
+                  </div>
+                  <span>{block.is_completed ? 'Done' : 'In Progress'}</span>
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <div className="alert alert-info">No blocks loaded for this tracker yet.</div>
+          )}
+        </div>
+      </section>
+
+      <section className="dashboard-section container">
+        <div className="dashboard-section-head">
+          <div>
+            <span className="dashboard-kicker">Quick Actions</span>
+            <h2 className="section-title">Move between the same core areas your app uses</h2>
+          </div>
+        </div>
+        <div className="dashboard-action-grid">
+          <Link to="/power-blocks" className="dashboard-action-card">
+            <span>01</span>
+            <strong>{currentTracker?.dashboard_blocks_label || 'Power Blocks'}</strong>
+            <p>Review claim status, open the current tracker, and continue work without leaving the same workflow.</p>
           </Link>
-
-          <Link to="/power-blocks" className="action-card">
-            <div className="action-icon">📋</div>
-            <h3>Manage Blocks</h3>
-            <p>View and edit power blocks and LBDs</p>
+          <Link to="/site-map" className="dashboard-action-card dashboard-action-card--map">
+            <span>02</span>
+            <strong>Map</strong>
+            <p>Open the interactive tracker map from the dashboard using the currently selected tracker context.</p>
           </Link>
-
-          <Link to="/site-map" className="action-card">
-            <div className="action-icon">🗺️</div>
-            <h3>View Site Map</h3>
-            <p>Interactive site map visualization</p>
+          <Link to="/reports" className="dashboard-action-card dashboard-action-card--reports">
+            <span>03</span>
+            <strong>Reports</strong>
+            <p>Keep reporting and review in the same visual system as the app-aligned dashboard and blocks flow.</p>
           </Link>
         </div>
-      </div>
+      </section>
     </div>
   );
 }
