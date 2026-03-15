@@ -112,6 +112,14 @@ export const map_api = {
 
   deleteSiteArea: (areaId) => {
     return client.delete(`/map/area/${areaId}`);
+  },
+
+  deleteAllAreas: (mapId) => {
+    return client.delete(`/map/areas/${mapId}`);
+  },
+
+  deleteSiteMap: (mapId) => {
+    return client.delete(`/map/sitemap/${mapId}`);
   }
 };
 

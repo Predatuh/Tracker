@@ -4,7 +4,7 @@ import './SiteMapView.css';
 import { useAppContext } from '../context/AppContext';
 
 function SiteMapView() {
-  const { currentTracker, currentTrackerId } = useAppContext();
+  const { currentTracker, currentTrackerId, isAdmin, hasPermission } = useAppContext();
   const [maps, setMaps] = useState([]);
   const [selectedMap, setSelectedMap] = useState(null);
   const [mapAreas, setMapAreas] = useState([]);   // saved SiteArea rows
@@ -36,6 +36,8 @@ function SiteMapView() {
   // Power block list for dropdown
   const [powerBlocks, setPowerBlocks] = useState([]);
   const [mapSearch, setMapSearch] = useState('');
+  const [showLabels, setShowLabels] = useState(false);
+  const [showOutlines, setShowOutlines] = useState(true);
 
   // ---- Load admin font size + power blocks on mount ----
   useEffect(() => {
@@ -71,6 +73,20 @@ function SiteMapView() {
     availableBlocks: powerBlocks.length,
     mappedBlocks: mapAreas.filter((area) => powerBlocks.some((block) => block.name === area.name)).length,
   }), [mapAreas, maps.length, powerBlocks]);
+
+  const manageableMaps = isAdmin || hasPermission('upload_pdf') || hasPermission('admin_settings');
+
+  const trackerBlockNames = useMemo(() => new Set(powerBlocks.map((block) => block.name)), [powerBlocks]);
+  const trackerBlockIds = useMemo(() => new Set(powerBlocks.map((block) => block.id)), [powerBlocks]);
+
+  const visibleMapAreas = useMemo(() => {
+    if (!powerBlocks.length) return mapAreas;
+    const matchingAreas = mapAreas.filter((area) => (
+      (area.power_block_id && trackerBlockIds.has(area.power_block_id))
+      || (area.name && trackerBlockNames.has(area.name))
+    ));
+    return matchingAreas.length ? matchingAreas : mapAreas;
+  }, [mapAreas, powerBlocks, trackerBlockIds, trackerBlockNames]);
 
   const handleMapSelect = useCallback(async (map) => {
     setSelectedMap(map);
@@ -115,6 +131,30 @@ function SiteMapView() {
     } catch (err) {
       setError(err.response?.data?.error || 'Error uploading map');
     } finally { setLoading(false); }
+  };
+
+  const handleDeleteAllAreas = async () => {
+    if (!selectedMap || !window.confirm('Delete all saved areas for this map?')) return;
+    try {
+      await map_api.deleteAllAreas(selectedMap.id);
+      setMapAreas([]);
+      setSuccess('All saved areas removed.');
+    } catch (err) {
+      setError(err.response?.data?.error || 'Error deleting areas');
+    }
+  };
+
+  const handleDeleteMap = async () => {
+    if (!selectedMap || !window.confirm(`Delete map "${selectedMap.name}"?`)) return;
+    try {
+      await map_api.deleteSiteMap(selectedMap.id);
+      setSelectedMap(null);
+      setMapAreas([]);
+      setSuccess('Map deleted.');
+      fetchMaps();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Error deleting map');
+    }
   };
 
   // ---- Scan map ----
@@ -233,9 +273,13 @@ function SiteMapView() {
   };
 
   // Get names of PBs already placed on map
-  const placedNames = new Set(mapAreas.map(a => a.name));
+  const placedNames = new Set(visibleMapAreas.map(a => a.name));
 
   const trackerTitle = currentTracker?.name || 'Tracker';
+
+  useEffect(() => {
+    setShowLabels(visibleMapAreas.length > 0 && visibleMapAreas.length <= 24);
+  }, [selectedMap?.id, visibleMapAreas.length]);
 
   // ---- Calculate font-size to fit label inside a box ----
   const calcFontSize = (label, boxWpx, boxHpx, basePx) => {
@@ -337,6 +381,7 @@ function SiteMapView() {
             </p>
           </div>
 
+          {manageableMaps && (
           <div className="smv-sidebar-section">
             <h2 className="section-subtitle">Upload Site Map</h2>
           <div className="form-group">
@@ -364,6 +409,7 @@ function SiteMapView() {
             {loading ? 'Uploading...' : 'Upload Map'}
           </button>
           </div>
+          )}
 
           <div className="smv-sidebar-section">
           <h2 className="section-subtitle">Available Maps</h2>
@@ -394,7 +440,7 @@ function SiteMapView() {
           </div>
 
           {/* ── Global font-size slider ── */}
-          {selectedMap && (
+          {selectedMap && manageableMaps && (
             <div className="font-size-sidebar smv-sidebar-section">
               <h3>PB Label Size</h3>
               <label>Global: <strong>{globalFontSize}px</strong></label>
@@ -409,11 +455,27 @@ function SiteMapView() {
             </div>
           )}
 
+          {selectedMap && manageableMaps && (
+            <div className="smv-sidebar-section smv-admin-controls">
+              <h3>Map Admin Controls</h3>
+              <label className="smv-toggle-row">
+                <input type="checkbox" checked={showOutlines} onChange={(e) => setShowOutlines(e.target.checked)} />
+                <span>Show outlines</span>
+              </label>
+              <label className="smv-toggle-row">
+                <input type="checkbox" checked={showLabels} onChange={(e) => setShowLabels(e.target.checked)} />
+                <span>Show PB labels</span>
+              </label>
+              <button className="btn btn-secondary" onClick={handleDeleteAllAreas}>Clear Saved Areas</button>
+              <button className="btn btn-danger" onClick={handleDeleteMap}>Delete Map</button>
+            </div>
+          )}
+
           {/* ── Saved areas list ── */}
-          {mapAreas.length > 0 && (
+          {visibleMapAreas.length > 0 && manageableMaps && (
             <div className="areas-sidebar smv-sidebar-section">
-              <h3>Saved Areas ({mapAreas.length})</h3>
-              {mapAreas.map(area => (
+              <h3>Saved Areas ({visibleMapAreas.length})</h3>
+              {visibleMapAreas.map(area => (
                 <div key={area.id} className="area-sidebar-item">
                   <span className="area-name">
                     {area.polygon ? '\u2B21 ' : '\u25AD '}{area.name}
@@ -560,7 +622,7 @@ function SiteMapView() {
                     )}
 
                     {/* ── Saved areas with polygons ── */}
-                    {mapAreas.filter(a => a.polygon).map(area => {
+                    {showOutlines && visibleMapAreas.filter(a => a.polygon).map(area => {
                       const centroid = polygonCentroid(area.polygon);
                       const bounds = polygonBounds(area.polygon);
                       const overrideSz = fontSizeOverrides[area.id] ?? area.label_font_size;
@@ -573,6 +635,7 @@ function SiteMapView() {
                             points={polygonToSvgPoints(area.polygon)}
                             className="saved-polygon"
                           />
+                          {showLabels && bounds.w >= 30 && bounds.h >= 18 && (
                           <text
                             x={centroid.x}
                             y={centroid.y}
@@ -583,6 +646,7 @@ function SiteMapView() {
                           >
                             {area.name}
                           </text>
+                          )}
                         </g>
                       );
                     })}
@@ -611,7 +675,7 @@ function SiteMapView() {
                 })}
 
                 {/* ── Overlay: saved areas WITHOUT polygon (rectangle fallback) ── */}
-                {imgSize.w > 0 && mapAreas.filter(a => !a.polygon && a.bbox_x != null).map(area => {
+                {imgSize.w > 0 && showOutlines && visibleMapAreas.filter(a => !a.polygon && a.bbox_x != null).map(area => {
                   const x  = pctToPx(area.bbox_x, imgSize.w);
                   const y  = pctToPx(area.bbox_y, imgSize.h);
                   const bw = pctToPx(area.bbox_w, imgSize.w);
@@ -627,7 +691,7 @@ function SiteMapView() {
                       style={{ left: x, top: y, width: bw, height: bh }}
                       title={area.name}
                     >
-                      <span className="region-label" style={{ fontSize: fs }}>
+                      <span className="region-label" style={{ fontSize: fs, opacity: showLabels && bw >= 30 && bh >= 18 ? 1 : 0 }}>
                         {area.name}
                       </span>
                     </div>

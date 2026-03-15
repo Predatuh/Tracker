@@ -40,9 +40,13 @@ function Navigation() {
     <nav className="navbar">
       <div className="navbar-container">
         <Link to="/" className="navbar-brand" onClick={close}>
-          <span className="navbar-brand-mark">♛</span>
-          <span>
-            <strong>Princess</strong> Trackers
+          <span className="navbar-brand-mark">
+            <img src="/backend-static/Logo.png" alt="Princess Trackers" className="navbar-brand-logo" />
+          </span>
+          <span className="navbar-brand-name">
+            <span className="brand-crown-icon">♛</span>
+            <span className="brand-princess">Princess</span>
+            <span className="brand-trackers">Trackers</span>
           </span>
         </Link>
         <div className="nav-tracker-strip">

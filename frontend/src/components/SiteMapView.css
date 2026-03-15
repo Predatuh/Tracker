@@ -27,8 +27,8 @@
   gap: 8px;
   padding: 18px;
   border-radius: 24px;
-  background: rgba(15, 23, 42, 0.72);
-  border: 1px solid rgba(148, 163, 184, 0.12);
+  background: rgba(10, 16, 33, 0.72);
+  border: 1px solid rgba(0, 212, 255, 0.1);
 }
 
 .smv-hero-card span {
@@ -71,8 +71,8 @@
 
 .map-item {
   padding: 12px 14px;
-  background: rgba(15, 23, 42, 0.72);
-  border: 1px solid rgba(148, 163, 184, 0.12);
+  background: rgba(10, 16, 33, 0.72);
+  border: 1px solid rgba(0, 212, 255, 0.1);
   border-radius: 16px;
   cursor: pointer;
   text-align: left;
@@ -81,14 +81,14 @@
 }
 
 .map-item:hover {
-  background: rgba(79, 227, 213, 0.1);
-  border-color: rgba(79, 227, 213, 0.3);
+  background: rgba(0, 212, 255, 0.08);
+  border-color: rgba(0, 212, 255, 0.24);
 }
 
 .map-item.active {
-  background: rgba(79, 227, 213, 0.14);
+  background: rgba(0, 212, 255, 0.12);
   color: var(--text-strong);
-  border-color: rgba(79, 227, 213, 0.32);
+  border-color: rgba(0, 212, 255, 0.3);
   font-weight: 600;
 }
 
@@ -146,8 +146,8 @@
 }
 
 .map-container {
-  background: rgba(8, 15, 29, 0.85);
-  border: 1px solid rgba(148, 163, 184, 0.12);
+  background: rgba(8, 15, 29, 0.92);
+  border: 1px solid rgba(0, 212, 255, 0.14);
   border-radius: 24px;
   padding: 20px;
   margin-bottom: 20px;
@@ -283,8 +283,8 @@
 }
 
 .map-region.saved {
-  border: 2px solid #8aa3bd;
-  background: rgba(72, 94, 130, 0.14);
+  border: 1.5px solid rgba(0, 212, 255, 0.4);
+  background: rgba(0, 212, 255, 0.08);
 }
 
 .region-label {
@@ -372,8 +372,29 @@
 
 .font-size-sidebar {
   padding: 14px;
-  background: rgba(15, 23, 42, 0.62);
+  background: rgba(10, 16, 33, 0.72);
   border-radius: 18px;
+  border: 1px solid rgba(0, 212, 255, 0.1);
+}
+
+.smv-admin-controls {
+  padding: 14px;
+  background: rgba(10, 16, 33, 0.72);
+  border-radius: 18px;
+  border: 1px solid rgba(0, 212, 255, 0.1);
+}
+
+.smv-admin-controls h3 {
+  margin: 0 0 10px;
+  font-size: 13px;
+}
+
+.smv-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-soft);
+  font-size: 13px;
 }
 
 .font-size-sidebar h3 {
@@ -406,8 +427,8 @@
   flex-direction: column;
   gap: 4px;
   padding: 8px 10px;
-  background: rgba(15, 23, 42, 0.72);
-  border: 1px solid rgba(148, 163, 184, 0.12);
+  background: rgba(10, 16, 33, 0.72);
+  border: 1px solid rgba(0, 212, 255, 0.1);
   border-radius: 14px;
 }
 
@@ -512,8 +533,8 @@ select.snap-name-input {
 }
 
 .saved-polygon {
-  fill: rgba(72, 94, 130, 0.16);
-  stroke: #98b6d5;
+  fill: rgba(0, 212, 255, 0.06);
+  stroke: rgba(0, 212, 255, 0.5);
   stroke-width: 1.5;
 }
 

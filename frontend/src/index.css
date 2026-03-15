@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap');
 
 :root {
   color-scheme: dark;
@@ -28,14 +28,29 @@ html {
 body {
   margin: 0;
   min-width: 320px;
-  font-family: 'Manrope', 'Segoe UI', sans-serif;
+  font-family: 'Space Grotesk', 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   color: var(--text-strong);
   background:
-    radial-gradient(circle at top left, rgba(79, 227, 213, 0.12), transparent 30%),
-    radial-gradient(circle at top right, rgba(132, 147, 255, 0.16), transparent 28%),
+    radial-gradient(circle at top left, rgba(0, 212, 255, 0.12), transparent 30%),
+    radial-gradient(circle at top right, rgba(124, 108, 252, 0.16), transparent 28%),
     linear-gradient(180deg, var(--bg-base), var(--bg-deep));
+}
+
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 3px,
+    rgba(0, 212, 255, 0.018) 3px,
+    rgba(0, 212, 255, 0.018) 4px
+  );
+  opacity: 0.35;
 }
 
 a {
