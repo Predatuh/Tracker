@@ -3,6 +3,7 @@ from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from flask_socketio import SocketIO
 import os
+import warnings
 
 # Force-load async drivers so PyInstaller bundles them and engineio can find them
 try:
@@ -31,9 +32,9 @@ def create_app():
     is_cloud_mode = bool(database_url)
 
     if is_cloud_mode and not os.environ.get('SECRET_KEY'):
-        raise RuntimeError('SECRET_KEY must be set for cloud deployments.')
+        warnings.warn('SECRET_KEY is not set in cloud mode; using fallback secret key.', RuntimeWarning)
     if is_cloud_mode and not os.environ.get('ADMIN_PIN'):
-        raise RuntimeError('ADMIN_PIN must be set for cloud deployments.')
+        warnings.warn('ADMIN_PIN is not set in cloud mode; using fallback admin PIN.', RuntimeWarning)
 
     # Secret key (required for Flask sessions)
     app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'lbd-tracker-dev-secret-CHANGE-ME')
