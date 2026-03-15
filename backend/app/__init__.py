@@ -26,7 +26,12 @@ def create_app():
     frontend_build_dir = os.path.join(workspace_dir, 'frontend', 'build')
     frontend_build_index = os.path.join(frontend_build_dir, 'index.html')
 
-    app = Flask(__name__, template_folder=template_dir, static_folder=static_dir)
+    app = Flask(
+        __name__,
+        template_folder=template_dir,
+        static_folder=static_dir,
+        static_url_path='/backend-static',
+    )
 
     database_url = os.environ.get('DATABASE_URL', '')
     is_cloud_mode = bool(database_url)
@@ -134,6 +139,15 @@ def create_app():
         if os.path.exists(frontend_build_index):
             return send_from_directory(frontend_build_dir, 'index.html')
         return render_template('index.html')
+
+    @app.route('/static/<path:path>')
+    def frontend_static(path):
+        if os.path.exists(frontend_build_index):
+            asset_root = os.path.join(frontend_build_dir, 'static')
+            asset_path = os.path.join(asset_root, path)
+            if os.path.isfile(asset_path):
+                return send_from_directory(asset_root, path)
+        return send_from_directory(static_dir, path)
 
     @app.route('/<path:path>')
     def frontend(path):
