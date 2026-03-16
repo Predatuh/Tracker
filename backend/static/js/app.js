@@ -936,6 +936,7 @@ function renderDashboardSpotlight(cards) {
   const featuredTone = featured.pct >= 100 ? '#00e87a' : featured.pct >= 50 ? '#00d4ff' : '#9d8cff';
   const updatedCopy = formatDashboardCount(featured.updatedToday, 'block', 'blocks');
   const claimsCopy = formatDashboardCount(featured.claimedToday, 'claim', 'claims');
+  const featuredItemsLabel = featured.stat_label || featured.item_name_plural || 'Items';
 
   spotlight.innerHTML = `
     <article class="dashboard-spotlight-card" onclick="openTracker(${featured.id})">
@@ -949,6 +950,20 @@ function renderDashboardSpotlight(cards) {
         </div>
       </div>
       <div class="dashboard-spotlight-stats">
+        <div class="dashboard-spotlight-mini-grid">
+          <div class="dashboard-spotlight-mini-card">
+            <span class="dashboard-spotlight-mini-label">Blocks</span>
+            <strong>${featured.totalBlocks}</strong>
+          </div>
+          <div class="dashboard-spotlight-mini-card">
+            <span class="dashboard-spotlight-mini-label">Completed</span>
+            <strong>${featured.completedBlocks}</strong>
+          </div>
+          <div class="dashboard-spotlight-mini-card">
+            <span class="dashboard-spotlight-mini-label">${featuredItemsLabel}</span>
+            <strong>${featured.termedItems}</strong>
+          </div>
+        </div>
         <div class="dashboard-spotlight-score" style="color:${featuredTone}">${featured.pct}%</div>
         <div class="dashboard-spotlight-score-label">Tracker completion</div>
         <div class="dashboard-spotlight-bar"><div class="dashboard-spotlight-bar-fill" style="width:${featured.pct}%;background:${featuredTone};"></div></div>
@@ -1037,6 +1052,7 @@ function renderDashboardOverview(cards) {
 
 async function loadDashboard() {
   const grid = document.getElementById('tracker-hub-grid');
+  const countBadge = document.getElementById('dashboard-tracker-count');
   if (!grid) return;
   const ui = (adminSettings && adminSettings.ui_text) ? adminSettings.ui_text : {};
   const loadingText = ui.dashboard_loading || 'LOADING TRACKERS...';
@@ -1053,6 +1069,7 @@ async function loadDashboard() {
 
   if (!allTrackers.length) {
     grid.innerHTML = `<p style="color:rgba(238,242,255,0.35);text-align:center;padding:60px 20px;">${emptyText}</p>`;
+    if (countBadge) countBadge.textContent = '0 trackers';
     renderDashboardOverview([]);
     renderDashboardSpotlight([]);
     return;
@@ -1070,10 +1087,13 @@ async function loadDashboard() {
       // % based on LBDs with 'term' (Termed) status completed
       const termedItems = blocks.reduce((s, b) => s + ((b.lbd_summary && b.lbd_summary['term']) || 0), 0);
       const pct = totalItems > 0 ? Math.round((termedItems / totalItems) * 100) : 0;
-      const activeClaims = blocks.filter(b => Array.isArray(b.claimed_people) && b.claimed_people.length > 0).length;
+      const activeClaims = blocks.filter(b => (Array.isArray(b.claimed_people) && b.claimed_people.length > 0) || !!b.claimed_by).length;
       const claimedToday = blocks.filter(b => isDateToday(b.claimed_at)).length;
       const updatedToday = blocks.filter(b => isDateToday(b.last_updated_at)).length;
-      const crewCount = new Set(blocks.flatMap(b => Array.isArray(b.claimed_people) ? b.claimed_people : [])).size;
+      const crewCount = new Set(blocks.flatMap(b => {
+        if (Array.isArray(b.claimed_people) && b.claimed_people.length > 0) return b.claimed_people;
+        return b.claimed_by ? [b.claimed_by] : [];
+      })).size;
       const lastActivity = blocks
         .map(b => b.last_updated_at || b.claimed_at)
         .filter(Boolean)
@@ -1086,12 +1106,15 @@ async function loadDashboard() {
 
   renderDashboardOverview(cards);
   const rankedCards = renderDashboardSpotlight(cards);
+  const featuredTrackerId = rankedCards[0] ? rankedCards[0].id : null;
+  if (countBadge) countBadge.textContent = formatDashboardCount(rankedCards.length, 'tracker');
 
   grid.innerHTML = rankedCards.map(t => {
     const barColor = t.pct >= 100 ? '#00e87a' : t.pct >= 50 ? '#00d4ff' : '#7c6cfc';
     const completeLabel = t.dashboard_progress_label || ui.dashboard_complete || 'Complete';
     const powerBlocksLabel = t.dashboard_blocks_label || ui.dashboard_power_blocks || 'Power Blocks';
     const openTrackerLabel = t.dashboard_open_label || ui.dashboard_open_tracker || 'Open Tracker';
+    const featuredBadge = featuredTrackerId === t.id ? '<span class="thc-featured-badge">Spotlight</span>' : '';
     return `
     <div class="tracker-hub-card" onclick="openTracker(${t.id})">
       <div class="thc-activity-rail">
@@ -1102,6 +1125,7 @@ async function loadDashboard() {
         <span class="thc-icon">${t.icon || '📋'}</span>
         <div class="thc-title-wrap">
           <span class="thc-name">${t.name}</span>
+          ${featuredBadge}
           <span class="thc-pct-badge" style="color:${barColor}">${t.pct}%</span>
         </div>
       </div>

@@ -752,6 +752,41 @@ body::after {
   gap: 16px;
 }
 
+.dashboard-panel-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.dashboard-panel-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dashboard-panel-subtitle {
+  margin: 0;
+  color: rgba(238,242,255,0.58);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.dashboard-panel-count {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 8px 12px;
+  border: 1px solid rgba(0,212,255,0.14);
+  background: rgba(0,212,255,0.06);
+  color: #aaf6ff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+}
+
 .dashboard-spotlight-card {
   display: grid;
   grid-template-columns: 1fr;
@@ -822,6 +857,39 @@ body::after {
   padding: 8px 0;
 }
 
+.dashboard-spotlight-mini-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  width: 100%;
+  margin-bottom: 18px;
+}
+
+.dashboard-spotlight-mini-card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.04);
+}
+
+.dashboard-spotlight-mini-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: rgba(238,242,255,0.48);
+}
+
+.dashboard-spotlight-mini-card strong {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 18px;
+  color: #f7fbff;
+}
+
 .dashboard-spotlight-score {
   font-family: 'Orbitron', sans-serif;
   font-size: 46px;
@@ -865,6 +933,11 @@ body::after {
 
 .dashboard-spotlight-btn:hover {
   background: rgba(0,212,255,0.14);
+}
+
+.dashboard-spotlight-shell {
+  position: sticky;
+  top: 88px;
 }
 
 .tracker-hub-grid {
@@ -977,6 +1050,20 @@ body::after {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.thc-featured-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,200,87,0.26);
+  background: rgba(255,200,87,0.1);
+  color: #ffd980;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
 .thc-pct-badge {
   font-family: 'Orbitron', sans-serif;
   font-size: 12px;
@@ -1066,12 +1153,20 @@ body::after {
   .dashboard-main-layout {
     grid-template-columns: 1fr;
   }
+
+  .dashboard-spotlight-shell {
+    position: static;
+  }
 }
 
 @media (max-width: 720px) {
   .dashboard-overview-grid,
   .dashboard-activity-strip,
   .tracker-hub-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-spotlight-mini-grid {
     grid-template-columns: 1fr;
   }
 
