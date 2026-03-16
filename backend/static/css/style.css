@@ -160,6 +160,7 @@ body::after {
   flex-shrink: 0;
   position: relative;
   overflow: visible;
+  isolation: isolate;
 }
 
 /* Inline crown icon before PRINCESS */
@@ -196,13 +197,16 @@ body::after {
   align-items: center;
   gap: 0;
   position: relative;
+  z-index: 2;
 }
 
 .site-crown-video {
   display: inline-block;
   object-fit: contain;
+  background: transparent !important;
   mix-blend-mode: screen;
-  filter: drop-shadow(0 0 8px rgba(115, 225, 255, 0.22)) drop-shadow(0 0 14px rgba(255, 214, 110, 0.28));
+  isolation: isolate;
+  filter: brightness(1.18) contrast(1.16) saturate(1.08) drop-shadow(0 0 8px rgba(115, 225, 255, 0.22)) drop-shadow(0 0 14px rgba(255, 214, 110, 0.28));
   pointer-events: none;
 }
 
@@ -221,63 +225,42 @@ body::after {
   100% { transform: translateY(-2px) scale(1.04); filter: drop-shadow(0 0 12px rgba(84,212,255,0.36)) drop-shadow(0 0 18px rgba(255,213,100,0.34)); }
 }
 
-/* Electric arc sweep across entire brand */
+.electric-current-video {
+  position: absolute;
+  object-fit: fill;
+  background: transparent !important;
+  mix-blend-mode: screen;
+  isolation: isolate;
+  opacity: 0.94;
+  pointer-events: none;
+  filter: brightness(1.28) contrast(1.36) saturate(1.15) drop-shadow(0 0 10px rgba(90, 225, 255, 0.52)) drop-shadow(0 0 22px rgba(90, 225, 255, 0.28));
+  z-index: 1;
+}
+
 .navbar-brand .brand-shimmer {
   position: absolute;
   top: 50%;
-  left: -18%;
-  width: 136%;
-  height: 14px;
+  left: -12%;
+  width: 124%;
+  height: 28px;
   transform: translateY(-50%);
-  background: linear-gradient(90deg, transparent 0%, rgba(201,228,255,0) 8%, rgba(241,249,255,0.88) 22%, rgba(0,212,255,0.96) 36%, rgba(255,255,255,0.92) 49%, rgba(0,212,255,0.96) 62%, rgba(152,132,255,0.84) 76%, transparent 100%);
-  border-radius: 999px;
-  opacity: 0.82;
-  filter: blur(0.5px) drop-shadow(0 0 8px rgba(0,212,255,0.82)) drop-shadow(0 0 18px rgba(130,203,255,0.48));
-  clip-path: polygon(0% 56%, 10% 34%, 17% 66%, 28% 42%, 37% 64%, 47% 31%, 58% 62%, 68% 37%, 78% 58%, 89% 29%, 100% 54%, 100% 100%, 0% 100%);
-  pointer-events: none;
-  animation: electricArcTravel 5.4s linear infinite, electricArcFlicker 1.25s steps(7) infinite;
-  z-index: 2;
-}
-
-.navbar-brand .brand-shimmer::before,
-.navbar-brand .brand-shimmer::after,
-.hub-hero-shimmer::before,
-.hub-hero-shimmer::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  opacity: 0.9;
-}
-
-.navbar-brand .brand-shimmer::before,
-.hub-hero-shimmer::before {
-  transform: translateY(-4px) scaleX(0.96);
-  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0) 16%, rgba(255,255,255,0.72) 48%, rgba(0,212,255,0.0) 84%, transparent 100%);
-  filter: blur(1.4px);
-}
-
-.navbar-brand .brand-shimmer::after,
-.hub-hero-shimmer::after {
-  transform: translateY(4px) scaleX(0.92);
-  background: linear-gradient(90deg, transparent 0%, rgba(124,108,252,0) 18%, rgba(124,108,252,0.7) 52%, rgba(0,212,255,0) 86%, transparent 100%);
-  filter: blur(1.8px);
+  object-position: center;
+  opacity: 0.78;
+  clip-path: inset(18% 0 18% 0);
 }
 
 @keyframes electricArcTravel {
-  0%   { transform: translate(-12%, -50%) scaleX(0.94); }
-  35%  { transform: translate(6%, -50%) scaleX(1.02); }
-  70%  { transform: translate(14%, -50%) scaleX(0.98); }
-  100% { transform: translate(-12%, -50%) scaleX(0.94); }
+  0%   { transform: translate(-8%, -50%) scaleX(0.98); }
+  50%  { transform: translate(4%, -50%) scaleX(1.02); }
+  100% { transform: translate(-8%, -50%) scaleX(0.98); }
 }
 
 @keyframes electricArcFlicker {
-  0%, 100% { opacity: 0.72; }
-  18% { opacity: 0.96; }
-  37% { opacity: 0.54; }
-  48% { opacity: 1; }
-  63% { opacity: 0.62; }
-  82% { opacity: 0.9; }
+  0%, 100% { opacity: 0.74; }
+  20% { opacity: 0.96; }
+  42% { opacity: 0.66; }
+  63% { opacity: 1; }
+  81% { opacity: 0.7; }
 }
 
 /* PRINCESS — animated sweeping gradient */
@@ -1142,6 +1125,7 @@ body::after {
   margin-bottom: 16px;
   position: relative;
   overflow: visible;
+  isolation: isolate;
 }
 .hub-crown-video {
   width: 46px;
@@ -1150,22 +1134,16 @@ body::after {
   top: 3px;
   animation: crownVideoFloat 2.8s ease-in-out infinite alternate;
 }
-/* Hero electric arc sweep */
 .hub-hero-shimmer {
   position: absolute;
   top: 50%;
-  left: -8%;
-  width: 116%;
-  height: 18px;
+  left: -9%;
+  width: 118%;
+  height: 42px;
   transform: translateY(-50%);
-  background: linear-gradient(90deg, transparent 0%, rgba(241,249,255,0) 10%, rgba(241,249,255,0.9) 26%, rgba(0,212,255,0.94) 40%, rgba(255,255,255,0.96) 52%, rgba(0,212,255,0.92) 66%, rgba(124,108,252,0.82) 80%, transparent 100%);
-  border-radius: 999px;
-  opacity: 0.82;
-  filter: blur(0.8px) drop-shadow(0 0 8px rgba(0,212,255,0.8)) drop-shadow(0 0 20px rgba(130,203,255,0.54));
-  clip-path: polygon(0% 58%, 11% 32%, 20% 66%, 31% 41%, 42% 68%, 51% 29%, 61% 63%, 72% 36%, 83% 62%, 92% 26%, 100% 56%, 100% 100%, 0% 100%);
-  pointer-events: none;
-  animation: electricArcTravel 6.1s linear infinite, electricArcFlicker 1.35s steps(8) infinite;
-  z-index: 2;
+  object-position: center;
+  opacity: 0.86;
+  clip-path: inset(12% 0 12% 0);
 }
 .hub-hero-princess {
   background: linear-gradient(90deg, #d08dff 0%, #e0a5ff 20%, #a78bfa 40%, #ede0ff 60%, #d08dff 80%, #a78bfa 100%);
@@ -1204,6 +1182,7 @@ body::after {
   display: flex;
   justify-content: center;
   margin: 0 auto 12px;
+  isolation: isolate;
 }
 
 .login-crown-video {
@@ -3140,8 +3119,8 @@ code { background: rgba(0,212,255,0.1); color: var(--cyan); padding: 2px 6px; bo
   .navbar-brand .brand-shimmer {
     left: -6%;
     width: 112%;
-    height: 10px;
-    opacity: 0.68;
+    height: 22px;
+    opacity: 0.72;
   }
   .brand-crown-video {
     width: 19px;
@@ -3167,8 +3146,8 @@ code { background: rgba(0,212,255,0.1); color: var(--cyan); padding: 2px 6px; bo
   .navbar-brand .brand-shimmer {
     left: 0;
     width: 100%;
-    height: 8px;
-    opacity: 0.54;
+    height: 18px;
+    opacity: 0.62;
   }
   .brand-crown-video {
     width: 17px;
@@ -3248,8 +3227,8 @@ code { background: rgba(0,212,255,0.1); color: var(--cyan); padding: 2px 6px; bo
   .hub-hero-shimmer {
     left: -2%;
     width: 104%;
-    height: 12px;
-    opacity: 0.68;
+    height: 28px;
+    opacity: 0.74;
   }
 }
 
@@ -3276,8 +3255,8 @@ code { background: rgba(0,212,255,0.1); color: var(--cyan); padding: 2px 6px; bo
 
   .hub-hero-shimmer {
     width: 100%;
-    height: 10px;
-    opacity: 0.58;
+    height: 22px;
+    opacity: 0.68;
   }
 }
 
