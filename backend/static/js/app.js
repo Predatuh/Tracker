@@ -2662,7 +2662,9 @@ function renderPBMarkers() {
 
     // All markers are rectangles
     const configuredFontSize = Number(adminSettings?.pb_label_font_size || 14);
-    const fontSize = Math.max(5, Math.min(10, Math.round(configuredFontSize * 0.42)));
+    const baseFontSize = Math.max(5, Math.min(9, Math.round(configuredFontSize * 0.4)));
+    const digitPenalty = Math.max(0, num.length - 2);
+    const fontSize = Math.max(4, baseFontSize - digitPenalty);
     const appearance = adminSettings?.appearance || {};
     const labelColor = hasActiveTracker
       ? (appearance.pb_number_active_color || '#ffffff')
