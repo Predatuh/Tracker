@@ -4465,48 +4465,61 @@ function renderClaimPage() {
   const filtered = claimFilteredBlocks();
   const selectedBlock = claimSelectedBlock();
   const claimedBlocks = claimPageState.blocks.filter(block => block.claimed_by);
-  const crewCount = new Set(claimedBlocks.flatMap(block => Array.isArray(block.claimed_people) ? block.claimed_people : [])).size;
+  const crewCount = new Set(claimedBlocks.flatMap(block => {
+    if (Array.isArray(block.claimed_people) && block.claimed_people.length > 0) return block.claimed_people;
+    return block.claimed_by ? [block.claimed_by] : [];
+  })).size;
   const scanDraft = claimPageState.scanDraft;
   const zoneOptions = claimZoneOptions();
 
-  const summaryCard = (label, value, tone) => `
-    <div style="padding:16px 18px;border-radius:16px;border:1px solid ${tone};background:rgba(255,255,255,0.03);min-width:150px;">
-      <div style="font-size:11px;font-weight:700;letter-spacing:0.7px;text-transform:uppercase;color:#94a3b8;">${label}</div>
-      <div style="margin-top:8px;font-size:28px;font-weight:800;color:#eef2ff;line-height:1;">${value}</div>
-    </div>`;
+  const summaryCard = (label, value, meta, toneClass = '') => `
+    <article class="claim-summary-card ${toneClass}">
+      <div class="claim-summary-label">${label}</div>
+      <div class="claim-summary-value">${value}</div>
+      <div class="claim-summary-meta">${meta}</div>
+    </article>`;
 
   const blockTiles = filtered.map((block) => {
     const selected = selectedBlock && Number(selectedBlock.id) === Number(block.id);
     const claimLabel = block.claimed_by ? `Claimed by ${_escapeHtml(block.claimed_label || block.claimed_by)}` : 'Ready to claim';
-    const zoneText = block.zone ? _escapeHtml(block.zone) : 'No zone';
-    const zoneColor = block.zone ? '#8adfff' : '#64748b';
-    return `<button type="button" onclick="claimSelectBlock(${block.id})" style="text-align:left;padding:14px 16px;border-radius:14px;border:1px solid ${selected ? 'rgba(0,212,255,0.45)' : 'rgba(255,255,255,0.08)'};background:${selected ? 'rgba(0,212,255,0.12)' : 'rgba(255,255,255,0.03)'};cursor:pointer;display:flex;flex-direction:column;gap:6px;box-shadow:${selected ? '0 0 0 2px rgba(0,212,255,0.12)' : 'none'};">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
-        <span style="font-size:15px;font-weight:700;color:#eef2ff;">${_escapeHtml(block.name)}</span>
-        <span style="font-size:11px;color:${zoneColor};">${zoneText}</span>
+    const zoneText = block.zone ? _escapeHtml(block.zone) : 'Unzoned';
+    const progressSteps = Number(block.lbd_count || 0) * LBD_STATUS_TYPES.length;
+    const completedSteps = claimCompletedSteps(block);
+    const progressPct = progressSteps > 0 ? Math.round((completedSteps / progressSteps) * 100) : 0;
+    return `<button type="button" class="claim-block-tile${selected ? ' is-selected' : ''}" onclick="claimSelectBlock(${block.id})">
+      <div class="claim-block-tile-top">
+        <span class="claim-block-name">${_escapeHtml(block.name)}</span>
+        <span class="claim-block-zone">${zoneText}</span>
       </div>
-      <div style="font-size:12px;color:${block.claimed_by ? '#8adfff' : '#94a3b8'};">${claimLabel}</div>
-      <div style="font-size:11px;color:#64748b;">${block.lbd_count || 0} ${(currentTracker && currentTracker.item_name_plural) || 'Items'}</div>
+      <div class="claim-block-status${block.claimed_by ? ' is-claimed' : ''}">${claimLabel}</div>
+      <div class="claim-block-meta-row">
+        <span class="claim-block-count">${block.lbd_count || 0} ${(currentTracker && currentTracker.item_name_plural) || 'Items'}</span>
+        <span class="claim-block-progress">${progressPct}% complete</span>
+      </div>
     </button>`;
   }).join('');
 
   const selectedAssignments = selectedBlock ? _buildClaimAssignmentSummary(selectedBlock) : '';
-  const selectedClaimedPeople = selectedBlock && Array.isArray(selectedBlock.claimed_people) ? selectedBlock.claimed_people.map(_escapeHtml).join(', ') : '';
+  const selectedClaimedPeople = selectedBlock
+    ? ((Array.isArray(selectedBlock.claimed_people) && selectedBlock.claimed_people.length > 0)
+      ? selectedBlock.claimed_people.map(_escapeHtml).join(', ')
+      : (selectedBlock.claimed_by ? _escapeHtml(selectedBlock.claimed_by) : ''))
+    : '';
   const scanPreviewRows = scanDraft ? (scanDraft.preview_rows || []).map((row) => {
     const statuses = Array.isArray(row.statuses) && row.statuses.length
       ? row.statuses.map(status => _escapeHtml(STATUS_LABELS[status] || status.replace(/_/g, ' '))).join(', ')
       : 'No tasks detected';
-    return `<div style="display:flex;justify-content:space-between;gap:12px;padding:8px 10px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);">
-      <span style="color:#eef2ff;font-size:12px;font-weight:600;">${_escapeHtml(row.lbd_label || `LBD ${row.lbd_id}`)}</span>
-      <span style="color:#94a3b8;font-size:12px;text-align:right;">${statuses}</span>
+    return `<div class="claim-scan-preview-row">
+      <span class="claim-scan-preview-name">${_escapeHtml(row.lbd_label || `LBD ${row.lbd_id}`)}</span>
+      <span class="claim-scan-preview-statuses">${statuses}</span>
     </div>`;
   }).join('') : '';
   const warningHtml = scanDraft && Array.isArray(scanDraft.warnings) && scanDraft.warnings.length
-    ? `<div style="display:grid;gap:8px;">${scanDraft.warnings.map((warning) => `<div style="padding:10px 12px;border-radius:10px;background:rgba(255,193,7,0.08);border:1px solid rgba(255,193,7,0.18);color:#facc15;font-size:12px;">${_escapeHtml(warning)}</div>`).join('')}</div>`
-    : '<div style="color:#94a3b8;font-size:12px;">No scan warnings.</div>';
+    ? `<div class="claim-warning-grid">${scanDraft.warnings.map((warning) => `<div class="claim-warning-card">${_escapeHtml(warning)}</div>`).join('')}</div>`
+    : '<div class="claim-muted-copy">No scan warnings.</div>';
   const suggestionButtons = claimPageState.peopleSuggestions.slice(0, 10).map((name) => {
     const encodedName = encodeURIComponent(String(name));
-    return `<button type="button" class="btn btn-secondary" onclick="claimAppendCrewName(decodeURIComponent('${encodedName}'))" style="padding:6px 10px;font-size:11px;">${_escapeHtml(name)}</button>`;
+    return `<button type="button" class="claim-crew-chip" onclick="claimAppendCrewName(decodeURIComponent('${encodedName}'))">${_escapeHtml(name)}</button>`;
   }).join('');
   const claimActionButton = selectedBlock
     ? `<button class="btn btn-primary" onclick="showClaimPeopleDialogById(${selectedBlock.id})">Claim Block</button>`
@@ -4517,102 +4530,119 @@ function renderClaimPage() {
   const detailsButton = selectedBlock
     ? `<button class="btn btn-secondary" onclick="showBlockModal(${selectedBlock.id})">View Details</button>`
     : '';
+  const selectedItemLabel = (currentTracker && currentTracker.item_name_plural) || 'items';
+  const scanStatusCopy = claimPageState.scanLoading
+    ? `Scanning ${_escapeHtml(claimPageState.scanFileName || 'claim image')}...`
+    : (claimPageState.scanFileName ? `Loaded: ${_escapeHtml(claimPageState.scanFileName)}` : 'No scan selected yet.');
 
   el.innerHTML = `
-    <div style="display:flex;flex-direction:column;gap:18px;">
-      <div class="form-section" style="padding:18px 20px;display:flex;flex-direction:column;gap:16px;">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;">
-          <div>
-            <div style="font-size:12px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:#8adfff;">Claim Center</div>
-            <div style="margin-top:6px;font-size:14px;color:#94a3b8;max-width:720px;">Select a power block, press Claim Block, build the crew and assignments, then review the claim before it is submitted. Claim edits and releases now live here instead of inside the generic power block detail modal.</div>
-          </div>
-          <div style="display:flex;gap:12px;flex-wrap:wrap;">
-            ${summaryCard('Blocks', claimPageState.blocks.length, 'rgba(255,255,255,0.08)')}
-            ${summaryCard('Claimed', claimedBlocks.length, 'rgba(0,212,255,0.2)')}
-            ${summaryCard('Crew Active', crewCount, 'rgba(0,232,122,0.18)')}
-          </div>
+    <div class="claim-shell">
+      <section class="claim-hero">
+        <div class="claim-hero-copy">
+          <div class="claim-kicker">Claim Center</div>
+          <div class="claim-hero-title">Review-first claiming for the active tracker</div>
+          <div class="claim-hero-subtitle">Select a power block, build the crew and assignments, then review the claim before it is submitted. Scan claims stay in the same workspace so manual and scanned entry follow one consistent flow.</div>
         </div>
-        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-          <input type="text" value="${_escapeHtml(claimPageState.search)}" oninput="claimUpdateSearch(this.value)" placeholder="Search blocks, zones, or claimed crew" style="flex:1;min-width:240px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:11px 14px;color:#eef2ff;" />
-          <select class="claim-filter-select" onchange="claimUpdateZoneFilter(this.value)" style="min-width:150px;">
+        <div class="claim-summary-grid">
+          ${summaryCard('Blocks', claimPageState.blocks.length, 'Power blocks in this tracker', 'claim-tone-neutral')}
+          ${summaryCard('Claimed', claimedBlocks.length, 'Blocks currently owned by a crew', 'claim-tone-cyan')}
+          ${summaryCard('Crew Active', crewCount, 'Distinct crew members on live claims', 'claim-tone-emerald')}
+        </div>
+      </section>
+
+      <section class="claim-filter-shell">
+        <div class="claim-search-wrap">
+          <input class="claim-search-input" type="text" value="${_escapeHtml(claimPageState.search)}" oninput="claimUpdateSearch(this.value)" placeholder="Search blocks, zones, or claimed crew" />
+        </div>
+        <div class="claim-filter-group">
+          <span class="claim-filter-label">Zone</span>
+          <select class="claim-filter-select" onchange="claimUpdateZoneFilter(this.value)">
             <option value="">All Zones</option>
             ${zoneOptions.map((zone) => `<option value="${_escapeHtml(zone)}"${claimPageState.zoneFilter === zone ? ' selected' : ''}>${_escapeHtml(zone)}</option>`).join('')}
           </select>
-          <select class="claim-filter-select" onchange="claimUpdateStatusFilter(this.value)" style="min-width:170px;">
+        </div>
+        <div class="claim-filter-group">
+          <span class="claim-filter-label">Status</span>
+          <select class="claim-filter-select" onchange="claimUpdateStatusFilter(this.value)">
             <option value="all"${claimPageState.statusFilter === 'all' ? ' selected' : ''}>All Statuses</option>
             <option value="unclaimed"${claimPageState.statusFilter === 'unclaimed' ? ' selected' : ''}>Not Claimed</option>
             <option value="recently_claimed"${claimPageState.statusFilter === 'recently_claimed' ? ' selected' : ''}>Recently Claimed</option>
             <option value="in_progress"${claimPageState.statusFilter === 'in_progress' ? ' selected' : ''}>In Progress</option>
             <option value="completed"${claimPageState.statusFilter === 'completed' ? ' selected' : ''}>Completed</option>
           </select>
-          <select class="claim-filter-select" onchange="claimUpdateSort(this.value)" style="min-width:190px;">
+        </div>
+        <div class="claim-filter-group">
+          <span class="claim-filter-label">Order</span>
+          <select class="claim-filter-select" onchange="claimUpdateSort(this.value)">
             <option value="number_asc"${claimPageState.sort === 'number_asc' ? ' selected' : ''}>Number Ascending</option>
             <option value="number_desc"${claimPageState.sort === 'number_desc' ? ' selected' : ''}>Number Descending</option>
             <option value="recent_claimed"${claimPageState.sort === 'recent_claimed' ? ' selected' : ''}>Recently Claimed</option>
           </select>
+        </div>
+        <div class="claim-filter-actions">
           <button class="btn btn-secondary" onclick="loadClaimPage()">Refresh</button>
         </div>
-      </div>
+      </section>
 
-      <div style="display:grid;grid-template-columns:minmax(300px,1.1fr) minmax(320px,0.9fr);gap:18px;align-items:start;">
-        <div class="form-section" style="padding:18px 20px;display:flex;flex-direction:column;gap:14px;">
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+      <div class="claim-workspace">
+        <section class="claim-blocks-panel">
+          <div class="claim-panel-head">
             <div>
-              <div style="font-size:12px;font-weight:700;letter-spacing:0.7px;text-transform:uppercase;color:#94a3b8;">Select Power Block</div>
-              <div style="margin-top:4px;font-size:13px;color:#64748b;">Claims can only be started from this page.</div>
+              <div class="claim-panel-kicker">Select Power Block</div>
+              <div class="claim-panel-subtitle">Claims can only be started from this page.</div>
             </div>
-            <div style="font-size:12px;color:#94a3b8;">${filtered.length} shown</div>
+            <div class="claim-panel-count">${filtered.length} shown</div>
           </div>
-          <div style="display:grid;gap:10px;max-height:620px;overflow:auto;">${blockTiles || '<div style="color:#94a3b8;font-size:13px;">No power blocks match the current filter.</div>'}</div>
-        </div>
+          <div class="claim-block-list">${blockTiles || '<div class="claim-empty-state"><strong>No power blocks match the current filter.</strong><span>Try a different zone, status, or search term.</span></div>'}</div>
+        </section>
 
-        <div class="form-section" style="padding:18px 20px;display:flex;flex-direction:column;gap:16px;position:sticky;top:86px;">
-          <div>
-            <div style="font-size:12px;font-weight:700;letter-spacing:0.7px;text-transform:uppercase;color:#94a3b8;">Selected Block</div>
-            <div style="margin-top:8px;font-size:24px;font-weight:800;color:#eef2ff;">${selectedBlock ? _escapeHtml(selectedBlock.name) : 'None selected'}</div>
-            <div style="margin-top:6px;font-size:13px;color:#94a3b8;">${selectedBlock ? `${selectedBlock.lbd_count || 0} ${(currentTracker && currentTracker.item_name_plural) || 'items'} in the active tracker` : 'Choose a power block to manage its claim workflow.'}</div>
+        <aside class="claim-detail-panel">
+          <div class="claim-selected-header">
+            <div class="claim-panel-kicker">Selected Block</div>
+            <div class="claim-selected-name">${selectedBlock ? _escapeHtml(selectedBlock.name) : 'None selected'}</div>
+            <div class="claim-selected-meta">${selectedBlock ? `${selectedBlock.lbd_count || 0} ${selectedItemLabel} in the active tracker` : 'Choose a power block to manage its claim workflow.'}</div>
           </div>
-          <div style="display:flex;gap:10px;flex-wrap:wrap;">${claimActionButton}${releaseButton}${detailsButton}</div>
-          <div style="padding:14px 16px;border-radius:14px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);">
-            <div style="font-size:11px;font-weight:700;letter-spacing:0.7px;text-transform:uppercase;color:#94a3b8;">Claim Status</div>
-            <div style="margin-top:8px;font-size:14px;color:#eef2ff;">${selectedBlock && selectedBlock.claimed_by ? `Claimed by ${_escapeHtml(selectedBlock.claimed_label || selectedBlock.claimed_by)}` : 'Unclaimed'}</div>
-            <div style="margin-top:4px;font-size:12px;color:#94a3b8;">${selectedClaimedPeople || 'No crew assigned yet.'}</div>
+          <div class="claim-action-row">${claimActionButton}${releaseButton}${detailsButton}</div>
+          <div class="claim-info-card">
+            <div class="claim-card-label">Claim Status</div>
+            <div class="claim-card-value">${selectedBlock && selectedBlock.claimed_by ? `Claimed by ${_escapeHtml(selectedBlock.claimed_label || selectedBlock.claimed_by)}` : 'Unclaimed'}</div>
+            <div class="claim-card-meta">${selectedClaimedPeople || 'No crew assigned yet.'}</div>
             ${selectedAssignments || ''}
           </div>
-          <div style="padding:14px 16px;border-radius:14px;background:rgba(0,212,255,0.05);border:1px solid rgba(0,212,255,0.14);">
-            <div style="font-size:11px;font-weight:700;letter-spacing:0.7px;text-transform:uppercase;color:#8adfff;">Safeguards</div>
-            <div style="margin-top:8px;font-size:13px;color:#cbd5e1;">Every manual claim now goes through a review step before submit. Claim scans below also require a preview plus crew confirmation before they are committed.</div>
+          <div class="claim-info-card claim-info-card-accent">
+            <div class="claim-card-label claim-card-label-accent">Safeguards</div>
+            <div class="claim-card-copy">Every manual claim now goes through a review step before submit. Claim scans below also require a preview plus crew confirmation before they are committed.</div>
           </div>
-          <div class="form-section" style="padding:16px 16px 18px;display:flex;flex-direction:column;gap:14px;">
+          <section class="claim-scan-card">
             <div>
-              <div style="font-size:11px;font-weight:700;letter-spacing:0.7px;text-transform:uppercase;color:#8adfff;">Claim Scan</div>
-              <div style="margin-top:6px;font-size:12px;color:#94a3b8;">Upload a marked claim sheet for the selected power block. The server will detect likely assignments and let you review them before submit.</div>
+              <div class="claim-card-label claim-card-label-accent">Claim Scan</div>
+              <div class="claim-card-copy">Upload a marked claim sheet for the selected power block. The server will detect likely assignments and let you review them before submit.</div>
             </div>
-            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-              <input type="file" id="claim-scan-file" accept="image/*" onchange="claimDraftScanFile(this)" ${selectedBlock ? '' : 'disabled'} style="flex:1;min-width:180px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:10px;color:#cbd5e1;" />
+            <div class="claim-scan-upload-row">
+              <input type="file" class="claim-file-input" id="claim-scan-file" accept="image/*" onchange="claimDraftScanFile(this)" ${selectedBlock ? '' : 'disabled'} />
               <button class="btn btn-secondary" onclick="claimResetScanDraft()" ${scanDraft || claimPageState.scanFileName ? '' : 'disabled'}>Clear</button>
             </div>
-            <div style="font-size:12px;color:${claimPageState.scanLoading ? '#8adfff' : '#64748b'};">${claimPageState.scanLoading ? `Scanning ${_escapeHtml(claimPageState.scanFileName || 'claim image')}...` : (claimPageState.scanFileName ? `Loaded: ${_escapeHtml(claimPageState.scanFileName)}` : 'No scan selected yet.')}</div>
-            <div>
-              <div style="font-size:11px;font-weight:700;letter-spacing:0.7px;text-transform:uppercase;color:#94a3b8;">Crew For This Scan</div>
-              <textarea oninput="claimSetScanCrewText(this.value)" placeholder="Add crew names separated by commas or new lines" style="margin-top:8px;width:100%;min-height:78px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:10px 12px;color:#eef2ff;resize:vertical;">${_escapeHtml(claimPageState.scanCrewText)}</textarea>
-              <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:8px;">${suggestionButtons || '<span style="color:#64748b;font-size:12px;">No saved crew suggestions yet.</span>'}</div>
+            <div class="claim-scan-status${claimPageState.scanLoading ? ' is-loading' : ''}">${scanStatusCopy}</div>
+            <div class="claim-field-group">
+              <div class="claim-card-label">Crew For This Scan</div>
+              <textarea class="claim-modal-textarea claim-scan-textarea" oninput="claimSetScanCrewText(this.value)" placeholder="Add crew names separated by commas or new lines">${_escapeHtml(claimPageState.scanCrewText)}</textarea>
+              <div class="claim-crew-chip-row">${suggestionButtons || '<span class="claim-muted-copy">No saved crew suggestions yet.</span>'}</div>
             </div>
-            <div style="display:grid;gap:12px;">
-              <div>
-                <div style="font-size:11px;font-weight:700;letter-spacing:0.7px;text-transform:uppercase;color:#94a3b8;">Detected Assignments</div>
-                <div style="margin-top:8px;display:grid;gap:8px;max-height:180px;overflow:auto;">${scanDraft ? (scanPreviewRows || '<div style="color:#94a3b8;font-size:12px;">The scan did not detect any marked task cells yet.</div>') : '<div style="color:#64748b;font-size:12px;">Upload a claim sheet to preview detected LBD rows and tasks.</div>'}</div>
+            <div class="claim-scan-grid">
+              <div class="claim-scan-section">
+                <div class="claim-card-label">Detected Assignments</div>
+                <div class="claim-scan-list">${scanDraft ? (scanPreviewRows || '<div class="claim-muted-copy">The scan did not detect any marked task cells yet.</div>') : '<div class="claim-muted-copy">Upload a claim sheet to preview detected LBD rows and tasks.</div>'}</div>
               </div>
-              <div>
-                <div style="font-size:11px;font-weight:700;letter-spacing:0.7px;text-transform:uppercase;color:#94a3b8;">Scan Warnings</div>
-                <div style="margin-top:8px;">${scanDraft ? warningHtml : '<div style="color:#64748b;font-size:12px;">Warnings and review notes will appear here after the scan finishes.</div>'}</div>
+              <div class="claim-scan-section">
+                <div class="claim-card-label">Scan Warnings</div>
+                <div class="claim-scan-list">${scanDraft ? warningHtml : '<div class="claim-muted-copy">Warnings and review notes will appear here after the scan finishes.</div>'}</div>
               </div>
             </div>
-            <div style="display:flex;justify-content:flex-end;gap:10px;">
+            <div class="claim-submit-row">
               <button class="btn btn-success" onclick="claimSubmitScanDraft()" ${(scanDraft && !claimPageState.scanSubmitting) ? '' : 'disabled'}>${claimPageState.scanSubmitting ? 'Submitting...' : 'Submit Scan Claim'}</button>
             </div>
-          </div>
-        </div>
+          </section>
+        </aside>
       </div>
     </div>`;
 }

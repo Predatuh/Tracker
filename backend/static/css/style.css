@@ -365,6 +365,501 @@ body::after {
   color: rgba(238,242,255,0.4);
 }
 
+.claim-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.claim-hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 18px;
+  flex-wrap: wrap;
+  padding: 22px 24px;
+  border-radius: 22px;
+  border: 1px solid rgba(0,212,255,0.12);
+  background:
+    radial-gradient(circle at top left, rgba(0,212,255,0.12), transparent 34%),
+    linear-gradient(145deg, rgba(8,12,28,0.94), rgba(13,18,40,0.98));
+  box-shadow: 0 18px 44px rgba(0,0,0,0.3);
+}
+
+.claim-hero-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 700px;
+}
+
+.claim-kicker,
+.claim-panel-kicker,
+.claim-card-label,
+.claim-filter-label,
+.claim-summary-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.9px;
+  text-transform: uppercase;
+}
+
+.claim-kicker {
+  color: var(--cyan);
+}
+
+.claim-hero-title {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 28px;
+  line-height: 1.1;
+  color: #f7fbff;
+}
+
+.claim-hero-subtitle {
+  color: rgba(238,242,255,0.64);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.claim-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+  flex: 1;
+  min-width: min(100%, 520px);
+}
+
+.claim-summary-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 126px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.04);
+}
+
+.claim-summary-value {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 30px;
+  line-height: 1;
+  color: #eef2ff;
+}
+
+.claim-summary-meta {
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(238,242,255,0.56);
+}
+
+.claim-tone-neutral { border-color: rgba(255,255,255,0.08); }
+.claim-tone-cyan { border-color: rgba(0,212,255,0.2); box-shadow: inset 0 0 0 1px rgba(0,212,255,0.05); }
+.claim-tone-emerald { border-color: rgba(0,232,122,0.18); box-shadow: inset 0 0 0 1px rgba(0,232,122,0.05); }
+
+.claim-filter-shell {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: linear-gradient(145deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+}
+
+.claim-search-wrap {
+  flex: 1 1 240px;
+}
+
+.claim-search-input,
+.claim-file-input {
+  width: 100%;
+  background: linear-gradient(180deg, rgba(11,17,36,0.96), rgba(8,13,28,0.96));
+  border: 1px solid rgba(0,212,255,0.18);
+  border-radius: 12px;
+  color: var(--text-primary);
+  font-family: 'Space Grotesk', sans-serif;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+}
+
+.claim-search-input {
+  padding: 11px 14px;
+}
+
+.claim-search-input:focus,
+.claim-file-input:focus {
+  outline: none;
+  border-color: rgba(0,212,255,0.45);
+  box-shadow: 0 0 0 3px rgba(0,212,255,0.12), inset 0 1px 0 rgba(255,255,255,0.05);
+}
+
+.claim-search-input::placeholder {
+  color: rgba(238,242,255,0.4);
+}
+
+.claim-filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 160px;
+}
+
+.claim-filter-actions {
+  margin-left: auto;
+}
+
+.claim-workspace {
+  display: grid;
+  grid-template-columns: minmax(320px, 1.1fr) minmax(340px, 0.92fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.claim-blocks-panel,
+.claim-detail-panel,
+.claim-scan-card {
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: linear-gradient(145deg, rgba(12,16,36,0.9), rgba(7,9,26,0.96));
+  box-shadow: 0 18px 42px rgba(0,0,0,0.28);
+}
+
+.claim-blocks-panel,
+.claim-detail-panel {
+  padding: 18px 20px;
+}
+
+.claim-detail-panel {
+  position: sticky;
+  top: 86px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.claim-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.claim-panel-subtitle,
+.claim-selected-meta,
+.claim-card-meta,
+.claim-card-copy,
+.claim-muted-copy {
+  color: rgba(238,242,255,0.56);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.claim-panel-count {
+  font-size: 12px;
+  color: rgba(238,242,255,0.58);
+}
+
+.claim-block-list {
+  display: grid;
+  gap: 10px;
+  max-height: 680px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.claim-block-tile {
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.03);
+  cursor: pointer;
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+
+.claim-block-tile:hover {
+  transform: translateY(-2px);
+  border-color: rgba(0,212,255,0.22);
+  box-shadow: 0 12px 28px rgba(0,0,0,0.2);
+}
+
+.claim-block-tile.is-selected {
+  border-color: rgba(0,212,255,0.42);
+  background: rgba(0,212,255,0.12);
+  box-shadow: 0 0 0 2px rgba(0,212,255,0.12);
+}
+
+.claim-block-tile-top,
+.claim-block-meta-row,
+.claim-scan-upload-row,
+.claim-submit-row,
+.claim-action-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.claim-block-name,
+.claim-selected-name,
+.claim-card-value {
+  color: #eef2ff;
+}
+
+.claim-block-name {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.claim-block-zone,
+.claim-block-progress {
+  font-size: 11px;
+  color: #8adfff;
+}
+
+.claim-block-status {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.claim-block-status.is-claimed {
+  color: #8adfff;
+}
+
+.claim-block-count {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.claim-empty-state {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  min-height: 180px;
+  padding: 24px;
+  text-align: center;
+  border-radius: 16px;
+  border: 1px dashed rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.03);
+}
+
+.claim-empty-state strong {
+  color: #eef2ff;
+  font-size: 15px;
+}
+
+.claim-empty-state span {
+  color: rgba(238,242,255,0.54);
+  font-size: 12px;
+}
+
+.claim-selected-header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.claim-selected-name {
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.claim-info-card {
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.03);
+}
+
+.claim-info-card-accent {
+  border-color: rgba(0,212,255,0.14);
+  background: rgba(0,212,255,0.06);
+}
+
+.claim-card-label {
+  color: #94a3b8;
+}
+
+.claim-card-label-accent {
+  color: #8adfff;
+}
+
+.claim-card-value {
+  margin-top: 8px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.claim-scan-card {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.claim-file-input {
+  min-width: 200px;
+  padding: 10px 12px;
+}
+
+.claim-file-input::file-selector-button {
+  margin-right: 10px;
+  border: 1px solid rgba(0,212,255,0.2);
+  border-radius: 10px;
+  background: rgba(0,212,255,0.08);
+  color: #c7fbff;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.claim-scan-status {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.claim-scan-status.is-loading {
+  color: #8adfff;
+}
+
+.claim-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.claim-scan-textarea {
+  min-height: 88px;
+  resize: vertical;
+}
+
+.claim-crew-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.claim-crew-chip {
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.04);
+  color: #d5def7;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.claim-crew-chip:hover {
+  border-color: rgba(0,212,255,0.2);
+  color: #8adfff;
+}
+
+.claim-scan-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.claim-scan-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.claim-scan-list {
+  display: grid;
+  gap: 8px;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.claim-scan-preview-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+}
+
+.claim-scan-preview-name {
+  color: #eef2ff;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.claim-scan-preview-statuses {
+  color: #94a3b8;
+  font-size: 12px;
+  text-align: right;
+}
+
+.claim-warning-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.claim-warning-card {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255,193,7,0.08);
+  border: 1px solid rgba(255,193,7,0.18);
+  color: #facc15;
+  font-size: 12px;
+}
+
+.claim-submit-row {
+  justify-content: flex-end;
+}
+
+@media (max-width: 1080px) {
+  .claim-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .claim-detail-panel {
+    position: static;
+  }
+}
+
+@media (max-width: 720px) {
+  .claim-hero {
+    padding: 18px;
+  }
+
+  .claim-summary-grid,
+  .claim-filter-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .claim-panel-head,
+  .claim-filter-actions,
+  .claim-action-row,
+  .claim-scan-upload-row,
+  .claim-submit-row {
+    justify-content: stretch;
+  }
+
+  .claim-action-row .btn,
+  .claim-submit-row .btn,
+  .claim-filter-actions .btn {
+    width: 100%;
+  }
+
+  .claim-scan-preview-row {
+    flex-direction: column;
+  }
+}
+
 /* -- Main layout ------------------------------------------------- */
 .app-main { max-width: 1500px; margin: 0 auto; padding: 28px 24px; }
 .page       { display: none; }
