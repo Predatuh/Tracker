@@ -195,6 +195,8 @@ def create_site_area():
             bbox_w=data.get('bbox_w'),
             bbox_h=data.get('bbox_h'),
             label_font_size=data.get('label_font_size'),
+            label_offset_x=data.get('label_offset_x'),
+            label_offset_y=data.get('label_offset_y'),
         )
         if data.get('polygon'):
             area.set_polygon(data['polygon'])
@@ -232,6 +234,10 @@ def update_site_area(area_id):
             area.label_font_size = data['label_font_size']
         if 'label_color' in data:
             area.label_color = data['label_color'] or None
+        if 'label_offset_x' in data:
+            area.label_offset_x = data['label_offset_x']
+        if 'label_offset_y' in data:
+            area.label_offset_y = data['label_offset_y']
         if 'zone' in data:
             area.zone = data['zone'] or None
         if 'polygon' in data:
@@ -374,10 +380,11 @@ def sync_positions():
     try:
         data = request.get_json()
         bboxes = data.get('bboxes', {})
+        label_offsets = data.get('label_offsets', {})
         map_id = data.get('map_id')
 
-        if not bboxes or not map_id:
-            return jsonify({'error': 'bboxes and map_id required'}), 400
+        if (not bboxes and not label_offsets) or not map_id:
+            return jsonify({'error': 'map_id and at least one of bboxes or label_offsets are required'}), 400
 
         # Load all areas for this map
         areas = SiteArea.query.filter_by(site_map_id=map_id).all()
@@ -392,6 +399,14 @@ def sync_positions():
                 area.bbox_y = bbox.get('y', area.bbox_y)
                 area.bbox_w = bbox.get('w', area.bbox_w)
                 area.bbox_h = bbox.get('h', area.bbox_h)
+                updated += 1
+
+        for pb_id_str, offset in label_offsets.items():
+            pb_id = int(pb_id_str)
+            area = area_by_pb.get(pb_id)
+            if area:
+                area.label_offset_x = offset.get('x', area.label_offset_x)
+                area.label_offset_y = offset.get('y', area.label_offset_y)
                 updated += 1
 
         db.session.commit()

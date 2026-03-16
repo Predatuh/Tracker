@@ -204,6 +204,8 @@ def _migrate_generic(app):
         ('site_areas', 'label_font_size', 'INTEGER'),
         ('site_areas', 'polygon_points', 'TEXT'),
         ('site_areas', 'label_color', 'VARCHAR(30)'),
+        ('site_areas', 'label_offset_x', 'FLOAT'),
+        ('site_areas', 'label_offset_y', 'FLOAT'),
         ('site_areas', 'zone', 'VARCHAR(50)'),
         ('users', 'role', "VARCHAR(20) DEFAULT 'user'"),
         ('users', 'permissions', "TEXT DEFAULT '[]'"),
@@ -249,6 +251,8 @@ def _migrate_sqlite(app, db_uri):
     _add_col(cur, 'site_areas', 'label_font_size', 'INTEGER')
     _add_col(cur, 'site_areas', 'polygon_points', 'TEXT')
     _add_col(cur, 'site_areas', 'label_color', 'VARCHAR(30)')
+    _add_col(cur, 'site_areas', 'label_offset_x', 'REAL')
+    _add_col(cur, 'site_areas', 'label_offset_y', 'REAL')
     _add_col(cur, 'site_areas', 'zone', 'VARCHAR(50)')
     _add_col(cur, 'users', 'role', "VARCHAR(20) DEFAULT 'user'")
     _add_col(cur, 'users', 'permissions', "TEXT DEFAULT '[]'")

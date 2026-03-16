@@ -245,6 +245,7 @@
                         <button id="delete-mode-btn" class="btn btn-danger admin-only" data-perm="edit_map" onclick="toggleDeleteMode()" style="font-size:12px;padding:5px 12px;">🗑️ Delete Mode</button>
                         <span id="delete-mode-indicator" class="delete-mode-indicator" style="display:none;">DELETE MODE</span>
                         <button id="edit-mode-btn" class="btn btn-secondary admin-only" data-perm="edit_map" onclick="toggleMapEditMode()" style="font-size:12px;padding:5px 12px;">✏️ Edit Positions</button>
+                        <button id="label-adjust-btn" class="btn btn-secondary admin-only" data-perm="edit_map" onclick="toggleLabelAdjustMode()" style="font-size:12px;padding:5px 12px;" title="Drag PB numbers without moving PB outlines">🔢 Adjust Numbers</button>
                         <button id="snap-place-btn" class="btn btn-secondary admin-only" data-perm="edit_map" onclick="toggleSnapPlace()" style="font-size:12px;padding:5px 12px;" title="Click inside black outlines on the map to snap-place PBs to their exact shape">🎯 Snap Place</button>
                         <button id="moveall-btn" class="btn btn-secondary admin-only" data-perm="edit_map" onclick="toggleMoveAll()" style="font-size:12px;padding:5px 12px;" title="Drag to move all PBs and labels at once">✥ Move All</button>
                         <button class="btn btn-secondary" onclick="toggleWhiteBg()" style="font-size:12px;padding:5px 12px;" title="Toggle map image on/off">🖼️ Toggle Map</button>
@@ -304,6 +305,9 @@
                             </div>
                             <div id="map-edit-hint" style="display:none;position:absolute;top:12px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,rgba(0,212,255,0.15),rgba(124,108,252,0.15));backdrop-filter:blur(10px);border:1px solid rgba(0,212,255,0.3);color:#00d4ff;padding:7px 18px;border-radius:100px;font-size:12px;font-weight:600;pointer-events:none;z-index:200;white-space:nowrap;">
                                 ✏️ Drag markers to reposition • Click "Done Editing" when finished
+                            </div>
+                            <div id="label-edit-hint" style="display:none;position:absolute;top:48px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,rgba(255,193,7,0.16),rgba(0,212,255,0.12));backdrop-filter:blur(10px);border:1px solid rgba(255,193,7,0.35);color:#ffe28a;padding:7px 18px;border-radius:100px;font-size:12px;font-weight:600;pointer-events:none;z-index:200;white-space:nowrap;">
+                              🔢 Drag PB numbers only • PB boxes stay fixed
                             </div>
                             <div id="snap-place-hint" style="display:none;position:absolute;top:12px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,rgba(255,193,7,0.18),rgba(0,212,255,0.15));backdrop-filter:blur(10px);border:1px solid rgba(255,193,7,0.35);color:#ffc107;padding:7px 18px;border-radius:100px;font-size:12px;font-weight:600;pointer-events:none;z-index:200;white-space:nowrap;">
                                 🎯 Click inside a black outline to snap-place the next PB

@@ -176,8 +176,8 @@ const api = {
   snapOutline(mapId, x_pct, y_pct) {
     return this.call(`/map/snap-outline/${mapId}`, { method:'POST', body: JSON.stringify({ x_pct, y_pct }) });
   },
-  syncPositions(mapId, bboxes) {
-    return this.call('/map/sync-positions', { method:'POST', body: JSON.stringify({ map_id: mapId, bboxes }) });
+  syncPositions(mapId, bboxes = {}, labelOffsets = {}) {
+    return this.call('/map/sync-positions', { method:'POST', body: JSON.stringify({ map_id: mapId, bboxes, label_offsets: labelOffsets }) });
   }
 };
 
@@ -1310,6 +1310,8 @@ async function replaceSiteMap() {
     // 2. Clear saved bboxes & positions so markers start fresh
     localStorage.removeItem('pb_bboxes');
     localStorage.removeItem('pb_positions');
+    localStorage.removeItem('pb_label_offsets');
+    pbLabelOffsets = {};
 
     // 3. Clear scan overlays
     detectedScanRegions = [];
@@ -1464,6 +1466,7 @@ async function loadSiteMap() {
       if (currentMap && currentMap.areas) {
         // Always populate loadedMapAreas so zone assign works regardless of cache state
         loadedMapAreas = currentMap.areas;
+        const cachedLabelOffsets = JSON.parse(localStorage.getItem('pb_label_offsets') || '{}');
         if (Object.keys(bboxes).length === 0) {
           // Only seed localStorage bbox cache if it hasn't been populated yet
           for (const area of currentMap.areas) {
@@ -1491,6 +1494,22 @@ async function loadSiteMap() {
             localStorage.setItem('pb_polygons', JSON.stringify(pbPolygons));
           }
           localStorage.setItem('pb_label_colors', JSON.stringify(pbLabelColors));
+        }
+        if (Object.keys(cachedLabelOffsets).length === 0) {
+          for (const area of currentMap.areas) {
+            if (!area.power_block_id) continue;
+            const hasX = area.label_offset_x != null;
+            const hasY = area.label_offset_y != null;
+            if (hasX || hasY) {
+              pbLabelOffsets[String(area.power_block_id)] = {
+                x: hasX ? Number(area.label_offset_x) : 0,
+                y: hasY ? Number(area.label_offset_y) : 0,
+              };
+            }
+          }
+          localStorage.setItem('pb_label_offsets', JSON.stringify(pbLabelOffsets));
+        } else {
+          pbLabelOffsets = cachedLabelOffsets;
         }
       }
     } catch(e) { console.log('No site areas to load:', e); }
@@ -1871,12 +1890,14 @@ let snapPlaceMapId = null; // cached map id for snap API calls
 let snapClearOneMode = false; // click-to-clear individual PB mode
 let pbPolygons = JSON.parse(localStorage.getItem('pb_polygons') || '{}');
 let pbLabelColors = JSON.parse(localStorage.getItem('pb_label_colors') || '{}'); // keyed by PB id string
+let labelAdjustMode = false;
 // also store all loaded areas so admin tab can list them
 let loadedMapAreas = [];
+let pbLabelOffsets = JSON.parse(localStorage.getItem('pb_label_offsets') || '{}'); // keyed by PB id string
 let siteMapViewState = {
   currentMap: null,
 };
-const PB_LABEL_POSITION_OVERRIDES = {
+const DEFAULT_PB_LABEL_POSITION_OVERRIDES = {
   '11': { x: 4, y: 1 },
   '33': { x: -3, y: 0 },
   '48': { x: -3, y: 2 },
@@ -1887,6 +1908,16 @@ const PB_LABEL_POSITION_OVERRIDES = {
 };
 
 // Snap threshold in % of map dimensions
+
+function getPBLabelOffset(pbKey) {
+  const fallback = DEFAULT_PB_LABEL_POSITION_OVERRIDES[pbKey] || { x: 0, y: 0 };
+  const saved = pbLabelOffsets[pbKey];
+  if (!saved) return fallback;
+  return {
+    x: Number.isFinite(Number(saved.x)) ? Number(saved.x) : fallback.x,
+    y: Number.isFinite(Number(saved.y)) ? Number(saved.y) : fallback.y,
+  };
+}
 const SNAP_THRESHOLD = 1.2;
 
 function getMapPBVisualState(pb) {
@@ -2011,6 +2042,14 @@ function clearSnapHighlight() {
 // Single global drag handlers (supports move + resize + snap)
 document.addEventListener('mousemove', e => {
   if (!dragState) return;
+  if (dragState.mode === 'label-move') {
+    const dx = e.clientX - dragState.startX;
+    const dy = e.clientY - dragState.startY;
+    const nextX = Math.max(-18, Math.min(18, dragState.origLabelX + dx));
+    const nextY = Math.max(-18, Math.min(18, dragState.origLabelY + dy));
+    dragState.labelEl.style.transform = `translate(${nextX}px, ${nextY}px)`;
+    return;
+  }
   const container = document.getElementById('map-container');
   if (!container) return;
   const cW = container.offsetWidth;
@@ -2079,6 +2118,19 @@ document.addEventListener('mousemove', e => {
 
 document.addEventListener('mouseup', () => {
   if (!dragState) return;
+  if (dragState.mode === 'label-move') {
+    const pbId = String(dragState.pbId);
+    const match = (dragState.labelEl.style.transform || '').match(/translate\(([-\d.]+)px,\s*([-\d.]+)px\)/);
+    const nextOffset = {
+      x: match ? Number(match[1]) : dragState.origLabelX,
+      y: match ? Number(match[2]) : dragState.origLabelY,
+    };
+    pbLabelOffsets[pbId] = nextOffset;
+    localStorage.setItem('pb_label_offsets', JSON.stringify(pbLabelOffsets));
+    dragState.labelEl.style.cursor = 'grab';
+    dragState = null;
+    return;
+  }
   clearSnapHighlight();
   dragState.marker.style.cursor = 'grab';
   dragState.marker.style.zIndex = '20';
@@ -2229,6 +2281,7 @@ async function toggleSnapPlace() {
   if (snapPlaceMode) {
     // Exit edit mode if active
     if (mapEditMode) toggleMapEditMode();
+    if (labelAdjustMode) toggleLabelAdjustMode();
 
     // Ensure map is registered
     let maps = await api.getAllSiteMaps().catch(() => ({data:[]}));
@@ -2728,7 +2781,7 @@ function renderPBMarkers() {
     m.title = `PB ${pb.name} — ${total} LBDs\n${statusInfo}`;
 
     // PB number — centered, unaffected by "In Progress" label
-    const labelOffset = PB_LABEL_POSITION_OVERRIDES[key] || { x: 0, y: 0 };
+    const labelOffset = getPBLabelOffset(key);
     const numSpan = document.createElement('span');
     numSpan.textContent = num;
     numSpan.style.cssText = `position:absolute;inset:0;display:flex;align-items:center;justify-content:center;white-space:nowrap;max-width:100%;text-overflow:clip;z-index:1;pointer-events:none;color:${labelColor};font-weight:900;text-shadow:-1px -1px 0 ${outlineColor}, 1px -1px 0 ${outlineColor}, -1px 1px 0 ${outlineColor}, 1px 1px 0 ${outlineColor}, 0 0 8px rgba(0,0,0,0.35);-webkit-text-stroke:1px ${outlineColor};paint-order:stroke fill;transform:translate(${labelOffset.x}px, ${labelOffset.y}px);`;
@@ -2816,6 +2869,26 @@ function renderPBMarkers() {
         });
         m.appendChild(handle);
       });
+    } else if (labelAdjustMode) {
+      m.style.cursor = 'default';
+      numSpan.style.pointerEvents = 'auto';
+      numSpan.style.cursor = 'grab';
+      numSpan.title = `Drag PB ${num} number only`;
+      numSpan.addEventListener('mousedown', e => {
+        e.preventDefault();
+        e.stopPropagation();
+        const currentOffset = getPBLabelOffset(key);
+        dragState = {
+          mode: 'label-move',
+          labelEl: numSpan,
+          pbId: pb.id,
+          startX: e.clientX,
+          startY: e.clientY,
+          origLabelX: currentOffset.x,
+          origLabelY: currentOffset.y,
+        };
+        numSpan.style.cursor = 'grabbing';
+      });
     } else {
       // View mode: click fetches fresh data and opens panel
       m.style.cursor = mapDeleteMode ? 'crosshair' : (zoneAssignMode ? 'cell' : 'pointer');
@@ -2855,13 +2928,14 @@ function renderPBMarkers() {
 
 async function syncPositionsToServer() {
   const bboxes = JSON.parse(localStorage.getItem('pb_bboxes') || '{}');
-  if (Object.keys(bboxes).length === 0) return;
+  const labelOffsets = JSON.parse(localStorage.getItem('pb_label_offsets') || '{}');
+  if (Object.keys(bboxes).length === 0 && Object.keys(labelOffsets).length === 0) return;
   try {
     const maps = await api.getAllSiteMaps();
     const list = maps.data || [];
     if (list.length === 0) return;
     const mapId = list[0].id;
-    await api.syncPositions(mapId, bboxes);
+    await api.syncPositions(mapId, bboxes, labelOffsets);
     console.log('Positions synced to server');
   } catch (e) {
     console.error('Failed to sync positions:', e);
@@ -2873,6 +2947,7 @@ function toggleMapEditMode() {
   const btn = document.getElementById('edit-mode-btn');
   const hint = document.getElementById('map-edit-hint');
   if (mapEditMode) {
+    if (labelAdjustMode) toggleLabelAdjustMode();
     btn.textContent = '✅ Done Editing';
     btn.classList.remove('btn-secondary');
     btn.classList.add('btn-success');
@@ -2888,6 +2963,35 @@ function toggleMapEditMode() {
   }
   renderPBMarkers();
   renderTextLabels();
+}
+
+function toggleLabelAdjustMode() {
+  labelAdjustMode = !labelAdjustMode;
+  const btn = document.getElementById('label-adjust-btn');
+  const hint = document.getElementById('label-edit-hint');
+  if (labelAdjustMode) {
+    if (mapEditMode) toggleMapEditMode();
+    if (snapPlaceMode) toggleSnapPlace();
+    if (moveAllMode) toggleMoveAll();
+    if (mapDeleteMode) toggleDeleteMode();
+    if (zoneAssignMode) toggleZoneAssignMode();
+    if (btn) {
+      btn.textContent = '✅ Done Numbers';
+      btn.classList.remove('btn-secondary');
+      btn.classList.add('btn-success');
+    }
+    if (hint) hint.style.display = 'block';
+    closePBPanel();
+  } else {
+    if (btn) {
+      btn.textContent = '🔢 Adjust Numbers';
+      btn.classList.remove('btn-success');
+      btn.classList.add('btn-secondary');
+    }
+    if (hint) hint.style.display = 'none';
+    syncPositionsToServer();
+  }
+  renderPBMarkers();
 }
 
 // ── Restore hidden PB markers ──
@@ -2912,6 +3016,7 @@ function toggleMoveAll() {
   moveAllMode = !moveAllMode;
   const btn = document.getElementById('moveall-btn');
   if (moveAllMode) {
+    if (labelAdjustMode) toggleLabelAdjustMode();
     btn.textContent = '✅ Done Moving';
     btn.classList.remove('btn-secondary');
     btn.classList.add('btn-success');
@@ -5745,6 +5850,8 @@ async function clearScanOverlays() {
   // Clear saved bboxes so markers go back to default circles
   localStorage.removeItem('pb_bboxes');
   localStorage.removeItem('pb_positions');
+  localStorage.removeItem('pb_label_offsets');
+  pbLabelOffsets = {};
   // Also clear polygon shapes
   pbPolygons = {};
   localStorage.removeItem('pb_polygons');
