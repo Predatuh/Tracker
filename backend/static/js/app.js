@@ -3570,6 +3570,9 @@ let claimPageState = {
   blocks: [],
   selectedBlockId: null,
   search: '',
+  zoneFilter: '',
+  sort: 'number_asc',
+  statusFilter: 'all',
   peopleSuggestions: [],
   scanDraft: null,
   scanFileName: '',
@@ -3590,16 +3593,74 @@ function canReleaseClaim(block) {
   return claimedPeople.includes(currentUser.name);
 }
 
+function claimBlockNumber(block) {
+  const raw = block.power_block_number || block.name || '';
+  const match = String(raw).match(/\d+/);
+  return match ? Number(match[0]) : Number.MAX_SAFE_INTEGER;
+}
+
+function claimCompletedSteps(block) {
+  const summary = block.lbd_summary || {};
+  return LBD_STATUS_TYPES.reduce((total, statusType) => total + Number(summary[statusType] || 0), 0);
+}
+
+function claimBlockIsInProgress(block) {
+  const totalItems = Number(block.lbd_count || 0);
+  if (!totalItems) return false;
+  const totalSteps = totalItems * LBD_STATUS_TYPES.length;
+  const completedSteps = claimCompletedSteps(block);
+  return completedSteps > 0 && completedSteps < totalSteps;
+}
+
+function claimCompareBlocks(a, b, sortKey) {
+  if (sortKey === 'number_desc') {
+    return claimBlockNumber(b) - claimBlockNumber(a) || String(a.name || '').localeCompare(String(b.name || ''));
+  }
+  if (sortKey === 'recent_claimed') {
+    const aTime = a.claimed_at ? (Date.parse(a.claimed_at) || 0) : 0;
+    const bTime = b.claimed_at ? (Date.parse(b.claimed_at) || 0) : 0;
+    if (bTime !== aTime) return bTime - aTime;
+    return claimBlockNumber(a) - claimBlockNumber(b);
+  }
+  return claimBlockNumber(a) - claimBlockNumber(b) || String(a.name || '').localeCompare(String(b.name || ''));
+}
+
+function claimZoneOptions() {
+  const zones = [...new Set(claimPageState.blocks.map((block) => block.zone).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  if (zones.length === 0 && Array.isArray(_adminZoneNames) && _adminZoneNames.length > 0) {
+    return _adminZoneNames.slice().sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }
+  return zones;
+}
+
 function claimFilteredBlocks() {
   const query = claimPageState.search.trim().toLowerCase();
-  if (!query) return claimPageState.blocks;
-  return claimPageState.blocks.filter((block) => {
-    const haystack = [block.name, block.zone, block.claimed_label, block.claimed_by]
-      .filter(Boolean)
-      .join(' ')
-      .toLowerCase();
-    return haystack.includes(query);
-  });
+  let filtered = [...claimPageState.blocks];
+
+  if (claimPageState.zoneFilter) {
+    filtered = filtered.filter((block) => (block.zone || '') === claimPageState.zoneFilter);
+  }
+
+  if (claimPageState.statusFilter === 'unclaimed') {
+    filtered = filtered.filter((block) => !block.claimed_by);
+  } else if (claimPageState.statusFilter === 'recently_claimed') {
+    filtered = filtered.filter((block) => !!block.claimed_at);
+  } else if (claimPageState.statusFilter === 'in_progress') {
+    filtered = filtered.filter((block) => claimBlockIsInProgress(block));
+  }
+
+  if (query) {
+    filtered = filtered.filter((block) => {
+      const haystack = [block.name, block.zone, block.claimed_label, block.claimed_by]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(query);
+    });
+  }
+
+  filtered.sort((a, b) => claimCompareBlocks(a, b, claimPageState.sort));
+  return filtered;
 }
 
 function claimSelectBlock(blockId) {
@@ -3611,6 +3672,21 @@ function claimSelectBlock(blockId) {
 
 function claimUpdateSearch(value) {
   claimPageState.search = String(value || '');
+  renderClaimPage();
+}
+
+function claimUpdateZoneFilter(value) {
+  claimPageState.zoneFilter = String(value || '');
+  renderClaimPage();
+}
+
+function claimUpdateSort(value) {
+  claimPageState.sort = String(value || 'number_asc');
+  renderClaimPage();
+}
+
+function claimUpdateStatusFilter(value) {
+  claimPageState.statusFilter = String(value || 'all');
   renderClaimPage();
 }
 
@@ -3768,6 +3844,7 @@ function renderClaimPage() {
   const claimedBlocks = claimPageState.blocks.filter(block => block.claimed_by);
   const crewCount = new Set(claimedBlocks.flatMap(block => Array.isArray(block.claimed_people) ? block.claimed_people : [])).size;
   const scanDraft = claimPageState.scanDraft;
+  const zoneOptions = claimZoneOptions();
 
   const summaryCard = (label, value, tone) => `
     <div style="padding:16px 18px;border-radius:16px;border:1px solid ${tone};background:rgba(255,255,255,0.03);min-width:150px;">
@@ -3834,6 +3911,21 @@ function renderClaimPage() {
         </div>
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
           <input type="text" value="${_escapeHtml(claimPageState.search)}" oninput="claimUpdateSearch(this.value)" placeholder="Search blocks, zones, or claimed crew" style="flex:1;min-width:240px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:11px 14px;color:#eef2ff;" />
+          <select onchange="claimUpdateZoneFilter(this.value)" style="min-width:150px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:11px 14px;color:#eef2ff;">
+            <option value="">All Zones</option>
+            ${zoneOptions.map((zone) => `<option value="${_escapeHtml(zone)}"${claimPageState.zoneFilter === zone ? ' selected' : ''}>${_escapeHtml(zone)}</option>`).join('')}
+          </select>
+          <select onchange="claimUpdateStatusFilter(this.value)" style="min-width:170px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:11px 14px;color:#eef2ff;">
+            <option value="all"${claimPageState.statusFilter === 'all' ? ' selected' : ''}>All Statuses</option>
+            <option value="unclaimed"${claimPageState.statusFilter === 'unclaimed' ? ' selected' : ''}>Not Claimed</option>
+            <option value="recently_claimed"${claimPageState.statusFilter === 'recently_claimed' ? ' selected' : ''}>Recently Claimed</option>
+            <option value="in_progress"${claimPageState.statusFilter === 'in_progress' ? ' selected' : ''}>In Progress</option>
+          </select>
+          <select onchange="claimUpdateSort(this.value)" style="min-width:190px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:11px 14px;color:#eef2ff;">
+            <option value="number_asc"${claimPageState.sort === 'number_asc' ? ' selected' : ''}>Number Ascending</option>
+            <option value="number_desc"${claimPageState.sort === 'number_desc' ? ' selected' : ''}>Number Descending</option>
+            <option value="recent_claimed"${claimPageState.sort === 'recent_claimed' ? ' selected' : ''}>Recently Claimed</option>
+          </select>
           <button class="btn btn-secondary" onclick="loadClaimPage()">Refresh</button>
         </div>
       </div>
