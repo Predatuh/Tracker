@@ -1382,6 +1382,7 @@ async function loadSiteMap() {
       const maps = await api.getAllSiteMaps();
       const list = maps.data || [];
       const currentMap = getCurrentSiteMapRecord(list);
+        siteMapViewState.currentMap = currentMap || null;
       if (currentMap && currentMap.areas) {
         // Always populate loadedMapAreas so zone assign works regardless of cache state
         loadedMapAreas = currentMap.areas;
@@ -1418,6 +1419,7 @@ async function loadSiteMap() {
 
     renderPBMarkers();
     buildZoneFilter();
+    renderSiteMapSummary();
     // Auto-sync localStorage positions to DB so mobile apps stay in sync
     syncPositionsToServer();
   } catch (e) {
@@ -1749,6 +1751,15 @@ function previewThemeColor(cssVar, value) {
 function renderLegend() {
   const el = document.getElementById('legend-items');
   if (!el) return;
+  const legend = document.getElementById('map-legend');
+  const overlayMode = (siteMapViewState && siteMapViewState.overlayMode) || 'baseline';
+  if (legend) {
+    legend.style.display = overlayMode === 'tracker' ? 'flex' : 'none';
+  }
+  if (overlayMode !== 'tracker') {
+    el.innerHTML = '';
+    return;
+  }
   // Fixed entries always present
   let html = `
     <span style="width:11px;height:11px;background:#6c757d;border-radius:3px;display:inline-block;"></span>Not started
@@ -1781,9 +1792,96 @@ let pbPolygons = JSON.parse(localStorage.getItem('pb_polygons') || '{}');
 let pbLabelColors = JSON.parse(localStorage.getItem('pb_label_colors') || '{}'); // keyed by PB id string
 // also store all loaded areas so admin tab can list them
 let loadedMapAreas = [];
+let siteMapViewState = {
+  overlayMode: localStorage.getItem('site_map_overlay_mode') === 'tracker' ? 'tracker' : 'baseline',
+  currentMap: null,
+};
 
 // Snap threshold in % of map dimensions
 const SNAP_THRESHOLD = 1.2;
+
+function getMapPBVisualState(pb) {
+  const lbds = pb?.lbds || [];
+  const total = Number(pb?.lbd_count || lbds.length || 0);
+  const summary = pb?.lbd_summary || {};
+  const completedTypes = [];
+  const partialTypes = [];
+
+  for (const st of LBD_STATUS_TYPES) {
+    const done = Number(summary[st] || 0);
+    if (total > 0 && done >= total) {
+      completedTypes.push(st);
+    } else if (done > 0) {
+      partialTypes.push(st);
+    }
+  }
+
+  const allDone = total > 0 && lbds.filter((lbd) => isLBDComplete(lbd)).length === total;
+  const inProgress = completedTypes.length > 0 || partialTypes.length > 0;
+  return { total, summary, completedTypes, partialTypes, allDone, inProgress };
+}
+
+function updateSiteMapOverlayButtons() {
+  const baselineBtn = document.getElementById('sitemap-overlay-baseline');
+  const trackerBtn = document.getElementById('sitemap-overlay-tracker');
+  const isTracker = siteMapViewState.overlayMode === 'tracker';
+  if (baselineBtn) baselineBtn.classList.toggle('active', !isTracker);
+  if (trackerBtn) trackerBtn.classList.toggle('active', isTracker);
+}
+
+function renderSiteMapSummary() {
+  const subtitle = document.getElementById('sitemap-viewer-subtitle');
+  const summary = document.getElementById('sitemap-summary-strip');
+  const trackerName = currentTracker?.name || 'Active tracker';
+  const mapName = siteMapViewState.currentMap?.name || 'Current site map';
+  const completed = mapPBs.filter((pb) => getMapPBVisualState(pb).allDone).length;
+  const inProgress = mapPBs.filter((pb) => getMapPBVisualState(pb).inProgress && !getMapPBVisualState(pb).allDone).length;
+  const claimed = mapPBs.filter((pb) => pb.claimed_by).length;
+
+  if (subtitle) {
+    subtitle.textContent = siteMapViewState.overlayMode === 'tracker'
+      ? `${trackerName} overlay is active on ${mapName}.`
+      : `${mapName} is showing the neutral numbered baseline. Enable tracker overlay when you want live progress colors.`;
+  }
+
+  if (summary) {
+    summary.innerHTML = `
+      <div class="sitemap-summary-card">
+        <span class="sitemap-summary-label">Map</span>
+        <strong>${_escapeHtml(mapName)}</strong>
+      </div>
+      <div class="sitemap-summary-card">
+        <span class="sitemap-summary-label">Tracker</span>
+        <strong>${_escapeHtml(trackerName)}</strong>
+      </div>
+      <div class="sitemap-summary-card">
+        <span class="sitemap-summary-label">Power Blocks</span>
+        <strong>${mapPBs.length}</strong>
+      </div>
+      <div class="sitemap-summary-card">
+        <span class="sitemap-summary-label">Completed</span>
+        <strong>${completed}</strong>
+      </div>
+      <div class="sitemap-summary-card">
+        <span class="sitemap-summary-label">In Progress</span>
+        <strong>${inProgress}</strong>
+      </div>
+      <div class="sitemap-summary-card">
+        <span class="sitemap-summary-label">Claimed</span>
+        <strong>${claimed}</strong>
+      </div>`;
+  }
+
+  updateSiteMapOverlayButtons();
+  renderLegend();
+}
+
+function setSiteMapOverlayMode(mode) {
+  siteMapViewState.overlayMode = mode === 'tracker' ? 'tracker' : 'baseline';
+  localStorage.setItem('site_map_overlay_mode', siteMapViewState.overlayMode);
+  renderSiteMapSummary();
+  renderPBMarkers();
+}
 
 // Find the best snap target: check all 4 corners of the dragged rect against
 // all 4 corners of every other placed marker. Returns {x, y, w, h} or null.
@@ -2458,30 +2556,16 @@ function renderPBMarkers() {
     };
     const bbox = savedBbox || defaultBbox;
 
-    const lbds = pb.lbds || [];
-    const total = pb.lbd_count || lbds.length || 0;
-    const summary = pb.lbd_summary || {};
-
-    // Determine which status types are fully complete (all LBDs done)
-    const completedTypes = [];
-    const partialTypes = [];
-    for (const st of LBD_STATUS_TYPES) {
-      const done = summary[st] || 0;
-      if (total > 0 && done >= total) {
-        completedTypes.push(st);
-      } else if (done > 0) {
-        partialTypes.push(st);
-      }
-    }
-
-    const allDone = total > 0 && lbds.filter(l => isLBDComplete(l)).length === total;
-    const inProgress = completedTypes.length > 0 || partialTypes.length > 0;
+    const { total, summary, completedTypes, partialTypes, allDone, inProgress } = getMapPBVisualState(pb);
     const isActive = false; // markers always render the same regardless of selection
     const num = (pb.power_block_number || pb.name.replace('INV-', '')).toString();
+    const overlayMode = siteMapViewState.overlayMode || 'baseline';
 
     // Build background
     let bgStyle;
-    if (allDone) {
+    if (overlayMode !== 'tracker') {
+      bgStyle = 'linear-gradient(180deg, rgba(8,13,28,0.12), rgba(8,13,28,0.22))';
+    } else if (allDone) {
       bgStyle = '#28a745';
     } else if (completedTypes.length >= 2) {
       const colors = completedTypes.map(t => STATUS_COLORS[t] || '#999');
@@ -2498,7 +2582,9 @@ function renderPBMarkers() {
       bgStyle = '#6c757d';
     }
 
-    const borderColor = allDone ? '#1e7e34' : inProgress ? '#d39e00' : '#555';
+    const borderColor = overlayMode === 'tracker'
+      ? (allDone ? '#1e7e34' : inProgress ? '#d39e00' : '#555')
+      : 'rgba(138,223,255,0.48)';
 
     const m = document.createElement('div');
     m.id = `pb-marker-${pb.id}`;
@@ -2507,7 +2593,7 @@ function renderPBMarkers() {
     // All markers are rectangles
     const pbFontOverride = parseInt(localStorage.getItem('pb_font_size') || '0');
     const fontSize = pbFontOverride > 0 ? pbFontOverride : Math.max(7, Math.min(24, bbox.w * 0.35));
-    const labelColor = pbLabelColors[key] || 'white';
+    const labelColor = overlayMode === 'tracker' ? (pbLabelColors[key] || 'white') : '#eef2ff';
     m.style.cssText = [
       'position:absolute',
       `left:${bbox.x}%`,
@@ -2516,7 +2602,7 @@ function renderPBMarkers() {
       `height:${bbox.h}%`,
       `background:${bgStyle}`,
       `border:${isActive ? '3px solid #fff' : '2px solid ' + borderColor}`,
-      `box-shadow:${isActive ? '0 0 0 3px #0d6efd,0 4px 14px rgba(0,0,0,.6)' : '0 2px 6px rgba(0,0,0,.3)'}`,
+      `box-shadow:${isActive ? '0 0 0 3px #0d6efd,0 4px 14px rgba(0,0,0,.6)' : (overlayMode === 'tracker' ? '0 2px 6px rgba(0,0,0,.3)' : '0 8px 24px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.05)')}`,
       'border-radius:4px',
       'display:flex;flex-direction:column;align-items:center;justify-content:center',
       `color:${labelColor};font-weight:700`,
@@ -2544,7 +2630,9 @@ function renderPBMarkers() {
       m.style.borderRadius = '0';
       m.style.border = 'none';
       // Use drop-shadow to create an outline effect around the clipped shape
-      m.style.filter = `drop-shadow(0 0 1.5px ${borderColor}) drop-shadow(0 0 0.5px #000)`;
+      m.style.filter = overlayMode === 'tracker'
+        ? `drop-shadow(0 0 1.5px ${borderColor}) drop-shadow(0 0 0.5px #000)`
+        : 'drop-shadow(0 0 2px rgba(138,223,255,0.55)) drop-shadow(0 0 12px rgba(0,0,0,0.28))';
     }
 
     // Tooltip with full info
@@ -2561,7 +2649,7 @@ function renderPBMarkers() {
     m.appendChild(numSpan);
 
     // "In Progress" indicator — absolutely positioned so it doesn't shift the number
-    if (inProgress && !allDone) {
+    if (overlayMode === 'tracker' && inProgress && !allDone) {
       const ipSpan = document.createElement('span');
       ipSpan.textContent = 'In Progress';
       const ipFontSize = Math.max(5, Math.min(10, fontSize * 0.4));
@@ -3345,31 +3433,9 @@ async function toggleMapStatus(lbdId, statusType, currentDone, btn, pbId) {
 
 // Update a single PB marker color without rebuilding all markers
 function _updateMarkerColor(pb) {
-  const marker = document.getElementById('pb-marker-' + pb.id);
-  if (!marker) return;
-  const lbds = pb.lbds || [];
-  const total = pb.lbd_count || lbds.length || 0;
-  const summary = pb.lbd_summary || {};
-  const completedTypes = [], partialTypes = [];
-  for (const st of LBD_STATUS_TYPES) {
-    const d = summary[st] || 0;
-    if (total > 0 && d >= total) completedTypes.push(st);
-    else if (d > 0) partialTypes.push(st);
-  }
-  const allDone = total > 0 && lbds.filter(l => isLBDComplete(l)).length === total;
-  let bgStyle;
-  if (allDone) bgStyle = '#28a745';
-  else if (completedTypes.length >= 2) {
-    const colors = completedTypes.map(t => STATUS_COLORS[t] || '#999');
-    const step = 100 / colors.length;
-    bgStyle = 'linear-gradient(135deg, ' + colors.map((c, i) => c + ' ' + Math.round(i*step) + '%, ' + c + ' ' + Math.round((i+1)*step) + '%').join(', ') + ')';
-  } else if (completedTypes.length === 1) bgStyle = STATUS_COLORS[completedTypes[0]] || '#ffc107';
-  else if (partialTypes.length > 0) bgStyle = '#ffc107';
-  else bgStyle = '#6c757d';
-  const borderColor = allDone ? '#1e7e34' : (completedTypes.length > 0 || partialTypes.length > 0) ? '#d39e00' : '#555';
-  marker.style.background = bgStyle;
-  if (!marker.style.clipPath || marker.style.clipPath === 'none') marker.style.borderColor = borderColor;
-  else marker.style.filter = 'drop-shadow(0 0 1.5px ' + borderColor + ') drop-shadow(0 0 0.5px #000)';
+  if (!pb) return;
+  renderSiteMapSummary();
+  renderPBMarkers();
 }
 
 function updateSelectedPages() {

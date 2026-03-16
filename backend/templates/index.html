@@ -227,6 +227,16 @@
                     <!-- Toolbar -->
                     <div style="padding:8px 16px;background:rgba(7,9,26,0.97);border-bottom:1px solid rgba(0,212,255,0.08);display:flex;align-items:center;gap:8px;flex-shrink:0;flex-wrap:wrap;">
                         <strong style="font-size:14px;font-weight:700;font-family:'Orbitron',sans-serif;color:#eef2ff;letter-spacing:0.5px;text-shadow:0 0 12px rgba(0,212,255,0.15);">Site Map</strong>
+                      <div class="sitemap-viewer-shell">
+                        <div class="sitemap-viewer-copy">
+                          <div class="sitemap-viewer-kicker">Full Map Viewer</div>
+                          <div id="sitemap-viewer-subtitle" class="sitemap-viewer-subtitle">Baseline map loading...</div>
+                        </div>
+                        <div class="sitemap-overlay-toggle">
+                          <button type="button" id="sitemap-overlay-baseline" class="sitemap-overlay-btn active" onclick="setSiteMapOverlayMode('baseline')">Baseline</button>
+                          <button type="button" id="sitemap-overlay-tracker" class="sitemap-overlay-btn" onclick="setSiteMapOverlayMode('tracker')">Tracker Overlay</button>
+                        </div>
+                      </div>
                         <div style="flex:1;"></div>
                         <button id="zone-assign-btn" class="btn btn-secondary admin-only" data-perm="edit_map" onclick="toggleZoneAssignMode()" style="font-size:12px;padding:5px 12px;" title="Assign PBs to zones by clicking or entering ranges">🏷️ Assign Zones</button>
                         <button id="delete-mode-btn" class="btn btn-danger admin-only" data-perm="edit_map" onclick="toggleDeleteMode()" style="font-size:12px;padding:5px 12px;">🗑️ Delete Mode</button>
@@ -243,6 +253,8 @@
                         <button class="btn btn-secondary admin-only" data-perm="edit_map" onclick="document.getElementById('sitemap-replace-file').click()" style="font-size:12px;padding:5px 12px;">🔄 Replace Map</button>
                         <input type="file" id="sitemap-replace-file" accept=".jpg,.jpeg,.png,.gif" style="display:none" onchange="replaceSiteMap()">
                     </div>
+
+                    <div id="sitemap-summary-strip" class="sitemap-summary-strip"></div>
 
                     <!-- Zone Assign Mode Panel -->
                     <div id="zone-assign-panel" style="display:none;padding:8px 16px;background:rgba(0,20,40,0.98);border-bottom:2px solid rgba(0,212,255,0.3);align-items:center;gap:10px;flex-wrap:wrap;flex-shrink:0;">
