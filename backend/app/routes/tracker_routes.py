@@ -10,6 +10,7 @@ from app.models.worker import Worker
 from app.models.admin_settings import AdminSettings
 from datetime import datetime
 import re
+from app.utils.tracker_access import allowed_tracker_ids, current_session_user, resolve_accessible_tracker
 
 
 def _get_socketio():
@@ -22,15 +23,8 @@ def _get_socketio():
 
 def _current_user_name():
     """Return display name of the logged-in user, or None for guests."""
-    uid = session.get('user_id')
-    if not uid:
-        return None
-    try:
-        from app.models.user import User
-        u = User.query.get(uid)
-        return u.name if u else None
-    except Exception:
-        return None
+    user = current_session_user()
+    return user.name if user else None
 
 
 def _pb_sort_key(name):
@@ -41,10 +35,41 @@ def _pb_sort_key(name):
 
 def _resolve_tracker():
     """Resolve tracker from request args."""
-    tid = request.args.get('tracker_id')
-    if tid:
-        return Tracker.query.get(int(tid))
-    return Tracker.query.filter_by(is_active=True).order_by(Tracker.sort_order, Tracker.id).first()
+    return resolve_accessible_tracker()
+
+
+def _allowed_tracker_id_set():
+    return set(allowed_tracker_ids())
+
+
+def _lbd_is_accessible(lbd):
+    tracker_id = getattr(lbd, 'tracker_id', None)
+    return bool(tracker_id and resolve_accessible_tracker(tracker_id))
+
+
+def _block_is_accessible(block):
+    allowed_ids = _allowed_tracker_id_set()
+    if not allowed_ids:
+        return False
+    block_tracker_ids = {lbd.tracker_id for lbd in block.lbds if lbd.tracker_id}
+    return bool(block_tracker_ids & allowed_ids)
+
+
+def _serialize_accessible_block(block):
+    allowed_ids = _allowed_tracker_id_set()
+    payload = block.to_dict()
+    visible_lbds = [lbd for lbd in payload.get('lbds', []) if lbd.get('tracker_id') in allowed_ids]
+    payload['lbds'] = visible_lbds
+    payload['lbd_count'] = len(visible_lbds)
+
+    summary = {'total': len(visible_lbds)}
+    for col in AdminSettings.all_column_keys():
+        summary[col] = sum(
+            1 for lbd in visible_lbds
+            if any(status.get('status_type') == col and status.get('is_completed') for status in lbd.get('statuses', []))
+        )
+    payload['lbd_summary'] = summary
+    return payload
 
 
 def _normalize_people(people):
@@ -204,6 +229,9 @@ def get_power_blocks():
     """Get all power blocks with LBD dot data (3 bulk queries, no lazy loading)."""
     try:
         tracker = _resolve_tracker()
+        allowed_ids = _allowed_tracker_id_set()
+        if not allowed_ids:
+            return jsonify({'success': True, 'data': []}), 200
         tracker_id = tracker.id if tracker else None
 
         # Query 1: All power blocks
@@ -215,6 +243,8 @@ def get_power_blocks():
         )
         if tracker_id:
             lbd_q = lbd_q.filter(LBD.tracker_id == tracker_id)
+        else:
+            lbd_q = lbd_q.filter(LBD.tracker_id.in_(allowed_ids))
         lbd_rows = lbd_q.order_by(LBD.id).all()
 
         lbd_ids = [l.id for l in lbd_rows]
@@ -257,6 +287,8 @@ def get_power_blocks():
         result = []
         for b in blocks:
             pb_lbds = lbds_by_pb.get(b.id, [])
+            if tracker_id and not pb_lbds:
+                continue
             lbd_count = len(pb_lbds)
             # Build summary counts from pre-fetched data
             summary = {'total': lbd_count}
@@ -298,9 +330,11 @@ def get_power_block(block_id):
         block = PowerBlock.query.options(
             subqueryload(PowerBlock.lbds).subqueryload(LBD.statuses)
         ).get_or_404(block_id)
+        if not _block_is_accessible(block):
+            return jsonify({'error': 'That power block is not accessible for your job site'}), 403
         return jsonify({
             'success': True,
-            'data': block.to_dict()
+            'data': _serialize_accessible_block(block)
         }), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -310,6 +344,8 @@ def update_power_block(block_id):
     """Update power block"""
     try:
         block = PowerBlock.query.get_or_404(block_id)
+        if not _block_is_accessible(block):
+            return jsonify({'error': 'That power block is not accessible for your job site'}), 403
         data = request.get_json()
         
         if 'name' in data:
@@ -323,7 +359,7 @@ def update_power_block(block_id):
         
         return jsonify({
             'success': True,
-            'data': block.to_dict()
+            'data': _serialize_accessible_block(block)
         }), 200
     except Exception as e:
         db.session.rollback()
@@ -335,9 +371,10 @@ def create_lbd():
     try:
         data = request.get_json()
         tracker_id = data.get('tracker_id')
-        if not tracker_id:
-            t = Tracker.query.filter_by(is_active=True).order_by(Tracker.sort_order, Tracker.id).first()
-            tracker_id = t.id if t else None
+        tracker = resolve_accessible_tracker(tracker_id) if tracker_id else resolve_accessible_tracker()
+        if not tracker:
+            return jsonify({'error': 'No accessible tracker is available for this request'}), 403
+        tracker_id = tracker.id
 
         lbd = LBD(
             power_block_id=data.get('power_block_id'),
@@ -353,8 +390,7 @@ def create_lbd():
         db.session.flush()
         
         # Create status records from tracker's status types
-        tracker = Tracker.query.get(tracker_id) if tracker_id else None
-        status_types = tracker.get_status_types() if tracker else LBDStatus.STATUS_TYPES
+        status_types = tracker.get_status_types()
         for status_type in status_types:
             status = LBDStatus(
                 lbd_id=lbd.id,
@@ -379,6 +415,8 @@ def update_lbd_status(lbd_id, status_type):
     try:
         data = request.get_json()
         lbd = LBD.query.get_or_404(lbd_id)
+        if not _lbd_is_accessible(lbd):
+            return jsonify({'error': 'That LBD is not accessible for your job site'}), 403
         
         # Create status record if it doesn't exist yet (LBDs from scan have no statuses)
         status = LBDStatus.query.filter_by(
@@ -432,6 +470,8 @@ def get_lbd(lbd_id):
     """Get LBD with all status info. Auto-initializes status rows if missing."""
     try:
         lbd = LBD.query.get_or_404(lbd_id)
+        if not _lbd_is_accessible(lbd):
+            return jsonify({'error': 'That LBD is not accessible for your job site'}), 403
         if not lbd.statuses:
             for st in LBDStatus.STATUS_TYPES:
                 db.session.add(LBDStatus(lbd_id=lbd.id, status_type=st, is_completed=False))
@@ -449,6 +489,8 @@ def update_lbd(lbd_id):
     """Update LBD information"""
     try:
         lbd = LBD.query.get_or_404(lbd_id)
+        if not _lbd_is_accessible(lbd):
+            return jsonify({'error': 'That LBD is not accessible for your job site'}), 403
         data = request.get_json()
         
         if 'name' in data:
@@ -478,26 +520,26 @@ def claim_power_block(block_id):
     """Claim or unclaim a power block for one or more people."""
     try:
         block = PowerBlock.query.get_or_404(block_id)
+        if not _block_is_accessible(block):
+            return jsonify({'error': 'That power block is not accessible for your job site'}), 403
         data  = request.get_json() or {}
         action = data.get('action', 'claim')   # 'claim' or 'unclaim'
-        actor  = _current_user_name()
+        actor  = _current_user_name() or str(data.get('actor_name') or '').strip() or None
 
         if action == 'unclaim':
             block.claimed_by = None
             block.set_claim_state([], {})
             block.claimed_at = None
         else:
-            if not actor:
-                return jsonify({'error': 'You must be logged in to claim a block'}), 401
             requested_people = data.get('people') or []
             if not isinstance(requested_people, list):
                 requested_people = [requested_people]
             people = _normalize_people([actor, *requested_people])
             if not people:
-                people = [actor]
-            valid_lbd_ids = [lbd_id for (lbd_id,) in db.session.query(LBD.id).filter_by(power_block_id=block_id).all()]
+                return jsonify({'error': 'A crew member is required to claim a block'}), 400
+            valid_lbd_ids = [lbd.id for lbd in block.lbds if _lbd_is_accessible(lbd)]
             assignments = _normalize_claim_assignments(data.get('assignments') or {}, valid_lbd_ids)
-            block.claimed_by = actor
+            block.claimed_by = actor or people[0]
             block.set_claim_state(people, assignments)
             block.claimed_at = datetime.utcnow()
             _ensure_claim_workers(people)

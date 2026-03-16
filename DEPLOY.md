@@ -22,8 +22,20 @@ In your service settings → **Variables** tab, add:
 | `DATABASE_URL` | *(auto-set when you add PostgreSQL plugin — copy from the plugin's Connect tab)* |
 | `SECRET_KEY` | Any long random string, e.g. `my-super-secret-abc-123-xyz-789` |
 | `ADMIN_PIN` | Required. Use a strong PIN or passcode you will not commit into scripts. |
+| `MAIL_SMTP_HOST` | Your SMTP host, for example `smtp.gmail.com` or your mail provider host |
+| `MAIL_SMTP_PORT` | Usually `587` for TLS |
+| `MAIL_SMTP_USERNAME` | SMTP login username |
+| `MAIL_SMTP_PASSWORD` | SMTP login password or app password |
+| `MAIL_FROM_EMAIL` | The address verification emails should come from |
+| `MAIL_SMTP_USE_TLS` | `true` for most providers |
 
 4. Railway will auto-deploy. Your site URL will be something like `https://lbd-tracker-xyz.railway.app`
+
+### Verification email setup
+1. Configure the six `MAIL_*` variables above in Railway before allowing public account registration.
+2. Use a real mailbox that can send externally; Gmail and Outlook usually require an app password.
+3. After deploy, create a test account and confirm you receive the verification code email.
+4. If SMTP is missing in local development, the backend returns a preview code in the API response instead of silently failing.
 
 ---
 
@@ -55,8 +67,9 @@ In your service settings → **Variables** tab, add:
 | **Regular user** | Check/uncheck status boxes on LBDs |
 | **Admin** | Everything — edit layout, resize PBs, add labels, bulk actions |
 
-- To create an account: click **Login → Create Account**, enter your name + a 4-digit PIN
+- To create an account: click **Login → Create Account**, enter your name, 4-digit PIN, recovery email, and site token
 - PIN must be exactly 4 digits (0–9)
+- New accounts must verify their email before they can sign in
 - To sign in as Admin: name = `Admin`, PIN = your `ADMIN_PIN`
 - Admin account is created automatically on first run
 - Helper scripts should use env vars like `TRACKER_SITE_URL`, `TRACKER_ADMIN_PIN`, and `TRACKER_DATABASE_URL` instead of hardcoded production secrets

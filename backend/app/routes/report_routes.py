@@ -32,6 +32,7 @@ import shutil
 import subprocess
 import tempfile
 import uuid
+from app.utils.tracker_access import allowed_tracker_ids, current_session_user, resolve_accessible_tracker
 
 bp = Blueprint('reports', __name__, url_prefix='/api')
 
@@ -51,26 +52,121 @@ def _cst_today():
 
 
 def _current_user_name():
-    uid = session.get('user_id')
-    if not uid:
+    user = current_session_user()
+    if not user:
         return 'Guest'
-    try:
-        from app.models.user import User
-        u = User.query.get(uid)
-        return u.name if u else 'Guest'
-    except Exception:
-        return 'Guest'
+    return user.name or 'Guest'
+
+
+def _current_user():
+    return current_session_user()
+
+
+def _is_admin_user(user=None):
+    user = user or _current_user()
+    return bool(user and (getattr(user, 'is_admin', False) or getattr(user, 'role', None) == 'admin'))
+
+
+def _allowed_tracker_id_set(user=None):
+    return set(allowed_tracker_ids(user=user))
+
+
+def _scope_query_to_accessible_trackers(query, tracker_column, tracker_id=None, user=None):
+    user = user or _current_user()
+    if tracker_id:
+        return query.filter(tracker_column == tracker_id)
+    if _is_admin_user(user):
+        return query
+    allowed_ids = _allowed_tracker_id_set(user=user)
+    if not allowed_ids:
+        return query.filter(False)
+    return query.filter(tracker_column.in_(allowed_ids))
+
+
+def _resolve_requested_tracker(allow_admin_none=False):
+    tracker = resolve_accessible_tracker()
+    if tracker:
+        return tracker
+    if allow_admin_none and _is_admin_user():
+        return None
+    return None
+
+
+def _report_is_accessible(report, user=None):
+    if not report:
+        return False
+    user = user or _current_user()
+    if _is_admin_user(user):
+        return True
+    tracker_id = getattr(report, 'tracker_id', None)
+    return bool(tracker_id and tracker_id in _allowed_tracker_id_set(user=user))
+
+
+def _work_entry_is_accessible(entry, user=None):
+    if not entry:
+        return False
+    user = user or _current_user()
+    if _is_admin_user(user):
+        return True
+    tracker_id = getattr(entry, 'tracker_id', None)
+    return bool(tracker_id and tracker_id in _allowed_tracker_id_set(user=user))
+
+
+def _resolve_block_tracker(block, requested_tracker_id=None, user=None):
+    user = user or _current_user()
+    candidate_ids = []
+    seen = set()
+    for lbd in block.lbds:
+        tracker_id = getattr(lbd, 'tracker_id', None)
+        if not tracker_id or tracker_id in seen:
+            continue
+        seen.add(tracker_id)
+        candidate_ids.append(tracker_id)
+
+    if requested_tracker_id:
+        tracker = resolve_accessible_tracker(requested_tracker_id, user=user)
+        if tracker and tracker.id in seen:
+            return tracker
+        return None
+
+    for tracker_id in candidate_ids:
+        tracker = resolve_accessible_tracker(tracker_id, user=user)
+        if tracker:
+            return tracker
+
+    if _is_admin_user(user) and candidate_ids:
+        return Tracker.query.get(candidate_ids[0])
+    return None
+
+
+def _block_accessible_lbd_ids(block, tracker=None):
+    if tracker:
+        return [lbd.id for lbd in block.lbds if lbd.tracker_id == tracker.id]
+    if _is_admin_user():
+        return [lbd.id for lbd in block.lbds]
+    allowed_ids = _allowed_tracker_id_set()
+    return [lbd.id for lbd in block.lbds if lbd.tracker_id in allowed_ids]
+
+
+def _claim_scan_path_is_accessible(relative_path, user=None):
+    normalized = str(relative_path or '').replace('\\', '/').lstrip('/')
+    user = user or _current_user()
+    query = DailyReport.query
+    if not _is_admin_user(user):
+        allowed_ids = _allowed_tracker_id_set(user=user)
+        if not allowed_ids:
+            return False
+        query = query.filter(DailyReport.tracker_id.in_(allowed_ids))
+    for report in query.all():
+        for scan in list(report.get_data().get('claim_scans') or []):
+            if str(scan.get('image_path') or '').replace('\\', '/').lstrip('/') == normalized:
+                return True
+    return False
 
 
 def _resolve_tracker_id():
     """Get tracker_id from request args or JSON body."""
-    tid = request.args.get('tracker_id')
-    if tid:
-        return int(tid)
-    data = request.get_json(silent=True) or {}
-    if data.get('tracker_id'):
-        return int(data['tracker_id'])
-    t = Tracker.query.filter_by(is_active=True).order_by(Tracker.sort_order, Tracker.id).first()
+    t = resolve_accessible_tracker()
     return t.id if t else None
 
 
@@ -81,7 +177,7 @@ def _build_report_data(target_date, tracker_id=None, existing_data=None):
         q = q.filter_by(tracker_id=tracker_id)
     entries = q.all()
 
-    tracker = Tracker.query.get(tracker_id) if tracker_id else None
+    tracker = resolve_accessible_tracker(tracker_id) if tracker_id else None
     col_names = tracker.get_status_names() if tracker else AdminSettings.get_names()
 
     # Group by task_type → worker → [power_blocks]
@@ -116,6 +212,16 @@ def _build_report_data(target_date, tracker_id=None, existing_data=None):
 
 def _get_or_generate_report(target_date, tracker_id=None):
     """Return the DailyReport for *target_date*, creating/updating it if needed."""
+    user = _current_user()
+    tracker = resolve_accessible_tracker(tracker_id, user=user) if tracker_id else None
+    if tracker_id and not tracker:
+        return None
+    if not tracker and not tracker_id and not _is_admin_user(user):
+        tracker = resolve_accessible_tracker(user=user)
+        if not tracker:
+            return None
+        tracker_id = tracker.id
+
     q = DailyReport.query.filter_by(report_date=target_date)
     if tracker_id:
         q = q.filter_by(tracker_id=tracker_id)
@@ -1042,7 +1148,7 @@ def _parse_claim_scan(block, tracker, image_bytes):
         mark_binary = binary
 
     height, width = scan_binary.shape[:2]
-    tracker = tracker or (Tracker.query.get(block.lbds[0].tracker_id) if block.lbds and block.lbds[0].tracker_id else None)
+    tracker = tracker or (resolve_accessible_tracker(block.lbds[0].tracker_id) if block.lbds and block.lbds[0].tracker_id else None)
     status_types = _claim_scan_status_types(tracker)
     status_names = tracker.get_status_names() if tracker else AdminSettings.get_names()
     status_positions = {}
@@ -1307,9 +1413,11 @@ def list_work_entries():
         target = _cst_today()
 
     tracker_id = _resolve_tracker_id()
-    q = WorkEntry.query.filter_by(work_date=target)
-    if tracker_id:
-        q = q.filter_by(tracker_id=tracker_id)
+    q = _scope_query_to_accessible_trackers(
+        WorkEntry.query.filter_by(work_date=target),
+        WorkEntry.tracker_id,
+        tracker_id=tracker_id,
+    )
     entries = q.all()
     return jsonify({'success': True, 'data': [e.to_dict() for e in entries], 'date': target.isoformat()}), 200
 
@@ -1337,7 +1445,10 @@ def log_work_entries():
         return jsonify({'error': 'worker_ids, power_block_ids, and task_type are required'}), 400
 
     # Validate task_type against tracker or global settings
-    tracker = Tracker.query.get(tracker_id) if tracker_id else None
+    tracker = resolve_accessible_tracker(tracker_id) if tracker_id else _resolve_requested_tracker(allow_admin_none=True)
+    if not tracker and not _is_admin_user():
+        return jsonify({'error': 'No accessible tracker is available for this request'}), 403
+    tracker_id = tracker.id if tracker else None
     valid_tasks = tracker.all_column_keys() if tracker else AdminSettings.all_column_keys()
     if task_type not in valid_tasks:
         return jsonify({'error': f'Unknown task_type "{task_type}", must be one of: {valid_tasks}'}), 400
@@ -1350,6 +1461,17 @@ def log_work_entries():
     logged_by = _current_user_name()
     created   = 0
     skipped   = 0
+
+    allowed_block_ids = set()
+    if pb_ids:
+        blocks = PowerBlock.query.options(subqueryload(PowerBlock.lbds)).filter(PowerBlock.id.in_(pb_ids)).all()
+        if tracker:
+            allowed_block_ids = {block.id for block in blocks if any(lbd.tracker_id == tracker.id for lbd in block.lbds)}
+        elif _is_admin_user():
+            allowed_block_ids = {block.id for block in blocks}
+    invalid_block_ids = sorted({int(pbid) for pbid in pb_ids if str(pbid).isdigit()} - allowed_block_ids)
+    if invalid_block_ids:
+        return jsonify({'error': 'One or more power blocks are not accessible for your job site', 'power_block_ids': invalid_block_ids}), 403
 
     for wid in worker_ids:
         for pbid in pb_ids:
@@ -1380,11 +1502,14 @@ def log_work_entries():
 @bp.route('/work-entries/<int:entry_id>', methods=['DELETE'])
 def delete_work_entry(entry_id):
     entry = WorkEntry.query.get_or_404(entry_id)
+    if not _work_entry_is_accessible(entry):
+        return jsonify({'error': 'That work entry is not accessible for your job site'}), 403
     target = entry.work_date
     tid = entry.tracker_id
     db.session.delete(entry)
     db.session.commit()
-    _get_or_generate_report(target, tid)   # refresh snapshot
+    if tid:
+        _get_or_generate_report(target, tid)   # refresh snapshot
     return jsonify({'success': True}), 200
 
 
@@ -1396,9 +1521,7 @@ def delete_work_entry(entry_id):
 def list_reports():
     """Return summary of all reports, newest first (tracker-aware)."""
     tracker_id = _resolve_tracker_id()
-    q = DailyReport.query
-    if tracker_id:
-        q = q.filter_by(tracker_id=tracker_id)
+    q = _scope_query_to_accessible_trackers(DailyReport.query, DailyReport.tracker_id, tracker_id=tracker_id)
     reports = q.order_by(DailyReport.report_date.desc()).all()
     return jsonify({'success': True, 'data': [r.to_summary() for r in reports]}), 200
 
@@ -1406,6 +1529,8 @@ def list_reports():
 @bp.route('/reports/<int:report_id>', methods=['GET'])
 def get_report(report_id):
     r = DailyReport.query.get_or_404(report_id)
+    if not _report_is_accessible(r):
+        return jsonify({'error': 'That report is not accessible for your job site'}), 403
     return jsonify({'success': True, 'data': r.to_dict()}), 200
 
 
@@ -1413,6 +1538,8 @@ def get_report(report_id):
 def serve_claim_scan_file(relative_path):
     abs_path = _resolve_claim_scan_file(relative_path)
     if not abs_path:
+        return jsonify({'error': 'Scan file not found'}), 404
+    if not _claim_scan_path_is_accessible(relative_path):
         return jsonify({'error': 'Scan file not found'}), 404
     directory, filename = os.path.split(abs_path)
     return send_from_directory(directory, filename)
@@ -1431,8 +1558,9 @@ def draft_claim_scan():
     block = PowerBlock.query.options(
         subqueryload(PowerBlock.lbds).subqueryload(LBD.statuses)
     ).get_or_404(block_id)
-    tracker_id = data.get('tracker_id')
-    tracker = Tracker.query.get(tracker_id) if tracker_id else None
+    tracker = _resolve_block_tracker(block, data.get('tracker_id'))
+    if not tracker and not _is_admin_user():
+        return jsonify({'error': 'That power block is not accessible for your job site'}), 403
 
     try:
         image_bytes = _decode_claim_scan_image(data.get('image_base64'))
@@ -1476,19 +1604,24 @@ def submit_claim_scan():
     block = PowerBlock.query.options(
         subqueryload(PowerBlock.lbds).subqueryload(LBD.statuses)
     ).get_or_404(block_id)
-    tracker_id = data.get('tracker_id') or next((lbd.tracker_id for lbd in block.lbds if lbd.tracker_id), None)
-    tracker = Tracker.query.get(tracker_id) if tracker_id else None
+    tracker = _resolve_block_tracker(block, data.get('tracker_id'))
+    if not tracker and not _is_admin_user():
+        return jsonify({'error': 'That power block is not accessible for your job site'}), 403
+    tracker_id = tracker.id if tracker else None
     people = _normalize_people(data.get('people') or [])
-    actor = _current_user_name()
+    actor = _current_user_name() or str(data.get('actor_name') or '').strip() or None
     if actor and actor.casefold() not in {name.casefold() for name in people}:
         people = _normalize_people([actor, *people])
-    valid_lbd_ids = [lbd.id for lbd in block.lbds]
+    valid_lbd_ids = _block_accessible_lbd_ids(block, tracker=tracker)
     assignments = _normalize_claim_assignments(data.get('assignments') or {}, valid_lbd_ids)
 
     try:
         target = date.fromisoformat(str(draft.get('work_date') or data.get('work_date') or _cst_today().isoformat()))
     except ValueError:
         target = _cst_today()
+
+    if not people:
+        return jsonify({'error': 'At least one crew member is required'}), 400
 
     _ensure_claim_workers(people)
     db.session.flush()
@@ -1534,6 +1667,9 @@ def submit_claim_scan():
     status_updates = _apply_claim_assignments_to_statuses(block, assignments, actor or (people[0] if people else None))
 
     report = _get_or_generate_report(target, tracker_id)
+    if not report:
+        db.session.rollback()
+        return jsonify({'error': 'No accessible tracker is available for this request'}), 403
     scan_record = {
         'id': uuid.uuid4().hex,
         'created_at': datetime.utcnow().isoformat(),
@@ -1582,9 +1718,11 @@ def get_report_by_date(date_str):
     except ValueError:
         return jsonify({'error': 'Invalid date, use YYYY-MM-DD'}), 400
     tracker_id = _resolve_tracker_id()
-    q = DailyReport.query.filter_by(report_date=target)
-    if tracker_id:
-        q = q.filter_by(tracker_id=tracker_id)
+    q = _scope_query_to_accessible_trackers(
+        DailyReport.query.filter_by(report_date=target),
+        DailyReport.tracker_id,
+        tracker_id=tracker_id,
+    )
     r = q.first()
     if not r:
         return jsonify({'success': True, 'data': None}), 200
@@ -1596,12 +1734,17 @@ def generate_report():
     """Manually generate/refresh a report for a given date (default: CST today)."""
     data = request.get_json() or {}
     date_str = (data.get('date') or '').strip()
-    tracker_id = data.get('tracker_id') or _resolve_tracker_id()
+    tracker = resolve_accessible_tracker(data.get('tracker_id')) if data.get('tracker_id') else _resolve_requested_tracker(allow_admin_none=True)
+    if not tracker and not _is_admin_user():
+        return jsonify({'error': 'No accessible tracker is available for this request'}), 403
+    tracker_id = tracker.id if tracker else None
     try:
         target = date.fromisoformat(date_str) if date_str else _cst_today()
     except ValueError:
         return jsonify({'error': 'Invalid date, use YYYY-MM-DD'}), 400
     r = _get_or_generate_report(target, tracker_id)
+    if not r:
+        return jsonify({'error': 'No accessible tracker is available for this request'}), 403
     return jsonify({'success': True, 'data': r.to_dict()}), 200
 
 
@@ -1635,9 +1778,12 @@ def get_reports_range():
     else:
         return jsonify({'error': 'type must be week or month'}), 400
 
-    reports = DailyReport.query.filter(
+    reports = _scope_query_to_accessible_trackers(
+        DailyReport.query.filter(
         DailyReport.report_date >= start,
         DailyReport.report_date <= end,
+        ),
+        DailyReport.tracker_id,
     ).order_by(DailyReport.report_date).all()
 
     return jsonify({

@@ -27,6 +27,10 @@ def allowed_tracker_query(user=None, include_inactive=False):
     return query.order_by(Tracker.sort_order, Tracker.id)
 
 
+def allowed_tracker_ids(user=None, include_inactive=False):
+    return [tracker.id for tracker in allowed_tracker_query(user=user, include_inactive=include_inactive).all()]
+
+
 def resolve_accessible_tracker(tracker_id=None, user=None):
     query = allowed_tracker_query(user=user)
     if tracker_id:
