@@ -890,6 +890,57 @@ function formatDashboardActivityTime(value) {
   });
 }
 
+function getDashboardCardPriority(card) {
+  return (card.updatedToday * 6)
+    + (card.claimedToday * 5)
+    + (card.activeClaims * 4)
+    + (card.crewCount * 2)
+    + Math.round((card.pct || 0) / 5);
+}
+
+function rankDashboardCards(cards) {
+  return [...cards].sort((left, right) => {
+    const scoreDelta = getDashboardCardPriority(right) - getDashboardCardPriority(left);
+    if (scoreDelta !== 0) return scoreDelta;
+    return (right.pct || 0) - (left.pct || 0);
+  });
+}
+
+function renderDashboardSpotlight(cards) {
+  const spotlight = document.getElementById('dashboard-spotlight');
+  if (!spotlight) return cards;
+  if (!cards.length) {
+    spotlight.innerHTML = '';
+    return cards;
+  }
+
+  const ranked = rankDashboardCards(cards);
+  const featured = ranked[0];
+  const featuredTone = featured.pct >= 100 ? '#00e87a' : featured.pct >= 50 ? '#00d4ff' : '#9d8cff';
+
+  spotlight.innerHTML = `
+    <article class="dashboard-spotlight-card" onclick="openTracker(${featured.id})">
+      <div class="dashboard-spotlight-copy">
+        <div class="dashboard-spotlight-kicker">Spotlight Tracker</div>
+        <h2 class="dashboard-spotlight-title">${featured.icon || '📋'} ${featured.name}</h2>
+        <p class="dashboard-spotlight-sub">${featured.updatedToday} blocks touched today, ${featured.activeClaims} active claims, and ${featured.crewCount} crew members currently moving this tracker forward.</p>
+        <div class="dashboard-spotlight-meta-row">
+          <span class="dashboard-spotlight-pill">${featured.claimedToday} claims started today</span>
+          <span class="dashboard-spotlight-pill">Last activity ${formatDashboardActivityTime(featured.lastActivity)}</span>
+        </div>
+      </div>
+      <div class="dashboard-spotlight-stats">
+        <div class="dashboard-spotlight-score" style="color:${featuredTone}">${featured.pct}%</div>
+        <div class="dashboard-spotlight-score-label">Tracker completion</div>
+        <div class="dashboard-spotlight-bar"><div class="dashboard-spotlight-bar-fill" style="width:${featured.pct}%;background:${featuredTone};"></div></div>
+        <button type="button" class="dashboard-spotlight-btn" onclick="event.stopPropagation(); openTracker(${featured.id}); return false;">Open Tracker →</button>
+      </div>
+    </article>
+  `;
+
+  return ranked.length > 1 ? ranked.slice(1) : ranked;
+}
+
 function renderDashboardOverview(cards) {
   const grid = document.getElementById('dashboard-overview-grid');
   const strip = document.getElementById('dashboard-activity-strip');
@@ -983,6 +1034,7 @@ async function loadDashboard() {
   if (!allTrackers.length) {
     grid.innerHTML = `<p style="color:rgba(238,242,255,0.35);text-align:center;padding:60px 20px;">${emptyText}</p>`;
     renderDashboardOverview([]);
+    renderDashboardSpotlight([]);
     return;
   }
 
@@ -1013,8 +1065,9 @@ async function loadDashboard() {
   }));
 
   renderDashboardOverview(cards);
+  const rankedCards = renderDashboardSpotlight(cards);
 
-  grid.innerHTML = cards.map(t => {
+  grid.innerHTML = rankedCards.map(t => {
     const barColor = t.pct >= 100 ? '#00e87a' : t.pct >= 50 ? '#00d4ff' : '#7c6cfc';
     const completeLabel = t.dashboard_progress_label || ui.dashboard_complete || 'Complete';
     const powerBlocksLabel = t.dashboard_blocks_label || ui.dashboard_power_blocks || 'Power Blocks';
