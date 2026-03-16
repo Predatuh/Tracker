@@ -200,7 +200,7 @@ function renderHeaderTrackerSwitcher() {
   const select = document.getElementById('header-tracker-select');
   if (!shell || !select) return;
 
-  const isMainAdmin = !!(currentUser && currentUser.is_admin);
+  const isMainAdmin = !!(currentUser && String(currentUser.username || '').toLowerCase() === 'admin');
   if (!isMainAdmin) {
     shell.style.display = 'none';
     return;
@@ -2611,7 +2611,7 @@ function renderPBMarkers() {
 
     // All markers are rectangles
     const configuredFontSize = Number(adminSettings?.pb_label_font_size || 14);
-    const fontSize = Math.max(8, Math.round(configuredFontSize * 0.72));
+    const fontSize = Math.max(6, Math.min(12, Math.round(configuredFontSize * 0.5)));
     const appearance = adminSettings?.appearance || {};
     const labelColor = hasActiveTracker
       ? (appearance.pb_number_active_color || '#ffffff')
