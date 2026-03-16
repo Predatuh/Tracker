@@ -200,12 +200,6 @@ function renderHeaderTrackerSwitcher() {
   const select = document.getElementById('header-tracker-select');
   if (!shell || !select) return;
 
-  const isMainAdmin = !!(currentUser && String(currentUser.username || '').toLowerCase() === 'admin');
-  if (!isMainAdmin) {
-    shell.style.display = 'none';
-    return;
-  }
-
   const activePage = document.querySelector('.page.active');
   const hideOnDashboard = !activePage || activePage.id === 'page-dashboard';
   const allowNoTrackerState = activePage && activePage.id === 'page-sitemap';
@@ -1355,12 +1349,40 @@ async function replaceSiteMap() {
 }
 
 function displaySiteMap(mapUrl) {
-  document.getElementById('sitemap-upload-section').classList.add('hidden');
+  const uploadSection = document.getElementById('sitemap-upload-section');
+  const emptySection = document.getElementById('sitemap-empty-section');
+  if (uploadSection) {
+    uploadSection.classList.add('hidden');
+    uploadSection.style.display = 'none';
+  }
+  if (emptySection) {
+    emptySection.classList.add('hidden');
+    emptySection.style.display = 'none';
+  }
   const display = document.getElementById('sitemap-display');
   display.classList.remove('hidden');
   display.style.display = 'flex';
   document.getElementById('sitemap-image').src = mapUrl;
   // markers are rendered by onMapImageLoaded()
+}
+
+function renderSiteMapNoMapState() {
+  const isMainAdmin = !!(currentUser && String(currentUser.username || '').toLowerCase() === 'admin');
+  const uploadSection = document.getElementById('sitemap-upload-section');
+  const emptySection = document.getElementById('sitemap-empty-section');
+  const display = document.getElementById('sitemap-display');
+  if (display) {
+    display.classList.add('hidden');
+    display.style.display = 'none';
+  }
+  if (uploadSection) {
+    uploadSection.classList.toggle('hidden', !isMainAdmin);
+    uploadSection.style.display = isMainAdmin ? 'block' : 'none';
+  }
+  if (emptySection) {
+    emptySection.classList.toggle('hidden', isMainAdmin);
+    emptySection.style.display = isMainAdmin ? 'none' : 'block';
+  }
 }
 
 function extractSiteMapId(mapUrl) {
@@ -1380,6 +1402,23 @@ function getCurrentSiteMapRecord(records, mapUrl = currentMapPath) {
 }
 
 async function loadSiteMap() {
+  const uploadSection = document.getElementById('sitemap-upload-section');
+  const emptySection = document.getElementById('sitemap-empty-section');
+  const display = document.getElementById('sitemap-display');
+  if (uploadSection) {
+    uploadSection.classList.add('hidden');
+    uploadSection.style.display = 'none';
+  }
+  if (emptySection) {
+    emptySection.classList.add('hidden');
+    emptySection.style.display = 'none';
+  }
+  if (display) {
+    display.classList.add('hidden');
+    display.style.display = 'none';
+  }
+
+  let foundMap = false;
   // Always fetch the canonical map URL from the server to avoid stale cache
   try {
     const response = await fetch('/api/pdf/get-map');
@@ -1388,15 +1427,27 @@ async function loadSiteMap() {
       localStorage.setItem('siteMapUrl', data.map_url);
       currentMapPath = data.map_url;
       displaySiteMap(data.map_url);
+      foundMap = true;
     } else {
       // Fall back to localStorage if server has no map
       const savedUrl = localStorage.getItem('siteMapUrl');
-      if (savedUrl) displaySiteMap(savedUrl);
+      if (savedUrl) {
+        displaySiteMap(savedUrl);
+        foundMap = true;
+      }
     }
   } catch (err) {
     console.log('No map from server, using cache:', err);
     const savedUrl = localStorage.getItem('siteMapUrl');
-    if (savedUrl) displaySiteMap(savedUrl);
+    if (savedUrl) {
+      displaySiteMap(savedUrl);
+      foundMap = true;
+    }
+  }
+
+  if (!foundMap) {
+    renderSiteMapNoMapState();
+    return;
   }
   // Always (re)load power blocks for the map
   try {
@@ -2611,7 +2662,7 @@ function renderPBMarkers() {
 
     // All markers are rectangles
     const configuredFontSize = Number(adminSettings?.pb_label_font_size || 14);
-    const fontSize = Math.max(6, Math.min(12, Math.round(configuredFontSize * 0.5)));
+    const fontSize = Math.max(5, Math.min(10, Math.round(configuredFontSize * 0.42)));
     const appearance = adminSettings?.appearance || {};
     const labelColor = hasActiveTracker
       ? (appearance.pb_number_active_color || '#ffffff')

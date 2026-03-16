@@ -208,7 +208,7 @@
             <div id="page-sitemap" class="page">
 
                 <!-- Upload section (shown when no map) -->
-                <div id="sitemap-upload-section" style="padding:60px 20px;max-width:500px;margin:0 auto;text-align:center;">
+                <div id="sitemap-upload-section" class="hidden" style="display:none;padding:60px 20px;max-width:500px;margin:0 auto;text-align:center;">
                     <h1 class="section-title">Site Map</h1>
                     <div class="form-section">
                         <p style="margin-bottom:15px;color:#8892b0;font-size:14px;line-height:1.7;">Upload a site map image to place power blocks and track LBD statuses interactively.</p>
@@ -221,8 +221,15 @@
                     </div>
                 </div>
 
+                <div id="sitemap-empty-section" class="hidden" style="display:none;padding:60px 20px;max-width:520px;margin:0 auto;text-align:center;">
+                    <h1 class="section-title">Site Map</h1>
+                    <div class="form-section">
+                        <p style="margin-bottom:0;color:#8892b0;font-size:14px;line-height:1.7;">No site map has been uploaded yet. Ask the main admin to upload one before using the map view.</p>
+                    </div>
+                </div>
+
                 <!-- Full-screen map view (shown once map uploaded) -->
-                <div id="sitemap-display" class="hidden" style="display:flex;flex-direction:column;height:calc(100vh - 56px);">
+                <div id="sitemap-display" class="hidden" style="display:none;flex-direction:column;height:calc(100vh - 56px);">
 
                     <!-- Toolbar -->
                     <div style="padding:8px 16px;background:rgba(7,9,26,0.97);border-bottom:1px solid rgba(0,212,255,0.08);display:flex;align-items:center;gap:8px;flex-shrink:0;flex-wrap:wrap;">
