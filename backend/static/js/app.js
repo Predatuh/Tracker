@@ -1876,6 +1876,15 @@ let loadedMapAreas = [];
 let siteMapViewState = {
   currentMap: null,
 };
+const PB_LABEL_POSITION_OVERRIDES = {
+  '11': { x: -1, y: 0 },
+  '33': { x: 1, y: 0 },
+  '48': { x: -1, y: 1 },
+  '81': { x: 1, y: -1 },
+  '117': { x: 0, y: -1 },
+  '118': { x: 0, y: -1 },
+  '119': { x: 0, y: -1 },
+};
 
 // Snap threshold in % of map dimensions
 const SNAP_THRESHOLD = 1.2;
@@ -2719,9 +2728,10 @@ function renderPBMarkers() {
     m.title = `PB ${pb.name} — ${total} LBDs\n${statusInfo}`;
 
     // PB number — centered, unaffected by "In Progress" label
+    const labelOffset = PB_LABEL_POSITION_OVERRIDES[key] || { x: 0, y: 0 };
     const numSpan = document.createElement('span');
     numSpan.textContent = num;
-    numSpan.style.cssText = `position:absolute;inset:0;display:flex;align-items:center;justify-content:center;white-space:nowrap;max-width:100%;text-overflow:clip;z-index:1;pointer-events:none;color:${labelColor};font-weight:900;text-shadow:-1px -1px 0 ${outlineColor}, 1px -1px 0 ${outlineColor}, -1px 1px 0 ${outlineColor}, 1px 1px 0 ${outlineColor}, 0 0 8px rgba(0,0,0,0.35);-webkit-text-stroke:1px ${outlineColor};paint-order:stroke fill;`;
+    numSpan.style.cssText = `position:absolute;inset:0;display:flex;align-items:center;justify-content:center;white-space:nowrap;max-width:100%;text-overflow:clip;z-index:1;pointer-events:none;color:${labelColor};font-weight:900;text-shadow:-1px -1px 0 ${outlineColor}, 1px -1px 0 ${outlineColor}, -1px 1px 0 ${outlineColor}, 1px 1px 0 ${outlineColor}, 0 0 8px rgba(0,0,0,0.35);-webkit-text-stroke:1px ${outlineColor};paint-order:stroke fill;transform:translate(${labelOffset.x}px, ${labelOffset.y}px);`;
     m.appendChild(numSpan);
 
     // "In Progress" indicator — absolutely positioned so it doesn't shift the number
