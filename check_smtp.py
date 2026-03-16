@@ -22,13 +22,14 @@ def main():
     app = create_app()
     with app.app_context():
         config = mail_config()
+        configured = can_send_email()
 
     required = ['host', 'from_email']
     missing = [key for key in required if not config.get(key)]
 
     print('SMTP configuration status')
     print('-------------------------')
-    print(f"Configured: {'yes' if can_send_email() else 'no'}")
+    print(f"Configured: {'yes' if configured else 'no'}")
     print(f"Host: {config.get('host') or '(missing)'}")
     print(f"Port: {config.get('port')}")
     print(f"Username: {_masked(str(config.get('username') or '')) or '(empty)'}")
