@@ -34,6 +34,9 @@
   --text-primary:   #eef2ff;
   --text-secondary: rgba(238,242,255,0.6);
   --text-muted:     rgba(238,242,255,0.3);
+  --pb-number-color: #ffffff;
+  --pb-number-active-color: #ffffff;
+  --pb-number-outline-color: #000000;
 
   --radius-sm:  8px;
   --radius-md:  12px;
@@ -1031,32 +1034,6 @@ body::after {
 .sitemap-viewer-subtitle {
   font-size: 12px;
   color: var(--text-secondary);
-}
-
-.sitemap-overlay-toggle {
-  display: inline-flex;
-  padding: 4px;
-  border-radius: 999px;
-  background: rgba(3,4,10,0.55);
-  border: 1px solid rgba(255,255,255,0.08);
-}
-
-.sitemap-overlay-btn {
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  padding: 7px 14px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: var(--trans);
-}
-
-.sitemap-overlay-btn.active {
-  background: linear-gradient(135deg, rgba(0,212,255,0.18), rgba(124,108,252,0.18));
-  color: var(--text-primary);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 0 16px rgba(0,212,255,0.12);
 }
 
 .sitemap-summary-strip {

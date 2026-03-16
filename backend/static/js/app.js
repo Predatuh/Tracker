@@ -223,7 +223,8 @@ function updateTrackerCrumb() {
   const crumb = document.getElementById('active-tracker-crumb');
   const nameEl = document.getElementById('active-tracker-name');
   if (!crumb || !nameEl) return;
-  if (currentTracker) {
+  const activePage = document.querySelector('.page.active');
+  if (currentTracker && activePage && activePage.id !== 'page-sitemap') {
     nameEl.textContent = (currentTracker.icon || '') + ' ' + currentTracker.name;
     crumb.style.display = 'flex';
   } else {
@@ -277,7 +278,7 @@ function showPage(pageName) {
   document.getElementById(`page-${pageName}`).classList.add('active');
 
   // Show tracker breadcrumb only when inside a tracker-specific page
-  if (pageName === 'dashboard') {
+  if (pageName === 'dashboard' || pageName === 'sitemap') {
     const crumb = document.getElementById('active-tracker-crumb');
     if (crumb) crumb.style.display = 'none';
   } else {
@@ -1719,6 +1720,9 @@ function applyAppearance(a) {
   if (a.color_green)  root.style.setProperty('--green', a.color_green);
   if (a.color_red)    root.style.setProperty('--red', a.color_red);
   if (a.color_bg)     root.style.setProperty('--bg', a.color_bg);
+  if (a.pb_number_color) root.style.setProperty('--pb-number-color', a.pb_number_color);
+  if (a.pb_number_active_color) root.style.setProperty('--pb-number-active-color', a.pb_number_active_color);
+  if (a.pb_number_outline_color) root.style.setProperty('--pb-number-outline-color', a.pb_number_outline_color);
   const set = (id, val) => { if (val !== undefined && val !== null) { const e = document.getElementById(id); if (e) e.textContent = val; } };
   // brand-rest1 holds everything after the leading "P"
   if (a.brand_word1 !== undefined) {
@@ -1772,7 +1776,7 @@ function renderLegend() {
   const el = document.getElementById('legend-items');
   if (!el) return;
   const legend = document.getElementById('map-legend');
-  const overlayMode = (siteMapViewState && siteMapViewState.overlayMode) || 'baseline';
+  const overlayMode = currentTracker ? 'tracker' : 'baseline';
   if (legend) {
     legend.style.display = overlayMode === 'tracker' ? 'flex' : 'none';
   }
@@ -1813,7 +1817,6 @@ let pbLabelColors = JSON.parse(localStorage.getItem('pb_label_colors') || '{}');
 // also store all loaded areas so admin tab can list them
 let loadedMapAreas = [];
 let siteMapViewState = {
-  overlayMode: localStorage.getItem('site_map_overlay_mode') === 'tracker' ? 'tracker' : 'baseline',
   currentMap: null,
 };
 
@@ -1842,20 +1845,12 @@ function getMapPBVisualState(pb) {
 }
 
 function updateSiteMapOverlayButtons() {
-  const baselineBtn = document.getElementById('sitemap-overlay-baseline');
-  const trackerBtn = document.getElementById('sitemap-overlay-tracker');
-  const isTracker = siteMapViewState.overlayMode === 'tracker';
-  if (baselineBtn) baselineBtn.classList.toggle('active', !isTracker);
-  if (trackerBtn) trackerBtn.classList.toggle('active', isTracker);
+  return;
 }
 
 function renderSiteMapSummary() {
   const subtitle = document.getElementById('sitemap-viewer-subtitle');
   const summary = document.getElementById('sitemap-summary-strip');
-  if (!currentTracker && siteMapViewState.overlayMode !== 'baseline') {
-    siteMapViewState.overlayMode = 'baseline';
-    localStorage.setItem('site_map_overlay_mode', 'baseline');
-  }
   const trackerName = currentTracker?.name || 'No Active Tracker - Choose One';
   const completed = mapPBs.filter((pb) => getMapPBVisualState(pb).allDone).length;
   const inProgress = mapPBs.filter((pb) => getMapPBVisualState(pb).inProgress && !getMapPBVisualState(pb).allDone).length;
@@ -1863,9 +1858,7 @@ function renderSiteMapSummary() {
 
   if (subtitle) {
     subtitle.textContent = currentTracker
-      ? (siteMapViewState.overlayMode === 'tracker'
-        ? `${trackerName} overlay is active. Switch back to baseline any time.`
-        : `${trackerName} is selected. Turn on Tracker Overlay when you want live progress colors.`)
+      ? `${trackerName} is active on the map.`
       : 'No tracker is active. The map is showing the neutral baseline until you choose one.';
   }
 
@@ -1898,15 +1891,6 @@ function renderSiteMapSummary() {
 }
 
 function setSiteMapOverlayMode(mode) {
-  if (mode === 'tracker' && !currentTracker) {
-    siteMapViewState.overlayMode = 'baseline';
-    localStorage.setItem('site_map_overlay_mode', 'baseline');
-    renderSiteMapSummary();
-    renderPBMarkers();
-    return;
-  }
-  siteMapViewState.overlayMode = mode === 'tracker' ? 'tracker' : 'baseline';
-  localStorage.setItem('site_map_overlay_mode', siteMapViewState.overlayMode);
   renderSiteMapSummary();
   renderPBMarkers();
 }
@@ -2587,7 +2571,7 @@ function renderPBMarkers() {
     const { total, summary, completedTypes, partialTypes, allDone, inProgress } = getMapPBVisualState(pb);
     const isActive = false; // markers always render the same regardless of selection
     const num = (pb.power_block_number || pb.name.replace('INV-', '')).toString();
-    const overlayMode = currentTracker ? (siteMapViewState.overlayMode || 'baseline') : 'baseline';
+    const overlayMode = currentTracker ? 'tracker' : 'baseline';
     const hasActiveTracker = !!currentTracker;
 
     // Build background
@@ -2620,9 +2604,12 @@ function renderPBMarkers() {
     m.dataset.pbId = pb.id;
 
     // All markers are rectangles
-    const pbFontOverride = parseInt(localStorage.getItem('pb_font_size') || '0');
-    const fontSize = pbFontOverride > 0 ? pbFontOverride : Math.max(7, Math.min(24, bbox.w * 0.35));
-    const labelColor = hasActiveTracker ? '#ffffff' : '#00e87a';
+    const fontSize = Math.max(8, Number(adminSettings?.pb_label_font_size || 14));
+    const appearance = adminSettings?.appearance || {};
+    const labelColor = hasActiveTracker
+      ? (appearance.pb_number_active_color || '#ffffff')
+      : (appearance.pb_number_color || '#ffffff');
+    const outlineColor = appearance.pb_number_outline_color || '#000000';
     m.style.cssText = [
       'position:absolute',
       `left:${bbox.x}%`,
@@ -2634,14 +2621,14 @@ function renderPBMarkers() {
       `box-shadow:${isActive ? '0 0 0 3px #0d6efd,0 4px 14px rgba(0,0,0,.6)' : (overlayMode === 'tracker' ? '0 2px 6px rgba(0,0,0,.3)' : '0 8px 24px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.05)')}`,
       'border-radius:4px',
       'display:flex;flex-direction:column;align-items:center;justify-content:center',
-      `color:${labelColor};font-weight:700`,
+      'color:transparent;font-weight:900',
       `font-size:${fontSize}px`,
       `cursor:${mapEditMode ? 'grab' : 'pointer'}`,
       'user-select:none',
       'z-index:20',
       'text-align:center;line-height:1.1',
       'overflow:hidden',
-      'text-shadow:0 1px 2px rgba(0,0,0,0.5)',
+      'text-shadow:none',
       'padding:1px'
     ].join(';');
 
@@ -2674,7 +2661,7 @@ function renderPBMarkers() {
     // PB number — centered, unaffected by "In Progress" label
     const numSpan = document.createElement('span');
     numSpan.textContent = num;
-    numSpan.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;white-space:nowrap;max-width:100%;text-overflow:clip;z-index:1;pointer-events:none;';
+    numSpan.style.cssText = `position:absolute;inset:0;display:flex;align-items:center;justify-content:center;white-space:nowrap;max-width:100%;text-overflow:clip;z-index:1;pointer-events:none;color:${labelColor};font-weight:900;text-shadow:-1px -1px 0 ${outlineColor}, 1px -1px 0 ${outlineColor}, -1px 1px 0 ${outlineColor}, 1px 1px 0 ${outlineColor}, 0 0 8px rgba(0,0,0,0.35);-webkit-text-stroke:1px ${outlineColor};paint-order:stroke fill;`;
     m.appendChild(numSpan);
 
     // "In Progress" indicator — absolutely positioned so it doesn't shift the number
@@ -2685,21 +2672,6 @@ function renderPBMarkers() {
       ipSpan.style.cssText = `position:absolute;bottom:1px;left:0;right:0;text-align:center;font-size:${ipFontSize}px;opacity:0.85;white-space:nowrap;letter-spacing:0.2px;overflow:hidden;z-index:1;`;
       m.appendChild(ipSpan);
     }
-
-    // After appending to DOM, shrink font until number fits visible area
-    requestAnimationFrame(() => { requestAnimationFrame(() => {
-      if (!m.parentNode || !m.clientWidth) return;
-      let fs = fontSize;
-      const maxW = m.clientWidth - 2;
-      const maxH = m.clientHeight - 2;
-      // For polygon-clipped markers, allow smaller font since visible area is less than bbox
-      const hasClip = !!polyData && polyData.length >= 3 && !mapEditMode;
-      const minFs = hasClip ? 4 : 5;
-      while (fs > minFs && (numSpan.scrollWidth > maxW || numSpan.scrollHeight > maxH * 0.7)) {
-        fs -= 0.5;
-        m.style.fontSize = fs + 'px';
-      }
-    }); });
 
     if (mapEditMode) {
       // Delete/hide button (top-right corner)
@@ -4733,11 +4705,23 @@ function loadAppearanceTab() {
   setVal('ap-color-green',  a.color_green,  '#00e87a');
   setVal('ap-color-red',    a.color_red,    '#ff4c6a');
   setVal('ap-color-bg',     a.color_bg,     '#03040a');
-  // sync hex labels
-  ['cyan','purple','green','red','bg'].forEach(k => {
-    const swatch = document.getElementById(`ap-color-${k}`);
-    const hex    = document.getElementById(`ap-color-${k}-hex`);
-    if (swatch && hex) hex.textContent = swatch.value;
+  setVal('ap-pb-number-color', a.pb_number_color, '#ffffff');
+  setVal('ap-pb-number-active-color', a.pb_number_active_color, '#ffffff');
+  setVal('ap-pb-number-outline-color', a.pb_number_outline_color, '#000000');
+  const appearanceSwatches = [
+    ['ap-color-cyan', 'ap-color-cyan-hex'],
+    ['ap-color-purple', 'ap-color-purple-hex'],
+    ['ap-color-green', 'ap-color-green-hex'],
+    ['ap-color-red', 'ap-color-red-hex'],
+    ['ap-color-bg', 'ap-color-bg-hex'],
+    ['ap-pb-number-color', 'ap-pb-number-color-hex'],
+    ['ap-pb-number-active-color', 'ap-pb-number-active-color-hex'],
+    ['ap-pb-number-outline-color', 'ap-pb-number-outline-color-hex'],
+  ];
+  appearanceSwatches.forEach(([inputId, hexId]) => {
+    const input = document.getElementById(inputId);
+    const hex = document.getElementById(hexId);
+    if (input && hex) hex.textContent = input.value;
   });
   document.getElementById('appearance-save-status').textContent = '';
 }
@@ -4756,6 +4740,9 @@ async function saveAdminAppearance() {
     color_green:     g('ap-color-green'),
     color_red:       g('ap-color-red'),
     color_bg:        g('ap-color-bg'),
+    pb_number_color: g('ap-pb-number-color'),
+    pb_number_active_color: g('ap-pb-number-active-color'),
+    pb_number_outline_color: g('ap-pb-number-outline-color'),
   };
   try {
     await api.saveAppearance(appearance);
@@ -4769,7 +4756,8 @@ async function saveAdminAppearance() {
 function resetAdminAppearance() {
   const defaults = { brand_word1:'PRINCESS', brand_sep:'◈', brand_word2:'TRACKERS',
     login_title:'Princess Trackers', login_subtitle:'Sign in to check off your work', login_btn:'Sign In',
-    color_cyan:'#00d4ff', color_purple:'#7c6cfc', color_green:'#00e87a', color_red:'#ff4c6a', color_bg:'#03040a' };
+    color_cyan:'#00d4ff', color_purple:'#7c6cfc', color_green:'#00e87a', color_red:'#ff4c6a', color_bg:'#03040a',
+    pb_number_color:'#ffffff', pb_number_active_color:'#ffffff', pb_number_outline_color:'#000000' };
   const set = (id, val) => { const e = document.getElementById(id); if (e) e.value = val; };
   set('ap-brand-word1', defaults.brand_word1);
   set('ap-brand-sep',   defaults.brand_sep);
@@ -4782,10 +4770,22 @@ function resetAdminAppearance() {
   set('ap-color-green',  defaults.color_green);
   set('ap-color-red',    defaults.color_red);
   set('ap-color-bg',     defaults.color_bg);
-  ['cyan','purple','green','red','bg'].forEach(k => {
-    const hex = document.getElementById(`ap-color-${k}-hex`);
-    const sw  = document.getElementById(`ap-color-${k}`);
-    if (hex && sw) hex.textContent = sw.value;
+  set('ap-pb-number-color', defaults.pb_number_color);
+  set('ap-pb-number-active-color', defaults.pb_number_active_color);
+  set('ap-pb-number-outline-color', defaults.pb_number_outline_color);
+  [
+    ['ap-color-cyan', 'ap-color-cyan-hex'],
+    ['ap-color-purple', 'ap-color-purple-hex'],
+    ['ap-color-green', 'ap-color-green-hex'],
+    ['ap-color-red', 'ap-color-red-hex'],
+    ['ap-color-bg', 'ap-color-bg-hex'],
+    ['ap-pb-number-color', 'ap-pb-number-color-hex'],
+    ['ap-pb-number-active-color', 'ap-pb-number-active-color-hex'],
+    ['ap-pb-number-outline-color', 'ap-pb-number-outline-color-hex'],
+  ].forEach(([inputId, hexId]) => {
+    const input = document.getElementById(inputId);
+    const hex = document.getElementById(hexId);
+    if (input && hex) hex.textContent = input.value;
   });
   applyAppearance(defaults);
 }

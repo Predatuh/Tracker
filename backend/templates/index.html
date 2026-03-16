@@ -232,10 +232,6 @@
                           <div class="sitemap-viewer-kicker">Full Map Viewer</div>
                           <div id="sitemap-viewer-subtitle" class="sitemap-viewer-subtitle">Baseline map loading...</div>
                         </div>
-                        <div class="sitemap-overlay-toggle">
-                          <button type="button" id="sitemap-overlay-baseline" class="sitemap-overlay-btn active" onclick="setSiteMapOverlayMode('baseline')">Baseline</button>
-                          <button type="button" id="sitemap-overlay-tracker" class="sitemap-overlay-btn" onclick="setSiteMapOverlayMode('tracker')">Tracker Overlay</button>
-                        </div>
                       </div>
                         <div style="flex:1;"></div>
                         <button id="zone-assign-btn" class="btn btn-secondary admin-only" data-perm="edit_map" onclick="toggleZoneAssignMode()" style="font-size:12px;padding:5px 12px;" title="Assign PBs to zones by clicking or entering ranges">🏷️ Assign Zones</button>
@@ -519,7 +515,7 @@
                   <h2 class="section-subtitle">✨ Appearance &amp; Theme</h2>
                   <p style="color:var(--text-muted);font-size:13px;margin-bottom:20px;">Customize brand text, theme colors, and the login screen. Changes apply immediately across the whole app.</p>
 
-                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px;">
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px;">
                     <!-- Brand -->
                     <div class="appearance-group">
                       <div class="appearance-group-title">Brand Name</div>
@@ -578,6 +574,27 @@
                         <div>
                           <div class="appearance-color-name">Background</div>
                           <div class="appearance-color-hex" id="ap-color-bg-hex">#03040a</div>
+                        </div>
+                      </div>
+                      <div class="appearance-color-row">
+                        <input type="color" id="ap-pb-number-color" value="#ffffff" class="appearance-color-swatch" oninput="document.getElementById('ap-pb-number-color-hex').textContent=this.value;previewThemeColor('--pb-number-color',this.value)" />
+                        <div>
+                          <div class="appearance-color-name">PB Number Color</div>
+                          <div class="appearance-color-hex" id="ap-pb-number-color-hex">#ffffff</div>
+                        </div>
+                      </div>
+                      <div class="appearance-color-row">
+                        <input type="color" id="ap-pb-number-active-color" value="#ffffff" class="appearance-color-swatch" oninput="document.getElementById('ap-pb-number-active-color-hex').textContent=this.value;previewThemeColor('--pb-number-active-color',this.value)" />
+                        <div>
+                          <div class="appearance-color-name">PB Number Color With Tracker</div>
+                          <div class="appearance-color-hex" id="ap-pb-number-active-color-hex">#ffffff</div>
+                        </div>
+                      </div>
+                      <div class="appearance-color-row">
+                        <input type="color" id="ap-pb-number-outline-color" value="#000000" class="appearance-color-swatch" oninput="document.getElementById('ap-pb-number-outline-color-hex').textContent=this.value;previewThemeColor('--pb-number-outline-color',this.value)" />
+                        <div>
+                          <div class="appearance-color-name">PB Number Outline</div>
+                          <div class="appearance-color-hex" id="ap-pb-number-outline-color-hex">#000000</div>
                         </div>
                       </div>
                     </div>
