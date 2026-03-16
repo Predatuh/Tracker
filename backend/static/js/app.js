@@ -4765,36 +4765,94 @@ async function wl_deleteEntry(id) {
 // REPORTS PAGE
 // ============================================================
 let rp_viewMode = 'list';  // 'list' | 'calendar'
+let rp_reportsCache = [];
+let rp_selectedDate = null;
+
+async function rp_fetchReports(force = false) {
+  if (!force && rp_reportsCache.length) return rp_reportsCache;
+  const r = await api.call(api._tq('/reports'));
+  const reports = Array.isArray(r.data) ? r.data : [];
+  reports.sort((a, b) => b.report_date.localeCompare(a.report_date));
+  rp_reportsCache = reports;
+  return reports;
+}
+
+function rp_formatDate(dateStr, options = { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) {
+  const parsed = new Date(`${dateStr}T12:00:00`);
+  if (Number.isNaN(parsed.getTime())) return dateStr;
+  return parsed.toLocaleDateString('en-US', options);
+}
+
+function rp_renderSummary(reports) {
+  const summary = document.getElementById('rp-summary');
+  if (!summary) return;
+  if (!reports.length) {
+    summary.innerHTML = '';
+    return;
+  }
+
+  const totalReports = reports.length;
+  const totalEntries = reports.reduce((sum, report) => sum + Number(report.total_entries || 0), 0);
+  const totalScans = reports.reduce((sum, report) => sum + Number(report.claim_scan_count || 0), 0);
+  const workersTouched = new Set(reports.flatMap(report => report.workers || [])).size;
+  const latestReport = reports[0];
+
+  const cards = [
+    { kicker: 'Reports Logged', value: `${totalReports}`, meta: 'Generated day snapshots on record', tone: 'cyan' },
+    { kicker: 'Task Entries', value: `${totalEntries}`, meta: 'Logged work entries across this tracker view', tone: 'violet' },
+    { kicker: 'Crew In Reports', value: `${workersTouched}`, meta: 'Distinct workers captured in report history', tone: 'emerald' },
+    { kicker: 'Claim Scans', value: `${totalScans}`, meta: latestReport ? `Latest report: ${rp_formatDate(latestReport.report_date, { month: 'short', day: 'numeric', year: 'numeric' })}` : 'No reports yet', tone: 'amber' }
+  ];
+
+  summary.innerHTML = cards.map(card => `
+    <article class="reports-summary-card reports-tone-${card.tone}">
+      <div class="reports-summary-kicker">${card.kicker}</div>
+      <div class="reports-summary-value">${card.value}</div>
+      <div class="reports-summary-meta">${card.meta}</div>
+    </article>
+  `).join('');
+}
+
+function rp_renderEmpty(body, message, subcopy = '') {
+  body.innerHTML = `
+    <div class="reports-empty-state">
+      <div class="reports-empty-title">${message}</div>
+      ${subcopy ? `<div class="reports-empty-copy">${subcopy}</div>` : ''}
+    </div>
+  `;
+}
 
 async function loadReportsPage() {
   const el = document.getElementById('reports-content');
   if (!el) return;
 
   el.innerHTML = `
-    <div style="display:flex;gap:10px;margin-bottom:20px;">
-      <button id="rp-tab-list" onclick="rp_switchView('list')" style="padding:8px 20px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid #00d4ff;background:rgba(0,212,255,0.15);color:#00d4ff;">List</button>
-      <button id="rp-tab-calendar" onclick="rp_switchView('calendar')" style="padding:8px 20px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.04);color:#8892b0;">Calendar</button>
-      <button onclick="rp_generate()" style="margin-left:auto;background:linear-gradient(135deg,#00d4ff,#009abc);color:#000;border:none;border-radius:6px;padding:8px 20px;font-size:12px;font-weight:700;cursor:pointer;">Generate Today's Report</button>
-    </div>
-    <div id="rp-body"></div>`;
+    <section class="reports-shell">
+      <div class="reports-toolbar">
+        <div class="reports-toolbar-tabs">
+          <button id="rp-tab-list" class="reports-tab-btn" onclick="rp_switchView('list')">List</button>
+          <button id="rp-tab-calendar" class="reports-tab-btn" onclick="rp_switchView('calendar')">Calendar</button>
+        </div>
+        <button class="reports-generate-btn" onclick="rp_generate()">Generate Today's Report</button>
+      </div>
+      <div id="rp-summary" class="reports-summary-grid"></div>
+      <div id="rp-body" class="reports-body"></div>
+    </section>`;
 
-  rp_switchView(rp_viewMode);
+  const reports = await rp_fetchReports(true).catch(() => []);
+  rp_renderSummary(reports);
+  await rp_switchView(rp_viewMode);
 }
 
-function rp_switchView(mode) {
+async function rp_switchView(mode) {
   rp_viewMode = mode;
   // Update tab styles
   ['list', 'calendar'].forEach(m => {
     const btn = document.getElementById('rp-tab-' + m);
-    if (btn) {
-      const active = m === mode;
-      btn.style.borderColor = active ? '#00d4ff' : 'rgba(255,255,255,0.12)';
-      btn.style.background = active ? 'rgba(0,212,255,0.15)' : 'rgba(255,255,255,0.04)';
-      btn.style.color = active ? '#00d4ff' : '#8892b0';
-    }
+    if (btn) btn.classList.toggle('active', m === mode);
   });
-  if (mode === 'list') rp_loadList();
-  else rp_loadCalendar();
+  if (mode === 'list') await rp_loadList();
+  else await rp_loadCalendar();
 }
 
 async function rp_generate() {
@@ -4802,52 +4860,53 @@ async function rp_generate() {
     const body = {};
     if (currentTracker) body.tracker_id = currentTracker.id;
     await api.call('/reports/generate', { method: 'POST', body: JSON.stringify(body) });
-    rp_switchView(rp_viewMode);
+    const reports = await rp_fetchReports(true);
+    rp_renderSummary(reports);
+    await rp_switchView(rp_viewMode);
   } catch(e) { alert('Error: ' + e.message); }
 }
 
 async function rp_loadList() {
   const el = document.getElementById('rp-body');
   if (!el) return;
-  el.innerHTML = '<p style="color:#8892b0;">Loading...</p>';
+  el.innerHTML = '<div class="reports-empty-copy">Loading reports…</div>';
   try {
-    const r = await api.call(api._tq('/reports'));
-    const reports = r.data || [];
+    const reports = await rp_fetchReports();
     if (reports.length === 0) {
-      el.innerHTML = `<div style="text-align:center;padding:40px;">
-        <p style="color:#8892b0;font-size:14px;margin-bottom:12px;">No reports generated yet.</p>
-        <p style="color:#4a5568;font-size:12px;">Click <strong style="color:#00d4ff;">"Generate Today's Report"</strong> above to create one from today's work log entries.</p>
-      </div>`;
+      rp_renderEmpty(el, 'No reports generated yet.', 'Use Generate Today\'s Report to create the first daily snapshot.');
       return;
     }
-    let html = '';
-    reports.sort((a, b) => b.report_date.localeCompare(a.report_date));
-    reports.forEach(rpt => {
-      const d = new Date(rpt.report_date + 'T12:00:00');
-      const dateStr = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
-      const workers = rpt.total_workers || 0;
-      const tasks = rpt.total_tasks || 0;
-      html += `<div onclick="rp_showDetail('${rpt.report_date}')" style="padding:14px 18px;margin-bottom:8px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:8px;cursor:pointer;transition:border-color 0.2s;" onmouseover="this.style.borderColor='rgba(0,212,255,0.3)'" onmouseout="this.style.borderColor='rgba(255,255,255,0.08)'">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-          <div>
-            <div style="font-weight:700;color:#eef2ff;font-size:14px;">${dateStr}</div>
-            <div style="color:#8892b0;font-size:12px;margin-top:2px;">${workers} worker${workers !== 1 ? 's' : ''} · ${tasks} task-block entries</div>
-          </div>
-          <span style="color:#4a5568;font-size:18px;">›</span>
+    if (!rp_selectedDate) rp_selectedDate = reports[0].report_date;
+    el.innerHTML = `
+      <div class="reports-list-layout">
+        <div class="reports-list-panel">
+          ${reports.map(rpt => {
+            const workers = Array.isArray(rpt.workers) ? rpt.workers.length : 0;
+            const entries = Number(rpt.total_entries || 0);
+            const scans = Number(rpt.claim_scan_count || 0);
+            const isActive = rpt.report_date === rp_selectedDate;
+            return `
+              <button type="button" class="reports-list-card${isActive ? ' active' : ''}" onclick="rp_showDetail('${rpt.report_date}', true)">
+                <div class="reports-list-card-main">
+                  <div class="reports-list-card-date">${rp_formatDate(rpt.report_date)}</div>
+                  <div class="reports-list-card-meta">${workers} worker${workers === 1 ? '' : 's'} • ${entries} entries • ${scans} claim scan${scans === 1 ? '' : 's'}</div>
+                </div>
+                ${rpt.latest_claim_scan_image_url ? `<img class="reports-list-thumb" src="${rpt.latest_claim_scan_image_url}" alt="Latest claim scan">` : '<div class="reports-list-thumb reports-list-thumb-empty">No scan</div>'}
+              </button>`;
+          }).join('')}
         </div>
+        <div id="rp-detail" class="reports-detail-shell"></div>
       </div>`;
-    });
-    el.innerHTML = html;
+    await rp_showDetail(rp_selectedDate, false);
   } catch(e) { el.innerHTML = `<p style="color:#ff4c6a;">Error: ${e.message}</p>`; }
 }
 
 async function rp_loadCalendar() {
   const el = document.getElementById('rp-body');
   if (!el) return;
-  el.innerHTML = '<p style="color:#8892b0;">Loading...</p>';
+  el.innerHTML = '<div class="reports-empty-copy">Loading calendar…</div>';
   try {
-    const r = await api.call(api._tq('/reports'));
-    const reports = r.data || [];
+    const reports = await rp_fetchReports();
     const reportDates = new Set(reports.map(rp => rp.report_date));
 
     const now = new Date();
@@ -4857,65 +4916,91 @@ async function rp_loadCalendar() {
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const monthName = now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
-    let html = `<div style="text-align:center;font-weight:700;color:#eef2ff;font-size:16px;margin-bottom:14px;">${monthName}</div>`;
-    html += '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center;">';
+    let html = `<div class="reports-calendar-shell"><div><div class="reports-calendar-title">${monthName}</div>`;
+    html += '<div class="reports-calendar-grid">';
     ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].forEach(d => {
-      html += `<div style="font-size:10px;font-weight:700;color:#4a5568;padding:6px 0;">${d}</div>`;
+      html += `<div class="reports-calendar-dow">${d}</div>`;
     });
 
-    for (let i = 0; i < firstDay; i++) html += '<div></div>';
+    for (let i = 0; i < firstDay; i++) html += '<div class="reports-calendar-spacer"></div>';
     for (let day = 1; day <= daysInMonth; day++) {
       const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
       const hasReport = reportDates.has(dateStr);
       const isToday = day === now.getDate();
-      html += `<div onclick="${hasReport ? "rp_showDetail('" + dateStr + "')" : ''}" style="padding:8px 4px;border-radius:6px;cursor:${hasReport ? 'pointer' : 'default'};background:${isToday ? 'rgba(0,212,255,0.1)' : 'rgba(255,255,255,0.02)'};border:1px solid ${isToday ? 'rgba(0,212,255,0.3)' : 'transparent'};">
-        <div style="font-size:13px;color:${isToday ? '#00d4ff' : '#eef2ff'};font-weight:${isToday ? '700' : '400'};">${day}</div>
-        ${hasReport ? '<div style="width:6px;height:6px;border-radius:50%;background:#00e87a;margin:4px auto 0;"></div>' : ''}
-      </div>`;
+      const classes = ['reports-calendar-day'];
+      if (isToday) classes.push('today');
+      if (hasReport) classes.push('has-report');
+      html += `<button type="button" class="${classes.join(' ')}" ${hasReport ? `onclick="rp_showDetail('${dateStr}', true)"` : 'disabled'}>
+        <span>${day}</span>
+        ${hasReport ? '<span class="reports-calendar-dot"></span>' : ''}
+      </button>`;
     }
-    html += '</div>';
-    html += '<div id="rp-detail" style="margin-top:20px;"></div>';
+    html += '</div></div><div id="rp-detail" class="reports-detail-shell"></div></div>';
     el.innerHTML = html;
+    if (!rp_selectedDate && reports[0]) rp_selectedDate = reports[0].report_date;
+    if (rp_selectedDate && reportDates.has(rp_selectedDate)) {
+      await rp_showDetail(rp_selectedDate, false);
+    }
   } catch(e) { el.innerHTML = `<p style="color:#ff4c6a;">Error: ${e.message}</p>`; }
 }
 
-async function rp_showDetail(dateStr) {
-  let detailEl = document.getElementById('rp-detail');
-  // If inside list view, append detail area
-  if (!detailEl) {
-    const body = document.getElementById('rp-body');
-    body.insertAdjacentHTML('beforeend', '<div id="rp-detail" style="margin-top:20px;"></div>');
-    detailEl = document.getElementById('rp-detail');
+async function rp_showDetail(dateStr, syncSelection = true) {
+  if (syncSelection) {
+    rp_selectedDate = dateStr;
+    document.querySelectorAll('.reports-list-card').forEach(card => {
+      card.classList.toggle('active', card.getAttribute('onclick')?.includes(`'${dateStr}'`));
+    });
   }
-  detailEl.innerHTML = '<p style="color:#8892b0;">Loading report...</p>';
+  let detailEl = document.getElementById('rp-detail');
+  if (!detailEl) return;
+  detailEl.innerHTML = '<div class="reports-empty-copy">Loading report…</div>';
   try {
     const r = await api.call(api._tq(`/reports/date/${dateStr}`));
     const rpt = r.data;
-    if (!rpt) { detailEl.innerHTML = '<p style="color:#4a5568;">No report for this date.</p>'; return; }
+    if (!rpt) { detailEl.innerHTML = '<div class="reports-empty-copy">No report for this date.</div>'; return; }
 
     const data = rpt.data || {};
-    const d = new Date(dateStr + 'T12:00:00');
-    const dateTitle = d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+    const dateTitle = rp_formatDate(dateStr, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+    const workers = data.worker_names || [];
+    const scans = data.claim_scans || [];
 
-    let html = `<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:20px;">
-      <h3 style="color:#eef2ff;margin:0 0 16px;font-size:16px;">📊 Report — ${dateTitle}</h3>`;
+    let html = `<div class="reports-detail-card">
+      <div class="reports-detail-head">
+        <div>
+          <div class="reports-detail-kicker">Daily Report</div>
+          <h3 class="reports-detail-title">${dateTitle}</h3>
+        </div>
+        <div class="reports-detail-stat-row">
+          <div class="reports-detail-stat"><span>${data.total_entries || 0}</span><small>Entries</small></div>
+          <div class="reports-detail-stat"><span>${workers.length}</span><small>Workers</small></div>
+          <div class="reports-detail-stat"><span>${scans.length}</span><small>Claim Scans</small></div>
+        </div>
+      </div>`;
+
+    if (scans.length > 0) {
+      html += `<div class="reports-detail-section"><div class="reports-detail-section-title">Claim Scans</div><div class="reports-scan-grid">${scans.map(scan => `
+        <article class="reports-scan-card">
+          ${scan.image_url ? `<img src="${scan.image_url}" alt="Claim scan for ${scan.power_block_name || 'report'}">` : '<div class="reports-scan-empty">No image</div>'}
+          <div class="reports-scan-meta">${scan.power_block_name || 'Power Block'} • ${scan.claimed_label || 'No crew listed'}</div>
+        </article>
+      `).join('')}</div></div>`;
+    }
 
     // By worker
     const byWorker = data.by_worker || {};
     if (Object.keys(byWorker).length > 0) {
-      html += '<div style="margin-bottom:16px;"><div style="font-size:11px;font-weight:700;color:#8892b0;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">By Worker</div>';
+      html += '<div class="reports-detail-section"><div class="reports-detail-section-title">By Worker</div><div class="reports-detail-stack">';
       for (const [worker, tasks] of Object.entries(byWorker)) {
-        html += `<div style="margin-bottom:8px;padding:8px 12px;background:rgba(255,255,255,0.02);border-radius:6px;">
-          <div style="font-weight:600;color:#eef2ff;font-size:13px;margin-bottom:4px;">👷 ${worker}</div>`;
+        html += `<div class="reports-line-card"><div class="reports-line-card-title">👷 ${worker}</div>`;
         if (typeof tasks === 'object') {
           for (const [task, blocks] of Object.entries(tasks)) {
             const color = STATUS_COLORS[task] || '#888';
             const label = STATUS_LABELS[task] || task;
             const blockList = Array.isArray(blocks) ? blocks.join(', ') : blocks;
-            html += `<div style="display:flex;align-items:center;gap:6px;margin-left:8px;margin-bottom:2px;">
-              <span style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0;"></span>
-              <span style="color:#a0aec0;font-size:12px;">${label}:</span>
-              <span style="color:#8892b0;font-size:11px;">${blockList}</span>
+            html += `<div class="reports-line-item">
+              <span class="reports-line-dot" style="background:${color}"></span>
+              <span class="reports-line-label">${label}:</span>
+              <span class="reports-line-copy">${blockList}</span>
             </div>`;
           }
         }
@@ -4927,17 +5012,15 @@ async function rp_showDetail(dateStr) {
     // By task
     const byTask = data.by_task || {};
     if (Object.keys(byTask).length > 0) {
-      html += '<div><div style="font-size:11px;font-weight:700;color:#8892b0;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">By Task</div>';
+      html += '<div class="reports-detail-section"><div class="reports-detail-section-title">By Task</div><div class="reports-detail-stack">';
       for (const [task, workers] of Object.entries(byTask)) {
         const color = STATUS_COLORS[task] || '#888';
         const label = STATUS_LABELS[task] || task;
-        html += `<div style="margin-bottom:6px;padding:6px 12px;background:rgba(255,255,255,0.02);border-radius:6px;">
-          <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};margin-right:6px;"></span>
-          <span style="font-weight:600;color:#eef2ff;font-size:13px;">${label}</span>`;
+        html += `<div class="reports-line-card"><div class="reports-line-card-title"><span class="reports-line-dot" style="background:${color}"></span>${label}</div>`;
         if (typeof workers === 'object') {
           for (const [w, blocks] of Object.entries(workers)) {
             const blockList = Array.isArray(blocks) ? blocks.join(', ') : blocks;
-            html += `<div style="margin-left:22px;color:#8892b0;font-size:11px;">${w}: ${blockList}</div>`;
+            html += `<div class="reports-line-item reports-line-item-indent"><span class="reports-line-label">${w}:</span><span class="reports-line-copy">${blockList}</span></div>`;
           }
         }
         html += '</div>';
