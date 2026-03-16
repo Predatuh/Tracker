@@ -100,7 +100,14 @@ function Dashboard() {
       <section className="dashboard-hero">
         <div className="dashboard-hero-copy">
           <span className="dashboard-kicker">{currentTracker?.name || 'Tracker Overview'}</span>
-          <h1 className="section-title">Keep work moving.</h1>
+          <div className="dashboard-title-wrap">
+            <h1 className="section-title dashboard-hero-title">Keep work moving.</h1>
+            <div className="dashboard-title-signal" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+            </div>
+          </div>
           <p className="dashboard-subtitle">
             Check block progress, jump into the map, and pick up exactly where the crew left off.
           </p>

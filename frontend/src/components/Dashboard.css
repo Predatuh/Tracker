@@ -24,6 +24,73 @@
   padding: 34px;
 }
 
+.dashboard-title-wrap {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.dashboard-hero-title {
+  max-width: 10ch;
+  font-size: clamp(2.5rem, 5vw, 4.5rem);
+  line-height: 0.92;
+  letter-spacing: -0.06em;
+  text-wrap: balance;
+}
+
+.dashboard-title-signal {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(100%, 420px);
+  min-height: 18px;
+}
+
+.dashboard-title-signal::before,
+.dashboard-title-signal::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  border-radius: 999px;
+}
+
+.dashboard-title-signal::before {
+  height: 2px;
+  background: linear-gradient(90deg, rgba(79, 227, 213, 0.18), rgba(79, 227, 213, 0.92) 32%, rgba(132, 147, 255, 0.74) 68%, rgba(132, 147, 255, 0.08));
+  box-shadow: 0 0 18px rgba(79, 227, 213, 0.16);
+}
+
+.dashboard-title-signal::after {
+  width: 104px;
+  height: 8px;
+  background: linear-gradient(90deg, transparent, rgba(79, 227, 213, 0.94), rgba(132, 147, 255, 0.82), transparent);
+  filter: blur(3px);
+  animation: dashboardSignalSweep 5.8s cubic-bezier(0.37, 0, 0.22, 1) infinite;
+}
+
+.dashboard-title-signal span {
+  position: relative;
+  z-index: 1;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: radial-gradient(circle, #f4fffe 0%, #7ff9f0 38%, #2fd5c8 100%);
+  box-shadow: 0 0 16px rgba(79, 227, 213, 0.42);
+  animation: dashboardSignalPulse 4.4s ease-in-out infinite;
+}
+
+.dashboard-title-signal span:nth-child(2) {
+  animation-delay: 0.4s;
+}
+
+.dashboard-title-signal span:nth-child(3) {
+  animation-delay: 0.8s;
+}
+
 .dashboard-hero-copy::before,
 .dashboard-hero-panel::before {
   content: '';
@@ -335,6 +402,41 @@
   background: linear-gradient(155deg, rgba(26, 24, 39, 0.9), rgba(10, 14, 27, 0.98));
 }
 
+@keyframes dashboardSignalSweep {
+  0% {
+    transform: translate(-16%, -50%);
+    opacity: 0;
+  }
+  18% {
+    opacity: 1;
+  }
+  50% {
+    transform: translate(138%, -50%);
+    opacity: 0.92;
+  }
+  72% {
+    opacity: 0;
+  }
+  100% {
+    transform: translate(138%, -50%);
+    opacity: 0;
+  }
+}
+
+@keyframes dashboardSignalPulse {
+  0%,
+  100% {
+    transform: scale(0.88);
+    opacity: 0.5;
+    box-shadow: 0 0 12px rgba(79, 227, 213, 0.22);
+  }
+  45% {
+    transform: scale(1.18);
+    opacity: 1;
+    box-shadow: 0 0 20px rgba(79, 227, 213, 0.44);
+  }
+}
+
 @media (max-width: 1080px) {
   .dashboard-hero,
   .dashboard-detail-grid,
@@ -367,5 +469,17 @@
   .tracker-card-stats {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .dashboard-title-wrap {
+    gap: 12px;
+  }
+
+  .dashboard-hero-title {
+    max-width: none;
+  }
+
+  .dashboard-title-signal {
+    width: 100%;
   }
 }
