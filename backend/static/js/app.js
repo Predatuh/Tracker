@@ -868,6 +868,102 @@ function toggleStatus(lbdId, statusType, currentStatus, blockId) {
 }
 
 // Tracker Hub (Dashboard)
+function isDateToday(value) {
+  if (!value) return false;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return false;
+  const now = new Date();
+  return parsed.getFullYear() === now.getFullYear()
+    && parsed.getMonth() === now.getMonth()
+    && parsed.getDate() === now.getDate();
+}
+
+function formatDashboardActivityTime(value) {
+  if (!value) return 'No recent activity';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return 'No recent activity';
+  return parsed.toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit'
+  });
+}
+
+function renderDashboardOverview(cards) {
+  const grid = document.getElementById('dashboard-overview-grid');
+  const strip = document.getElementById('dashboard-activity-strip');
+  if (!grid || !strip) return;
+
+  if (!cards.length) {
+    grid.innerHTML = '';
+    strip.innerHTML = '';
+    return;
+  }
+
+  const totalTrackers = cards.length;
+  const activeTrackers = cards.filter(card => card.activeClaims > 0 || card.updatedToday > 0).length;
+  const totalBlocks = cards.reduce((sum, card) => sum + card.totalBlocks, 0);
+  const completedBlocks = cards.reduce((sum, card) => sum + card.completedBlocks, 0);
+  const totalItems = cards.reduce((sum, card) => sum + card.totalItems, 0);
+  const termedItems = cards.reduce((sum, card) => sum + card.termedItems, 0);
+  const updatedToday = cards.reduce((sum, card) => sum + card.updatedToday, 0);
+  const claimedToday = cards.reduce((sum, card) => sum + card.claimedToday, 0);
+  const overallPct = totalItems > 0 ? Math.round((termedItems / totalItems) * 100) : 0;
+  const blockPct = totalBlocks > 0 ? Math.round((completedBlocks / totalBlocks) * 100) : 0;
+
+  const overviewCards = [
+    {
+      kicker: 'Live Progress',
+      value: `${overallPct}%`,
+      meta: `${termedItems}/${totalItems} termed today-ready items`,
+      tone: 'cyan'
+    },
+    {
+      kicker: 'Completed Blocks',
+      value: `${completedBlocks}`,
+      meta: `${blockPct}% of ${totalBlocks} power blocks finished`,
+      tone: 'amber'
+    },
+    {
+      kicker: 'Trackers Active',
+      value: `${activeTrackers}/${totalTrackers}`,
+      meta: `${updatedToday} blocks touched today`,
+      tone: 'emerald'
+    },
+    {
+      kicker: 'Claims Today',
+      value: `${claimedToday}`,
+      meta: 'Fresh crew activity across the array',
+      tone: 'violet'
+    }
+  ];
+
+  grid.innerHTML = overviewCards.map(card => `
+    <article class="dashboard-overview-card dashboard-tone-${card.tone}">
+      <div class="dashboard-overview-kicker">${card.kicker}</div>
+      <div class="dashboard-overview-value">${card.value}</div>
+      <div class="dashboard-overview-meta">${card.meta}</div>
+    </article>
+  `).join('');
+
+  const activeFeed = [...cards]
+    .sort((left, right) => {
+      const activityDelta = (right.updatedToday + right.claimedToday) - (left.updatedToday + left.claimedToday);
+      if (activityDelta !== 0) return activityDelta;
+      return (right.pct || 0) - (left.pct || 0);
+    })
+    .slice(0, 6);
+
+  strip.innerHTML = activeFeed.map(card => `
+    <button type="button" class="dashboard-activity-chip" onclick="openTracker(${card.id})">
+      <span class="dashboard-activity-chip-name">${card.icon || '📋'} ${card.name}</span>
+      <span class="dashboard-activity-chip-meta">${card.updatedToday} touched today</span>
+      <span class="dashboard-activity-chip-meta">${card.activeClaims} active claims</span>
+    </button>
+  `).join('');
+}
+
 async function loadDashboard() {
   const grid = document.getElementById('tracker-hub-grid');
   if (!grid) return;
@@ -886,6 +982,7 @@ async function loadDashboard() {
 
   if (!allTrackers.length) {
     grid.innerHTML = `<p style="color:rgba(238,242,255,0.35);text-align:center;padding:60px 20px;">${emptyText}</p>`;
+    renderDashboardOverview([]);
     return;
   }
 
@@ -901,11 +998,21 @@ async function loadDashboard() {
       // % based on LBDs with 'term' (Termed) status completed
       const termedItems = blocks.reduce((s, b) => s + ((b.lbd_summary && b.lbd_summary['term']) || 0), 0);
       const pct = totalItems > 0 ? Math.round((termedItems / totalItems) * 100) : 0;
-      return { ...t, totalBlocks, completedBlocks, totalItems, termedItems, pct };
+      const activeClaims = blocks.filter(b => Array.isArray(b.claimed_people) && b.claimed_people.length > 0).length;
+      const claimedToday = blocks.filter(b => isDateToday(b.claimed_at)).length;
+      const updatedToday = blocks.filter(b => isDateToday(b.last_updated_at) || isDateToday(b.claimed_at)).length;
+      const crewCount = new Set(blocks.flatMap(b => Array.isArray(b.claimed_people) ? b.claimed_people : [])).size;
+      const lastActivity = blocks
+        .map(b => b.last_updated_at || b.claimed_at)
+        .filter(Boolean)
+        .sort((left, right) => new Date(right) - new Date(left))[0] || null;
+      return { ...t, totalBlocks, completedBlocks, totalItems, termedItems, pct, activeClaims, claimedToday, updatedToday, crewCount, lastActivity };
     } catch(e) {
-      return { ...t, totalBlocks: 0, completedBlocks: 0, totalItems: 0, pct: 0 };
+      return { ...t, totalBlocks: 0, completedBlocks: 0, totalItems: 0, termedItems: 0, pct: 0, activeClaims: 0, claimedToday: 0, updatedToday: 0, crewCount: 0, lastActivity: null };
     }
   }));
+
+  renderDashboardOverview(cards);
 
   grid.innerHTML = cards.map(t => {
     const barColor = t.pct >= 100 ? '#00e87a' : t.pct >= 50 ? '#00d4ff' : '#7c6cfc';
@@ -914,12 +1021,20 @@ async function loadDashboard() {
     const openTrackerLabel = t.dashboard_open_label || ui.dashboard_open_tracker || 'Open Tracker';
     return `
     <div class="tracker-hub-card" onclick="openTracker(${t.id})">
+      <div class="thc-activity-rail">
+        <span class="thc-activity-badge">${t.updatedToday} touched today</span>
+        <span class="thc-activity-badge thc-activity-badge-muted">${t.activeClaims} active claims</span>
+      </div>
       <div class="thc-top">
         <span class="thc-icon">${t.icon || '📋'}</span>
         <div class="thc-title-wrap">
           <span class="thc-name">${t.name}</span>
           <span class="thc-pct-badge" style="color:${barColor}">${t.pct}%</span>
         </div>
+      </div>
+      <div class="thc-meta-row">
+        <span class="thc-meta-pill">${t.crewCount} crew active</span>
+        <span class="thc-meta-pill">${formatDashboardActivityTime(t.lastActivity)}</span>
       </div>
       <div class="thc-stats">
         <div class="thc-stat-pill thc-pct-pill" style="background:${barColor}18;border-color:${barColor}55;color:${barColor}"><span class="thc-stat-val">${t.pct}%</span> <span class="thc-stat-lbl">${completeLabel}</span></div>
@@ -928,6 +1043,7 @@ async function loadDashboard() {
       </div>
       <div class="thc-bar-wrap"><div class="thc-bar-fill" style="width:${t.pct}%;background:${barColor};"></div></div>
       <div class="thc-footer">
+        <span class="thc-footer-copy">${t.claimedToday} new claims today</span>
         <button type="button" class="thc-open-btn" onclick="event.stopPropagation(); openTracker(${t.id}); return false;">${openTrackerLabel} →</button>
       </div>
     </div>`;

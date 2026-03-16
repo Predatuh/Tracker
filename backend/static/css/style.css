@@ -637,6 +637,104 @@ body::after {
   font-family: 'Space Grotesk', sans-serif;
 }
 
+.dashboard-overview-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0 0 28px;
+}
+
+.dashboard-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+.dashboard-overview-card {
+  position: relative;
+  overflow: hidden;
+  border-radius: 18px;
+  padding: 18px 18px 16px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: linear-gradient(145deg, rgba(8,12,28,0.92) 0%, rgba(13,18,38,0.98) 100%);
+  box-shadow: 0 16px 40px rgba(0,0,0,0.35);
+}
+
+.dashboard-overview-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 100%;
+  height: 3px;
+  background: linear-gradient(90deg, currentColor, transparent 82%);
+  opacity: 0.9;
+}
+
+.dashboard-overview-kicker {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 11px;
+  letter-spacing: 1.3px;
+  text-transform: uppercase;
+  color: rgba(238,242,255,0.58);
+  margin-bottom: 10px;
+}
+
+.dashboard-overview-value {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 32px;
+  font-weight: 800;
+  line-height: 1;
+  margin-bottom: 10px;
+  color: #eef2ff;
+}
+
+.dashboard-overview-meta {
+  font-size: 12px;
+  color: rgba(238,242,255,0.55);
+  line-height: 1.5;
+}
+
+.dashboard-tone-cyan { color: #00d4ff; }
+.dashboard-tone-amber { color: #ffc857; }
+.dashboard-tone-emerald { color: #00e87a; }
+.dashboard-tone-violet { color: #9d8cff; }
+
+.dashboard-activity-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.dashboard-activity-chip {
+  border: 1px solid rgba(255,255,255,0.08);
+  background: linear-gradient(135deg, rgba(255,255,255,0.04), rgba(0,212,255,0.03));
+  color: #eef2ff;
+  border-radius: 14px;
+  padding: 12px 14px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  cursor: pointer;
+  transition: border-color 0.22s ease, transform 0.22s ease, box-shadow 0.22s ease;
+}
+
+.dashboard-activity-chip:hover {
+  border-color: rgba(0,212,255,0.24);
+  transform: translateY(-2px);
+  box-shadow: 0 14px 28px rgba(0,0,0,0.24);
+}
+
+.dashboard-activity-chip-name {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.dashboard-activity-chip-meta {
+  font-size: 11px;
+  color: rgba(238,242,255,0.52);
+}
+
 .tracker-hub-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
@@ -689,6 +787,28 @@ body::after {
 }
 .tracker-hub-card:hover::after { opacity: 1; }
 
+.thc-activity-rail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.thc-activity-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: #06111f;
+  background: linear-gradient(90deg, #00d4ff, #8ef7ff);
+  border-radius: 999px;
+  padding: 5px 10px;
+}
+
+.thc-activity-badge-muted {
+  background: rgba(255,255,255,0.08);
+  color: rgba(238,242,255,0.72);
+}
+
 .thc-top {
   display: flex;
   align-items: center;
@@ -731,6 +851,22 @@ body::after {
   font-weight: 700;
   letter-spacing: 1px;
 }
+
+.thc-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.thc-meta-pill {
+  font-size: 11px;
+  color: rgba(238,242,255,0.58);
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.04);
+  border-radius: 999px;
+  padding: 5px 10px;
+}
+
 .thc-stats {
   display: flex;
   gap: 8px;
@@ -772,7 +908,14 @@ body::after {
 }
 .thc-footer {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.thc-footer-copy {
+  font-size: 11px;
+  color: rgba(238,242,255,0.54);
 }
 .thc-open-btn {
   font-size: 12px;
@@ -785,6 +928,25 @@ body::after {
 }
 .tracker-hub-card:hover .thc-open-btn {
   text-shadow: 0 0 20px rgba(0,212,255,0.95), 0 0 40px rgba(0,212,255,0.4);
+}
+
+@media (max-width: 720px) {
+  .dashboard-overview-grid,
+  .dashboard-activity-strip,
+  .tracker-hub-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .thc-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .thc-open-btn {
+    width: 100%;
+    justify-content: center;
+    display: inline-flex;
+  }
 }
 
 .stat-card {
