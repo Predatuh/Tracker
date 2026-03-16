@@ -85,13 +85,13 @@
                 </div>
                 <div id="header-tracker-switcher" class="tracker-switch-shell" style="display:none;align-items:center;gap:8px;margin-left:8px;padding:6px 10px;border-radius:14px;border:1px solid rgba(0,212,255,0.16);background:rgba(0,212,255,0.06);">
                   <span style="font-size:11px;font-weight:700;color:rgba(238,242,255,0.58);letter-spacing:0.7px;text-transform:uppercase;">Tracker</span>
-                  <select id="header-tracker-select" onchange="switchTracker(this.value)" style="min-width:180px;background:rgba(7,9,26,0.88);border:1px solid rgba(0,212,255,0.22);border-radius:9px;color:#eef2ff;padding:6px 10px;font-size:12px;font-weight:600;font-family:'Space Grotesk',sans-serif;"></select>
+                  <select id="header-tracker-select" onchange="switchTracker(this.value)" style="min-width:220px;background:rgba(7,9,26,0.88);border:1px solid rgba(0,212,255,0.22);border-radius:9px;color:#eef2ff;padding:6px 10px;font-size:12px;font-weight:600;font-family:'Space Grotesk',sans-serif;"></select>
                 </div>
                 <ul class="nav-menu">
                     <li><a href="#" onclick="showPage('dashboard')" id="nav-link-dashboard">Dashboard</a></li>
                     <li><a href="#" onclick="showPage('upload')" class="admin-only" data-perm="upload_pdf" id="nav-link-upload">Upload PDF</a></li>
                     <li><a href="#" onclick="showPage('blocks')" id="nav-link-blocks">Power Blocks</a></li>
-                    <li><a href="#" onclick="showPage('sitemap')" id="nav-link-sitemap">Site Map</a></li>
+                    <li><a href="#" onclick="openSiteMap(true)" id="nav-link-sitemap">Site Map</a></li>
                     <li><a href="#" onclick="showPage('worklog')" id="nav-link-worklog">Claim</a></li>
                     <li><a href="#" onclick="showPage('reports')" id="nav-link-reports">Reports</a></li>
                     <li><a href="#" onclick="showPage('admin')" class="admin-only" data-perm="admin_settings" id="nav-link-admin">Admin</a></li>
@@ -277,10 +277,10 @@
                     <div style="display:flex;flex:1;overflow:hidden;position:relative;">
 
                         <!-- Scrollable map area -->
-                        <div id="map-outer" style="flex:1;overflow:auto;background:#1a1a2e;position:relative;">
-                            <div id="map-container" style="position:relative;display:inline-block;">
+                        <div id="map-outer" style="flex:1;overflow:hidden;background:#1a1a2e;position:relative;display:flex;align-items:center;justify-content:center;padding:12px;">
+                          <div id="map-container" style="position:relative;display:inline-block;max-width:100%;max-height:100%;line-height:0;">
                                 <img id="sitemap-image" src="" alt="Site Map"
-                                     style="display:block;width:100%;"
+                               style="display:block;max-width:100%;max-height:calc(100vh - 250px);width:auto;height:auto;object-fit:contain;"
                                      onload="onMapImageLoaded()" />
                                 <div id="pb-markers" style="position:absolute;top:0;left:0;"></div>
                                 <div id="text-labels" style="position:absolute;top:0;left:0;"></div>

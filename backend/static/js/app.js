@@ -191,10 +191,6 @@ async function loadTrackers() {
   try {
     const r = await api.call('/admin/trackers');
     allTrackers = r.data || [];
-    // No dropdown to populate — hub page shows all trackers
-    if (!currentTracker && allTrackers.length > 0) {
-      currentTracker = allTrackers[0];
-    }
     renderHeaderTrackerSwitcher();
   } catch(e) { console.warn('Failed to load trackers:', e); }
 }
@@ -206,16 +202,20 @@ function renderHeaderTrackerSwitcher() {
 
   const activePage = document.querySelector('.page.active');
   const hideOnDashboard = !activePage || activePage.id === 'page-dashboard';
-  if (!currentTracker || allTrackers.length <= 1 || hideOnDashboard) {
+  const allowNoTrackerState = activePage && activePage.id === 'page-sitemap';
+  if (allTrackers.length <= 0 || hideOnDashboard || (!allowNoTrackerState && !currentTracker)) {
     shell.style.display = 'none';
     return;
   }
 
-  select.innerHTML = allTrackers.map((tracker) => {
+  select.innerHTML = [
+    allowNoTrackerState ? '<option value="">No Active Tracker - Choose One</option>' : '',
+    ...allTrackers.map((tracker) => {
     const selected = currentTracker && Number(currentTracker.id) === Number(tracker.id) ? ' selected' : '';
     return `<option value="${tracker.id}"${selected}>${_escapeHtml(tracker.name)}</option>`;
-  }).join('');
-  select.value = String(currentTracker.id);
+    })
+  ].join('');
+  select.value = currentTracker ? String(currentTracker.id) : '';
   shell.style.display = 'flex';
 }
 
@@ -232,6 +232,17 @@ function updateTrackerCrumb() {
 }
 
 async function switchTracker(trackerId) {
+  if (trackerId === '' || trackerId == null) {
+    currentTracker = null;
+    updateTrackerCrumb();
+    renderHeaderTrackerSwitcher();
+    const activePage = document.querySelector('.page.active');
+    if (activePage) {
+      const name = activePage.id.replace('page-', '');
+      showPage(name);
+    }
+    return;
+  }
   const t = allTrackers.find(t => t.id == trackerId);
   if (!t) return;
   currentTracker = t;
@@ -281,6 +292,15 @@ function showPage(pageName) {
   if (pageName === 'admin') loadAdminPage();
   if (pageName === 'worklog') loadClaimPage();
   if (pageName === 'reports') loadReportsPage();
+}
+
+function openSiteMap(resetTracker = false) {
+  if (resetTracker) {
+    currentTracker = null;
+    updateTrackerCrumb();
+    renderHeaderTrackerSwitcher();
+  }
+  showPage('sitemap');
 }
 
 // Modal functions
@@ -1832,24 +1852,25 @@ function updateSiteMapOverlayButtons() {
 function renderSiteMapSummary() {
   const subtitle = document.getElementById('sitemap-viewer-subtitle');
   const summary = document.getElementById('sitemap-summary-strip');
-  const trackerName = currentTracker?.name || 'Active tracker';
-  const mapName = siteMapViewState.currentMap?.name || 'Current site map';
+  if (!currentTracker && siteMapViewState.overlayMode !== 'baseline') {
+    siteMapViewState.overlayMode = 'baseline';
+    localStorage.setItem('site_map_overlay_mode', 'baseline');
+  }
+  const trackerName = currentTracker?.name || 'No Active Tracker - Choose One';
   const completed = mapPBs.filter((pb) => getMapPBVisualState(pb).allDone).length;
   const inProgress = mapPBs.filter((pb) => getMapPBVisualState(pb).inProgress && !getMapPBVisualState(pb).allDone).length;
   const claimed = mapPBs.filter((pb) => pb.claimed_by).length;
 
   if (subtitle) {
-    subtitle.textContent = siteMapViewState.overlayMode === 'tracker'
-      ? `${trackerName} overlay is active on ${mapName}.`
-      : `${mapName} is showing the neutral numbered baseline. Enable tracker overlay when you want live progress colors.`;
+    subtitle.textContent = currentTracker
+      ? (siteMapViewState.overlayMode === 'tracker'
+        ? `${trackerName} overlay is active. Switch back to baseline any time.`
+        : `${trackerName} is selected. Turn on Tracker Overlay when you want live progress colors.`)
+      : 'No tracker is active. The map is showing the neutral baseline until you choose one.';
   }
 
   if (summary) {
     summary.innerHTML = `
-      <div class="sitemap-summary-card">
-        <span class="sitemap-summary-label">Map</span>
-        <strong>${_escapeHtml(mapName)}</strong>
-      </div>
       <div class="sitemap-summary-card">
         <span class="sitemap-summary-label">Tracker</span>
         <strong>${_escapeHtml(trackerName)}</strong>
@@ -1877,6 +1898,13 @@ function renderSiteMapSummary() {
 }
 
 function setSiteMapOverlayMode(mode) {
+  if (mode === 'tracker' && !currentTracker) {
+    siteMapViewState.overlayMode = 'baseline';
+    localStorage.setItem('site_map_overlay_mode', 'baseline');
+    renderSiteMapSummary();
+    renderPBMarkers();
+    return;
+  }
   siteMapViewState.overlayMode = mode === 'tracker' ? 'tracker' : 'baseline';
   localStorage.setItem('site_map_overlay_mode', siteMapViewState.overlayMode);
   renderSiteMapSummary();
@@ -2559,7 +2587,8 @@ function renderPBMarkers() {
     const { total, summary, completedTypes, partialTypes, allDone, inProgress } = getMapPBVisualState(pb);
     const isActive = false; // markers always render the same regardless of selection
     const num = (pb.power_block_number || pb.name.replace('INV-', '')).toString();
-    const overlayMode = siteMapViewState.overlayMode || 'baseline';
+    const overlayMode = currentTracker ? (siteMapViewState.overlayMode || 'baseline') : 'baseline';
+    const hasActiveTracker = !!currentTracker;
 
     // Build background
     let bgStyle;
@@ -2593,7 +2622,7 @@ function renderPBMarkers() {
     // All markers are rectangles
     const pbFontOverride = parseInt(localStorage.getItem('pb_font_size') || '0');
     const fontSize = pbFontOverride > 0 ? pbFontOverride : Math.max(7, Math.min(24, bbox.w * 0.35));
-    const labelColor = overlayMode === 'tracker' ? (pbLabelColors[key] || 'white') : '#eef2ff';
+    const labelColor = hasActiveTracker ? '#ffffff' : '#00e87a';
     m.style.cssText = [
       'position:absolute',
       `left:${bbox.x}%`,
@@ -2645,7 +2674,7 @@ function renderPBMarkers() {
     // PB number — centered, unaffected by "In Progress" label
     const numSpan = document.createElement('span');
     numSpan.textContent = num;
-    numSpan.style.cssText = 'white-space:nowrap;max-width:100%;text-overflow:clip;position:relative;z-index:1;';
+    numSpan.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;white-space:nowrap;max-width:100%;text-overflow:clip;z-index:1;pointer-events:none;';
     m.appendChild(numSpan);
 
     // "In Progress" indicator — absolutely positioned so it doesn't shift the number
