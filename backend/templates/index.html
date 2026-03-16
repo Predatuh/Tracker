@@ -89,7 +89,7 @@
                 </div>
                 <ul class="nav-menu">
                     <li><a href="#" onclick="showPage('dashboard')" id="nav-link-dashboard">Dashboard</a></li>
-                    <li><a href="#" onclick="showPage('upload')" class="admin-only" data-perm="upload_pdf" id="nav-link-upload">Upload PDF</a></li>
+                    <li><a href="#" onclick="showPage('upload')" class="main-admin-only" id="nav-link-upload">Upload PDF</a></li>
                     <li><a href="#" onclick="showPage('blocks')" id="nav-link-blocks">Power Blocks</a></li>
                     <li><a href="#" onclick="openSiteMap(true)" id="nav-link-sitemap">Site Map</a></li>
                     <li><a href="#" onclick="showPage('worklog')" id="nav-link-worklog">Claim</a></li>
@@ -126,7 +126,7 @@
             </div>
 
             <!-- Upload Page -->
-            <div id="page-upload" class="page">
+            <div id="page-upload" class="page main-admin-only">
                 <div class="container">
                     <h1 class="section-title" id="page-title-upload">Upload & Extract PDF</h1>
                     
@@ -183,28 +183,40 @@
 
             <!-- Power Blocks Page -->
             <div id="page-blocks" class="page">
-                <div class="container">
-                    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:8px;">
-                      <h1 class="section-title" id="page-title-blocks" style="margin-bottom:0;">Power Blocks & LBDs</h1>
-                      <div style="display:flex;align-items:center;gap:8px;">
-                        <label style="font-size:12px;color:#8892b0;white-space:nowrap;">Header Text:</label>
-                        <button onclick="changePBHeaderSize(-1)" style="background:rgba(255,255,255,0.08);color:#ccd6f6;border:none;border-radius:4px;width:26px;height:26px;cursor:pointer;font-size:14px;font-weight:700;line-height:1;">−</button>
-                        <span id="pb-header-size-display" style="font-size:11px;color:#ccd6f6;min-width:28px;text-align:center;">11px</span>
-                        <button onclick="changePBHeaderSize(1)" style="background:rgba(255,255,255,0.08);color:#ccd6f6;border:none;border-radius:4px;width:26px;height:26px;cursor:pointer;font-size:14px;font-weight:700;line-height:1;">+</button>
+                <div class="container blocks-page-shell">
+                    <div class="blocks-hero">
+                      <div class="blocks-hero-copy">
+                        <span class="blocks-kicker">Tracker Build Matrix</span>
+                        <h1 class="section-title blocks-title" id="page-title-blocks">Power Blocks & LBDs</h1>
+                        <p class="blocks-subtitle">Scan overall completion fast, filter by zone, and open any block without changing the existing workflow.</p>
+                      </div>
+                      <div class="blocks-hero-controls">
+                        <span class="blocks-control-label">Header Text</span>
+                        <div class="blocks-size-control">
+                          <button type="button" class="blocks-size-btn" onclick="changePBHeaderSize(-1)">−</button>
+                          <span id="pb-header-size-display" class="blocks-size-display">11px</span>
+                          <button type="button" class="blocks-size-btn" onclick="changePBHeaderSize(1)">+</button>
+                        </div>
                       </div>
                     </div>
-                    <!-- Filter / Sort bar -->
                     <div class="blocks-filter-bar" id="blocks-filter-bar">
-                      <select id="blocks-zone-filter" class="blocks-filter-select" onchange="applyBlocksFilter()">
-                        <option value="">All Zones</option>
-                      </select>
-                      <select id="blocks-sort-select" class="blocks-filter-select" onchange="applyBlocksFilter()">
-                        <option value="default">Default Order</option>
-                        <option value="zone">Sort by Zone</option>
-                        <option value="last_completed">Last Updated</option>
-                      </select>
+                      <div class="blocks-filter-group">
+                        <span class="blocks-filter-label">Zone</span>
+                        <select id="blocks-zone-filter" class="blocks-filter-select" onchange="applyBlocksFilter()">
+                          <option value="">All Zones</option>
+                        </select>
+                      </div>
+                      <div class="blocks-filter-group">
+                        <span class="blocks-filter-label">Order</span>
+                        <select id="blocks-sort-select" class="blocks-filter-select" onchange="applyBlocksFilter()">
+                          <option value="default">Default Order</option>
+                          <option value="zone">Sort by Zone</option>
+                          <option value="last_completed">Last Updated</option>
+                        </select>
+                      </div>
                       <button id="blocks-expand-btn" class="blocks-filter-btn" onclick="toggleBlocksExpandAll()" title="Show/hide all individual LBDs">▶ Expand All</button>
                     </div>
+                    <div id="blocks-summary-strip" class="blocks-summary-strip"></div>
                     <div id="blocks-list" class="blocks-grid"></div>
                 </div>
             </div>

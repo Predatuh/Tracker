@@ -261,13 +261,13 @@ async function switchTracker(trackerId) {
 function showPage(pageName) {
   // Enforce permission checks for restricted pages
   const isAdmin = !!(currentUser && currentUser.is_admin);
+
+  if (pageName === 'upload' && !isAdmin) {
+    return;  // block access
+  }
   const role = currentUser ? (currentUser.role || 'user') : 'user';
   const perms = currentUser ? (currentUser.permissions || []) : [];
   const isAssistant = role === 'assistant_admin';
-
-  if (pageName === 'upload' && !isAdmin && !(isAssistant && perms.includes('upload_pdf'))) {
-    return;  // block access
-  }
   if (pageName === 'admin' && !isAdmin && !(isAssistant && perms.includes('admin_settings'))) {
     return;
   }
@@ -1246,9 +1246,35 @@ function renderBlocks(blocks) {
     });
   }
 
+  const summaryStrip = document.getElementById('blocks-summary-strip');
+  if (summaryStrip) {
+    const totalBlocksCount = blocks.length;
+    const visibleBlocksCount = filtered.length;
+    const completedBlocksCount = filtered.filter(block => !!block.is_completed).length;
+    const activeClaimsCount = filtered.filter(block => Array.isArray(block.claimed_people) ? block.claimed_people.length > 0 : !!block.claimed_by).length;
+    const totalItemsCount = filtered.reduce((sum, block) => sum + (block.lbd_count || 0), 0);
+    summaryStrip.innerHTML = `
+      <div class="blocks-summary-card">
+        <span class="blocks-summary-label">Visible Blocks</span>
+        <strong>${visibleBlocksCount}<span>/ ${totalBlocksCount}</span></strong>
+      </div>
+      <div class="blocks-summary-card">
+        <span class="blocks-summary-label">Completed</span>
+        <strong>${completedBlocksCount}</strong>
+      </div>
+      <div class="blocks-summary-card">
+        <span class="blocks-summary-label">Active Claims</span>
+        <strong>${activeClaimsCount}</strong>
+      </div>
+      <div class="blocks-summary-card">
+        <span class="blocks-summary-label">Tracked Items</span>
+        <strong>${totalItemsCount}</strong>
+      </div>`;
+  }
+
   let html = '';
   if (!filtered || filtered.length === 0) {
-    html = '<p style="color: #999; text-align: center; padding: 40px;">No power blocks match the current filter.</p>';
+    html = '<div class="blocks-empty-state"><strong>No power blocks match the current filter.</strong><span>Try a different zone or sort order to bring more blocks back into view.</span></div>';
   } else {
     const cols = LBD_STATUS_TYPES;
     const itemLabel = currentTracker ? currentTracker.item_name_singular : 'Item';
@@ -1265,6 +1291,7 @@ function renderBlocks(blocks) {
       const totalSteps = cols.length * total;
       const doneSteps = cols.reduce((s, c) => s + (summary[c] || 0), 0);
       const overallPct = totalSteps > 0 ? Math.round((doneSteps / totalSteps) * 100) : 0;
+      const lastUpdatedCopy = block.last_updated_at ? formatDashboardActivityTime(block.last_updated_at) : 'No recent updates';
 
       // Per-status summary rows
       let statusRows = '';
@@ -1298,11 +1325,19 @@ function renderBlocks(blocks) {
       html += `
           <div class="block-card${allDone ? ' block-card--complete' : ''}">
             <div class="pb-card-header">
-              <span class="pb-card-name">${block.name}</span>
-              <span class="pb-card-meta">${total} ${itemLabel}${total !== 1 ? 's' : ''}${claimed}${zonePill}</span>
+              <div class="pb-card-heading">
+                <span class="pb-card-kicker">Power Block</span>
+                <span class="pb-card-name">${block.name}</span>
+              </div>
+              <span class="pb-card-meta">${claimed}${zonePill}<span class="pb-card-count">${total} ${itemLabel}${total !== 1 ? 's' : ''}</span></span>
             </div>
             <div class="pb-overall-bar-wrap" title="Overall: ${overallPct}% complete">
               <div class="pb-overall-bar-fill" style="width:${overallPct}%"></div>
+            </div>
+            <div class="pb-card-stats">
+              <span class="pb-stat-chip">${overallPct}% complete</span>
+              <span class="pb-stat-chip">${doneSteps}/${totalSteps} steps</span>
+              <span class="pb-stat-chip pb-stat-chip-muted">${lastUpdatedCopy}</span>
             </div>
             <div class="pb-status-rows">${statusRows}</div>
             ${lbdTable}
