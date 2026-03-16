@@ -430,7 +430,87 @@ function _buildClaimAssignmentSummary(block) {
   return '<div style="margin-top:6px;color:#334155;font-size:11px;">Assigned work: ' + _escapeHtml(summary.join(' • ')) + '</div>';
 }
 
-function _renderClaimAssignmentSections(overlay, block) {
+function _dedupeClaimNames(names) {
+  const seen = new Set();
+  return (names || [])
+    .map((name) => String(name || '').trim())
+    .filter((name) => {
+      if (!name) return false;
+      const key = name.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function _readSharedClaimCrew(overlay) {
+  if (!overlay) return [];
+  const checked = Array.from(overlay.querySelectorAll('.claim-person-option:checked'))
+    .map((input) => String(input.value || '').trim())
+    .filter(Boolean);
+  const extras = claimParseCrewNames(overlay.querySelector('#claim-extra-names')?.value || '');
+  return _dedupeClaimNames([...checked, ...extras]);
+}
+
+function _collectClaimAssignmentDraft(overlay, block) {
+  const assignments = {};
+  const taskCrews = {};
+  const existingAssignments = _getClaimAssignments(block);
+
+  if (overlay) {
+    overlay.querySelectorAll('.claim-lbd-option:checked').forEach((input) => {
+      const statusType = String(input.dataset.statusType || '').trim();
+      const lbdId = Number(input.value);
+      if (!statusType || !Number.isFinite(lbdId)) return;
+      if (!assignments[statusType]) assignments[statusType] = [];
+      assignments[statusType].push(lbdId);
+    });
+
+    overlay.querySelectorAll('.claim-task-crew').forEach((textarea) => {
+      const statusType = String(textarea.dataset.statusType || '').trim();
+      if (!statusType) return;
+      const names = _dedupeClaimNames(claimParseCrewNames(textarea.value || ''));
+      if (names.length) {
+        taskCrews[statusType] = names;
+      }
+    });
+  }
+
+  Object.entries(existingAssignments).forEach(([statusType, lbdIds]) => {
+    if (assignments[statusType] || !Array.isArray(lbdIds) || !lbdIds.length) return;
+    assignments[statusType] = lbdIds.map(Number).filter(Number.isFinite);
+  });
+
+  return { assignments, taskCrews };
+}
+
+function claimToggleTaskLbdSelection(statusType, shouldSelect) {
+  const overlay = document.getElementById('claim-people-overlay');
+  if (!overlay) return;
+  overlay.querySelectorAll(`.claim-lbd-option[data-status-type="${statusType}"]`).forEach((input) => {
+    input.checked = Boolean(shouldSelect);
+  });
+}
+
+function claimAppendTaskCrew(statusType, name) {
+  const overlay = document.getElementById('claim-people-overlay');
+  if (!overlay) return;
+  const textarea = overlay.querySelector(`.claim-task-crew[data-status-type="${statusType}"]`);
+  if (!textarea) return;
+  const nextNames = _dedupeClaimNames([...claimParseCrewNames(textarea.value || ''), String(name || '').trim()]);
+  textarea.value = nextNames.join(', ');
+}
+
+function claimUseSharedCrewForTask(statusType) {
+  const overlay = document.getElementById('claim-people-overlay');
+  if (!overlay) return;
+  const textarea = overlay.querySelector(`.claim-task-crew[data-status-type="${statusType}"]`);
+  if (!textarea) return;
+  const nextNames = _dedupeClaimNames([...claimParseCrewNames(textarea.value || ''), ..._readSharedClaimCrew(overlay)]);
+  textarea.value = nextNames.join(', ');
+}
+
+function _renderClaimAssignmentSections(overlay, block, suggestions = []) {
   const container = overlay.querySelector('#claim-assignment-sections');
   if (!container) return;
 
@@ -440,13 +520,23 @@ function _renderClaimAssignmentSections(overlay, block) {
     return;
   }
 
+  const draft = _collectClaimAssignmentDraft(overlay, block);
   const assignments = _getClaimAssignments(block);
   const lbds = Array.isArray(block.lbds) ? [...block.lbds] : [];
   lbds.sort((left, right) => String(left.identifier || left.name || '').localeCompare(String(right.identifier || right.name || '')));
 
   container.innerHTML = selectedTypes.map(statusType => {
     const label = _escapeHtml(STATUS_LABELS[statusType] || statusType.replace(/_/g, ' '));
-    const selectedIds = new Set(Array.isArray(assignments[statusType]) ? assignments[statusType].map(Number) : []);
+    const selectedIds = new Set(
+      Array.isArray(draft.assignments[statusType]) && draft.assignments[statusType].length
+        ? draft.assignments[statusType].map(Number)
+        : (Array.isArray(assignments[statusType]) ? assignments[statusType].map(Number) : [])
+    );
+    const taskCrewText = Array.isArray(draft.taskCrews[statusType]) ? draft.taskCrews[statusType].join(', ') : '';
+    const suggestionButtons = suggestions.slice(0, 8).map((name) => {
+      const encodedName = encodeURIComponent(String(name));
+      return `<button type="button" class="btn btn-secondary" onclick="claimAppendTaskCrew('${_escapeHtml(statusType)}', decodeURIComponent('${encodedName}'))" style="padding:5px 9px;font-size:11px;">${_escapeHtml(name)}</button>`;
+    }).join('');
     const options = lbds.map(lbd => {
       const checked = selectedIds.has(Number(lbd.id)) ? 'checked' : '';
       const name = _escapeHtml(lbd.identifier || lbd.name || `LBD ${lbd.id}`);
@@ -457,7 +547,23 @@ function _renderClaimAssignmentSections(overlay, block) {
     }).join('');
 
     return `<div style="margin-top:14px;padding:12px;border:1px solid rgba(255,255,255,0.08);border-radius:14px;background:rgba(255,255,255,0.03);">
-      <div style="color:#eef2ff;font-size:13px;font-weight:700;margin-bottom:8px;">${label}</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+        <div style="color:#eef2ff;font-size:13px;font-weight:700;">${label}</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button type="button" class="btn btn-secondary" onclick="claimUseSharedCrewForTask('${_escapeHtml(statusType)}')" style="padding:5px 10px;font-size:11px;">Use Shared Crew</button>
+          <button type="button" class="btn btn-secondary" onclick="claimToggleTaskLbdSelection('${_escapeHtml(statusType)}', true)" style="padding:5px 10px;font-size:11px;">Select All</button>
+          <button type="button" class="btn btn-secondary" onclick="claimToggleTaskLbdSelection('${_escapeHtml(statusType)}', false)" style="padding:5px 10px;font-size:11px;">Clear</button>
+        </div>
+      </div>
+      <div style="margin-top:12px;">
+        <label style="display:block;color:#cbd5e1;font-size:12px;margin-bottom:6px;">Crew for this task</label>
+        <textarea class="claim-task-crew claim-modal-textarea" data-status-type="${_escapeHtml(statusType)}" rows="2" placeholder="Names for the crew that handled ${label}" style="width:100%;resize:vertical;">${_escapeHtml(taskCrewText)}</textarea>
+        <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">${suggestionButtons || '<span style="color:#64748b;font-size:12px;">No saved crew suggestions yet.</span>'}</div>
+      </div>
+      <div style="margin-top:12px;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+        <label style="display:block;color:#cbd5e1;font-size:12px;">LBD selection for this task</label>
+        <div style="color:#94a3b8;font-size:11px;">${selectedIds.size} selected</div>
+      </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;">
         ${options || '<div style="color:#94a3b8;font-size:12px;">No LBDs found for this block.</div>'}
       </div>
@@ -507,11 +613,15 @@ async function showClaimPeopleDialog(block) {
         <div style="display:flex;align-items:start;justify-content:space-between;gap:12px;">
           <div>
             <div style="color:#eef2ff;font-size:18px;font-weight:700;">Claim ${_escapeHtml(block.name)}</div>
-            <div style="color:#94a3b8;font-size:12px;margin-top:4px;">Build the crew and task assignments first, then review the full claim before you submit it.</div>
+            <div style="color:#94a3b8;font-size:12px;margin-top:4px;">Build the shared crew, add task-specific crews where needed, then review the full claim before you submit it.</div>
           </div>
           <button type="button" id="claim-people-close" style="background:transparent;border:none;color:#94a3b8;font-size:20px;cursor:pointer;">×</button>
         </div>
         <div id="claim-editor-panel">
+          <div style="margin-top:16px;">
+            <label style="display:block;color:#cbd5e1;font-size:12px;margin-bottom:6px;">Shared crew on this power block</label>
+            <div style="color:#94a3b8;font-size:12px;">Use the shared crew for everyone on the PB, then add task-specific crews below when different crews handled different work types.</div>
+          </div>
           <div style="margin-top:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;">
             ${optionsHtml || '<div style="color:#94a3b8;font-size:12px;">No saved people yet.</div>'}
           </div>
@@ -533,8 +643,8 @@ async function showClaimPeopleDialog(block) {
             <div id="claim-assignment-sections"></div>
           </div>
           <div style="margin-top:16px;">
-            <label style="display:block;color:#cbd5e1;font-size:12px;margin-bottom:6px;">Extra crew names</label>
-            <textarea id="claim-extra-names" rows="3" placeholder="Type names separated by commas or new lines" style="width:100%;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:10px 12px;color:#eef2ff;resize:vertical;"></textarea>
+            <label style="display:block;color:#cbd5e1;font-size:12px;margin-bottom:6px;">Shared extra crew names</label>
+            <textarea id="claim-extra-names" class="claim-modal-textarea" rows="3" placeholder="Type names separated by commas or new lines" style="width:100%;resize:vertical;"></textarea>
           </div>
         </div>
         <div id="claim-review-panel" style="display:none;margin-top:16px;padding:16px;border-radius:14px;border:1px solid rgba(0,212,255,0.16);background:rgba(0,212,255,0.05);">
@@ -550,14 +660,14 @@ async function showClaimPeopleDialog(block) {
       </div>`;
 
     document.body.appendChild(overlay);
-    _renderClaimAssignmentSections(overlay, block);
+  _renderClaimAssignmentSections(overlay, block, suggestions);
 
     const close = () => overlay.remove();
     overlay.addEventListener('click', (event) => {
       if (event.target === overlay) close();
     });
     overlay.querySelectorAll('.claim-status-type').forEach(input => {
-      input.addEventListener('change', () => _renderClaimAssignmentSections(overlay, block));
+      input.addEventListener('change', () => _renderClaimAssignmentSections(overlay, block, suggestions));
     });
     overlay.querySelector('#claim-people-close').addEventListener('click', close);
     overlay.querySelector('#claim-people-cancel').addEventListener('click', close);
@@ -569,15 +679,10 @@ async function showClaimPeopleDialog(block) {
     const submitBtn = overlay.querySelector('#claim-people-submit');
 
     const buildDraft = () => {
-      const checked = Array.from(overlay.querySelectorAll('.claim-person-option:checked'))
-        .map(el => el.value.trim())
-        .filter(Boolean);
-      const extras = (overlay.querySelector('#claim-extra-names').value || '')
-        .split(/[\n,]/)
-        .map(name => name.trim())
-        .filter(Boolean);
-      const people = [...checked, ...extras];
+      const sharedPeople = _readSharedClaimCrew(overlay);
+      const people = [...sharedPeople];
       const assignments = {};
+      const taskCrews = {};
       Array.from(overlay.querySelectorAll('.claim-status-type:checked')).forEach(input => {
         const statusType = input.value;
         const lbdIds = Array.from(overlay.querySelectorAll(`.claim-lbd-option[data-status-type="${statusType}"]:checked`))
@@ -586,8 +691,19 @@ async function showClaimPeopleDialog(block) {
         if (lbdIds.length > 0) {
           assignments[statusType] = lbdIds;
         }
+
+        const taskPeople = _dedupeClaimNames(claimParseCrewNames(overlay.querySelector(`.claim-task-crew[data-status-type="${statusType}"]`)?.value || ''));
+        if (taskPeople.length > 0) {
+          taskCrews[statusType] = taskPeople;
+          people.push(...taskPeople);
+        }
       });
-      return { people, assignments };
+      return {
+        people: _dedupeClaimNames(people),
+        assignments,
+        sharedPeople,
+        taskCrews,
+      };
     };
 
     reviewBtn.addEventListener('click', () => {
@@ -601,16 +717,24 @@ async function showClaimPeopleDialog(block) {
         const lbdNames = (block.lbds || [])
           .filter(lbd => lbdIds.includes(lbd.id))
           .map(lbd => _escapeHtml(lbd.identifier || lbd.name || `LBD ${lbd.id}`));
+        const crewNames = Array.isArray(draft.taskCrews[statusType]) && draft.taskCrews[statusType].length
+          ? draft.taskCrews[statusType].map(_escapeHtml).join(', ')
+          : (draft.sharedPeople.length ? draft.sharedPeople.map(_escapeHtml).join(', ') : 'No task-specific crew listed');
         return `<div style="padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);">
           <div style="font-weight:700;color:#eef2ff;">${label}</div>
+          <div style="margin-top:4px;color:#8adfff;font-size:12px;">Crew: ${crewNames}</div>
           <div style="margin-top:4px;color:#94a3b8;font-size:12px;">${lbdNames.length > 0 ? lbdNames.join(', ') : 'No specific LBDs selected'}</div>
         </div>`;
       }).join('');
       reviewContent.innerHTML = `
         <div style="display:grid;gap:12px;">
           <div>
-            <div style="font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:0.7px;text-transform:uppercase;">Crew</div>
+            <div style="font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:0.7px;text-transform:uppercase;">All Crew On This Claim</div>
             <div style="margin-top:6px;color:#eef2ff;font-size:14px;">${draft.people.map(_escapeHtml).join(', ')}</div>
+          </div>
+          <div>
+            <div style="font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:0.7px;text-transform:uppercase;">Shared PB Crew</div>
+            <div style="margin-top:6px;color:#eef2ff;font-size:14px;">${draft.sharedPeople.length ? draft.sharedPeople.map(_escapeHtml).join(', ') : 'None listed at the PB level'}</div>
           </div>
           <div>
             <div style="font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:0.7px;text-transform:uppercase;">Power Block</div>
@@ -3612,6 +3736,13 @@ function claimBlockIsInProgress(block) {
   return completedSteps > 0 && completedSteps < totalSteps;
 }
 
+function claimBlockIsCompleted(block) {
+  const totalItems = Number(block.lbd_count || 0);
+  if (!totalItems) return false;
+  const totalSteps = totalItems * LBD_STATUS_TYPES.length;
+  return claimCompletedSteps(block) >= totalSteps;
+}
+
 function claimCompareBlocks(a, b, sortKey) {
   if (sortKey === 'number_desc') {
     return claimBlockNumber(b) - claimBlockNumber(a) || String(a.name || '').localeCompare(String(b.name || ''));
@@ -3647,6 +3778,8 @@ function claimFilteredBlocks() {
     filtered = filtered.filter((block) => !!block.claimed_at);
   } else if (claimPageState.statusFilter === 'in_progress') {
     filtered = filtered.filter((block) => claimBlockIsInProgress(block));
+  } else if (claimPageState.statusFilter === 'completed') {
+    filtered = filtered.filter((block) => claimBlockIsCompleted(block));
   }
 
   if (query) {
@@ -3911,17 +4044,18 @@ function renderClaimPage() {
         </div>
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
           <input type="text" value="${_escapeHtml(claimPageState.search)}" oninput="claimUpdateSearch(this.value)" placeholder="Search blocks, zones, or claimed crew" style="flex:1;min-width:240px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:11px 14px;color:#eef2ff;" />
-          <select onchange="claimUpdateZoneFilter(this.value)" style="min-width:150px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:11px 14px;color:#eef2ff;">
+          <select class="claim-filter-select" onchange="claimUpdateZoneFilter(this.value)" style="min-width:150px;">
             <option value="">All Zones</option>
             ${zoneOptions.map((zone) => `<option value="${_escapeHtml(zone)}"${claimPageState.zoneFilter === zone ? ' selected' : ''}>${_escapeHtml(zone)}</option>`).join('')}
           </select>
-          <select onchange="claimUpdateStatusFilter(this.value)" style="min-width:170px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:11px 14px;color:#eef2ff;">
+          <select class="claim-filter-select" onchange="claimUpdateStatusFilter(this.value)" style="min-width:170px;">
             <option value="all"${claimPageState.statusFilter === 'all' ? ' selected' : ''}>All Statuses</option>
             <option value="unclaimed"${claimPageState.statusFilter === 'unclaimed' ? ' selected' : ''}>Not Claimed</option>
             <option value="recently_claimed"${claimPageState.statusFilter === 'recently_claimed' ? ' selected' : ''}>Recently Claimed</option>
             <option value="in_progress"${claimPageState.statusFilter === 'in_progress' ? ' selected' : ''}>In Progress</option>
+            <option value="completed"${claimPageState.statusFilter === 'completed' ? ' selected' : ''}>Completed</option>
           </select>
-          <select onchange="claimUpdateSort(this.value)" style="min-width:190px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:11px 14px;color:#eef2ff;">
+          <select class="claim-filter-select" onchange="claimUpdateSort(this.value)" style="min-width:190px;">
             <option value="number_asc"${claimPageState.sort === 'number_asc' ? ' selected' : ''}>Number Ascending</option>
             <option value="number_desc"${claimPageState.sort === 'number_desc' ? ' selected' : ''}>Number Descending</option>
             <option value="recent_claimed"${claimPageState.sort === 'recent_claimed' ? ' selected' : ''}>Recently Claimed</option>
