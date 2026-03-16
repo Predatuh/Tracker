@@ -225,44 +225,6 @@ body::after {
   100% { transform: translateY(-2px) scale(1.04); filter: drop-shadow(0 0 12px rgba(84,212,255,0.36)) drop-shadow(0 0 18px rgba(255,213,100,0.34)); }
 }
 
-.electric-current-video {
-  position: absolute;
-  object-fit: fill;
-  background: transparent !important;
-  mix-blend-mode: normal;
-  isolation: isolate;
-  opacity: 0.28;
-  pointer-events: none;
-  filter: brightness(1.02) contrast(1.08) saturate(1) drop-shadow(0 0 6px rgba(90, 225, 255, 0.18));
-  z-index: 1;
-}
-
-.navbar-brand .brand-shimmer {
-  position: absolute;
-  top: 50%;
-  left: -12%;
-  width: 122%;
-  height: 18px;
-  transform: translateY(-50%);
-  object-position: center;
-  opacity: 0.22;
-  clip-path: inset(26% 0 26% 0);
-}
-
-@keyframes electricArcTravel {
-  0%   { transform: translate(-8%, -50%) scaleX(0.98); }
-  50%  { transform: translate(4%, -50%) scaleX(1.02); }
-  100% { transform: translate(-8%, -50%) scaleX(0.98); }
-}
-
-@keyframes electricArcFlicker {
-  0%, 100% { opacity: 0.74; }
-  20% { opacity: 0.96; }
-  42% { opacity: 0.66; }
-  63% { opacity: 1; }
-  81% { opacity: 0.7; }
-}
-
 /* PRINCESS — animated sweeping gradient */
 .navbar-brand .brand-princess {
   background: linear-gradient(90deg, #c084fc 0%, #d8a5ff 20%, #a78bfa 40%, #e8ddff 60%, #c084fc 80%, #a78bfa 100%);
@@ -1133,17 +1095,6 @@ body::after {
   position: relative;
   top: 3px;
   animation: crownVideoFloat 2.8s ease-in-out infinite alternate;
-}
-.hub-hero-shimmer {
-  position: absolute;
-  top: 50%;
-  left: -9%;
-  width: 116%;
-  height: 24px;
-  transform: translateY(-50%);
-  object-position: center;
-  opacity: 0.3;
-  clip-path: inset(24% 0 24% 0);
 }
 .hub-hero-princess {
   background: linear-gradient(90deg, #d08dff 0%, #e0a5ff 20%, #a78bfa 40%, #ede0ff 60%, #d08dff 80%, #a78bfa 100%);
@@ -3116,12 +3067,6 @@ code { background: rgba(0,212,255,0.1); color: var(--cyan); padding: 2px 6px; bo
   .navbar-container { flex-wrap: wrap; padding: 10px 14px 8px; height: auto; gap: 6px; }
   .navbar-brand { font-size: 15px; }
   .navbar-brand .brand-name { gap: 1px; }
-  .navbar-brand .brand-shimmer {
-    left: -6%;
-    width: 112%;
-    height: 14px;
-    opacity: 0.18;
-  }
   .brand-crown-video {
     width: 19px;
     height: 19px;
@@ -3143,12 +3088,6 @@ code { background: rgba(0,212,255,0.1); color: var(--cyan); padding: 2px 6px; bo
 @media (max-width: 480px) {
   .stats-grid { grid-template-columns: 1fr 1fr; }
   .navbar-brand { font-size: 13px; }
-  .navbar-brand .brand-shimmer {
-    left: 0;
-    width: 100%;
-    height: 12px;
-    opacity: 0.14;
-  }
   .brand-crown-video {
     width: 17px;
     height: 17px;
@@ -3198,13 +3137,13 @@ code { background: rgba(0,212,255,0.1); color: var(--cyan); padding: 2px 6px; bo
   inset: 0;
   width: 100%;
   height: 100%;
-  z-index: 2;   /* render OVER the login box for edge bolts */
+  z-index: 0;
   pointer-events: none;
 }
 
 #login-overlay .login-box {
   position: relative;
-  z-index: 1;   /* canvas paints over box — only edge areas affected */
+  z-index: 1;
 }
 
 @media (max-width: 720px) {
@@ -3222,13 +3161,6 @@ code { background: rgba(0,212,255,0.1); color: var(--cyan); padding: 2px 6px; bo
   .login-crown-video {
     width: 46px;
     height: 46px;
-  }
-
-  .hub-hero-shimmer {
-    left: -2%;
-    width: 104%;
-    height: 16px;
-    opacity: 0.22;
   }
 }
 
@@ -3251,12 +3183,6 @@ code { background: rgba(0,212,255,0.1); color: var(--cyan); padding: 2px 6px; bo
     width: 28px;
     height: 28px;
     top: 2px;
-  }
-
-  .hub-hero-shimmer {
-    width: 100%;
-    height: 14px;
-    opacity: 0.18;
   }
 }
 
