@@ -961,22 +961,20 @@ function renderDashboardOverview(cards) {
   const updatedToday = cards.reduce((sum, card) => sum + card.updatedToday, 0);
   const claimedToday = cards.reduce((sum, card) => sum + card.claimedToday, 0);
   const overallPct = totalItems > 0 ? Math.round((termedItems / totalItems) * 100) : 0;
-  const featuredBlockPct = featured && featured.totalBlocks > 0
-    ? Math.round((featured.completedBlocks / featured.totalBlocks) * 100)
-    : 0;
   const featuredBlocksLabel = featured?.dashboard_blocks_label || 'Power Blocks';
+  const activeTrackerLabel = `${activeTrackers}/${totalTrackers} trackers active sitewide`;
 
   const overviewCards = [
     {
       kicker: 'Live Progress',
       value: `${overallPct}%`,
-      meta: `${termedItems}/${totalItems} termed today-ready items`,
+      meta: `${termedItems}/${totalItems} termed items across the current tracker snapshot`,
       tone: 'cyan'
     },
     {
       kicker: 'Completed Blocks',
       value: `${featured?.completedBlocks || 0}`,
-      meta: `${featuredBlockPct}% of ${featured?.totalBlocks || 0} ${featuredBlocksLabel.toLowerCase()} finished in ${featured?.name || 'the featured tracker'}`,
+      meta: `${featured?.completedBlocks || 0} of ${featured?.totalBlocks || 0} ${featuredBlocksLabel.toLowerCase()} completed in ${featured?.name || 'the featured tracker'} • ${activeTrackerLabel}`,
       tone: 'amber'
     },
     {
