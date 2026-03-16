@@ -836,9 +836,19 @@ body::after {
     padding: 18px;
   }
 
-  .claim-summary-grid,
-  .claim-filter-shell {
+  .claim-summary-grid {
     grid-template-columns: 1fr;
+  }
+
+  .claim-filter-shell {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .claim-search-wrap,
+  .claim-filter-group,
+  .claim-filter-actions {
+    width: 100%;
   }
 
   .claim-panel-head,
@@ -2230,6 +2240,29 @@ body::after {
 
   .reports-detail-title {
     font-size: 18px;
+  }
+
+  .reports-detail-stat-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .reports-detail-stat {
+    min-width: 0;
+  }
+
+  .reports-calendar-grid {
+    gap: 4px;
+    padding: 10px;
+  }
+
+  .reports-calendar-day,
+  .reports-calendar-spacer {
+    min-height: 38px;
+  }
+
+  .reports-calendar-dow {
+    font-size: 9px;
   }
 }
 .stat-card::before {

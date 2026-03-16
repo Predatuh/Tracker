@@ -291,7 +291,7 @@ function showPage(pageName) {
   if (pageName === 'blocks') loadBlocks();
   if (pageName === 'sitemap') loadSiteMap();
   if (pageName === 'admin') loadAdminPage();
-  if (pageName === 'worklog') loadClaimPage();
+  if (pageName === 'claim') loadClaimPage();
   if (pageName === 'reports') loadReportsPage();
 }
 
@@ -602,7 +602,7 @@ async function claimBlock(blockId, action, people = [], assignments = {}) {
     if (document.getElementById('blocks-list')) {
       loadBlocks();
     }
-    if (document.getElementById('worklog-content')) {
+    if (document.getElementById('claim-content')) {
       loadClaimPage();
     }
   } catch(e) { alert('Error: ' + e.message); }
@@ -2069,13 +2069,13 @@ function applyUIText(t) {
     'nav-link-upload':    t.nav_upload,
     'nav-link-blocks':    t.nav_blocks,
     'nav-link-sitemap':   t.nav_sitemap,
-    'nav-link-worklog':   navWorklog,
+    'nav-link-claim':     navWorklog,
     'nav-link-reports':   t.nav_reports,
     'nav-link-admin':     t.nav_admin,
     'page-title-dashboard': t.title_dashboard,
     'page-title-blocks':    t.title_blocks,
     'page-title-upload':    t.title_upload,
-    'page-title-worklog':   titleWorklog,
+    'page-title-claim':     titleWorklog,
     'page-title-reports':   t.title_reports,
     'page-title-admin':     t.title_admin,
   };
@@ -4429,7 +4429,7 @@ async function claimSubmitScanDraft() {
 }
 
 async function loadClaimPage() {
-  const el = document.getElementById('worklog-content');
+  const el = document.getElementById('claim-content');
   if (!el || claimPageState.loading) return;
   claimPageState.loading = true;
 
@@ -4459,7 +4459,7 @@ async function loadClaimPage() {
 }
 
 function renderClaimPage() {
-  const el = document.getElementById('worklog-content');
+  const el = document.getElementById('claim-content');
   if (!el) return;
 
   const filtered = claimFilteredBlocks();
