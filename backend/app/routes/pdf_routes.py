@@ -15,6 +15,11 @@ bp = Blueprint('pdf', __name__, url_prefix='/api/pdf')
 ALLOWED_EXTENSIONS = {'pdf'}
 
 
+def _current_site_map():
+    from app.models import SiteMap
+    return SiteMap.query.order_by(SiteMap.updated_at.desc(), SiteMap.id.desc()).first()
+
+
 def _store_map_blob(file_path, filename):
     """Store a map image in the DB as a blob so it survives container redeploys."""
     try:
@@ -23,8 +28,8 @@ def _store_map_blob(file_path, filename):
         mime = mimetypes.guess_type(filename)[0] or 'image/png'
         with open(file_path, 'rb') as f:
             data = f.read()
-        # Update existing or create
-        sm = SiteMap.query.first()
+        # Update the current map record if one exists; legacy UI expects a single current map.
+        sm = _current_site_map()
         if sm:
             sm.name = filename
             sm.file_path = file_path
@@ -161,7 +166,7 @@ def serve_map(filename):
     # Fall back to DB blob
     try:
         from app.models import SiteMap
-        site_map = SiteMap.query.filter(SiteMap.image_data.isnot(None)).first()
+        site_map = SiteMap.query.filter(SiteMap.image_data.isnot(None)).order_by(SiteMap.updated_at.desc(), SiteMap.id.desc()).first()
         if site_map and site_map.image_data:
             # Also restore to disk for future requests
             os.makedirs(maps_folder, exist_ok=True)
@@ -177,8 +182,7 @@ def serve_map(filename):
 def get_map():
     """Get the current map URL if one exists"""
     try:
-        from app.models import SiteMap
-        site_map = SiteMap.query.first()
+        site_map = _current_site_map()
         if site_map:
             return jsonify({
                 'success': True,

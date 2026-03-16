@@ -1113,6 +1113,22 @@ function displaySiteMap(mapUrl) {
   // markers are rendered by onMapImageLoaded()
 }
 
+function extractSiteMapId(mapUrl) {
+  const match = mapUrl ? mapUrl.match(/\/api\/map\/sitemap\/(\d+)\/image/) : null;
+  return match ? Number(match[1]) : null;
+}
+
+function getCurrentSiteMapRecord(records, mapUrl = currentMapPath) {
+  const list = Array.isArray(records) ? records : [];
+  if (list.length === 0) return null;
+  const currentMapId = extractSiteMapId(mapUrl);
+  if (currentMapId != null) {
+    const matchingMap = list.find((map) => Number(map.id) === currentMapId);
+    if (matchingMap) return matchingMap;
+  }
+  return list[0];
+}
+
 async function loadSiteMap() {
   // Always fetch the canonical map URL from the server to avoid stale cache
   try {
@@ -1142,12 +1158,13 @@ async function loadSiteMap() {
     try {
       const maps = await api.getAllSiteMaps();
       const list = maps.data || [];
-      if (list.length > 0 && list[0].areas) {
+      const currentMap = getCurrentSiteMapRecord(list);
+      if (currentMap && currentMap.areas) {
         // Always populate loadedMapAreas so zone assign works regardless of cache state
-        loadedMapAreas = list[0].areas;
+        loadedMapAreas = currentMap.areas;
         if (Object.keys(bboxes).length === 0) {
           // Only seed localStorage bbox cache if it hasn't been populated yet
-          for (const area of list[0].areas) {
+          for (const area of currentMap.areas) {
             if (area.power_block_id && area.bbox_x != null) {
               bboxes[String(area.power_block_id)] = {
                 x: area.bbox_x,
@@ -2193,10 +2210,18 @@ function renderPBMarkers() {
 
   const savedBboxes = JSON.parse(localStorage.getItem('pb_bboxes') || '{}');
   const hiddenPBs   = JSON.parse(localStorage.getItem('pb_hidden') || '[]');
+  const hasPlacedLayout = Object.keys(savedBboxes).length > 0 || Object.keys(pbPolygons).length > 0;
 
   mapPBs.forEach((pb, i) => {
     if (hiddenPBs.includes(pb.id)) return;
     const key = String(pb.id);
+    const savedBbox = savedBboxes[key];
+
+    // Legacy map view should only render PBs that have real saved positions once a layout exists.
+    if (!savedBbox && hasPlacedLayout && !mapEditMode && !snapPlaceMode) {
+      return;
+    }
+
     // Default grid layout for PBs that haven't been placed yet
     const col = i % 16;
     const row = Math.floor(i / 16);
@@ -2206,7 +2231,7 @@ function renderPBMarkers() {
       w: DEFAULT_PB_W,
       h: DEFAULT_PB_H
     };
-    const bbox = savedBboxes[key] || defaultBbox;
+    const bbox = savedBbox || defaultBbox;
 
     const lbds = pb.lbds || [];
     const total = pb.lbd_count || lbds.length || 0;

@@ -14,6 +14,10 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
+def _current_site_map_query():
+    return SiteMap.query.order_by(SiteMap.updated_at.desc(), SiteMap.id.desc())
+
+
 @bp.route('/register-existing', methods=['POST'])
 def register_existing_map():
     """
@@ -55,7 +59,7 @@ def register_existing_map():
             file_path = dest
 
         # Update existing record if present, otherwise create new
-        existing = SiteMap.query.first()
+        existing = _current_site_map_query().first()
         if existing:
             existing.name = name
             existing.file_path = file_path
@@ -167,7 +171,7 @@ def get_all_sitemaps():
     """Get all site maps with eager-loaded areas"""
     try:
         from sqlalchemy.orm import subqueryload
-        maps = SiteMap.query.options(subqueryload(SiteMap.areas)).all()
+        maps = _current_site_map_query().options(subqueryload(SiteMap.areas)).all()
         return jsonify({
             'success': True,
             'data': [m.to_dict() for m in maps]
