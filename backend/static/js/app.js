@@ -869,19 +869,36 @@ function toggleStatus(lbdId, statusType, currentStatus, blockId) {
 
 // Tracker Hub (Dashboard)
 function isDateToday(value) {
-  if (!value) return false;
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return false;
+  const parsed = parseServerDate(value);
+  if (!parsed) return false;
   const now = new Date();
   return parsed.getFullYear() === now.getFullYear()
     && parsed.getMonth() === now.getMonth()
     && parsed.getDate() === now.getDate();
 }
 
+function parseServerDate(value) {
+  if (!value) return false;
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+  const raw = String(value).trim();
+  if (!raw) return null;
+  const normalized = /(?:Z|[+-]\d{2}:?\d{2})$/.test(raw)
+    ? raw
+    : `${raw}Z`;
+  const parsed = new Date(normalized);
+  if (Number.isNaN(parsed.getTime())) return false;
+  return parsed;
+}
+
+function formatDashboardCount(count, singular, plural = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
 function formatDashboardActivityTime(value) {
-  if (!value) return 'No recent activity';
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return 'No recent activity';
+  const parsed = parseServerDate(value);
+  if (!parsed) return 'No recent activity';
   return parsed.toLocaleString([], {
     month: 'short',
     day: 'numeric',
@@ -917,15 +934,17 @@ function renderDashboardSpotlight(cards) {
   const ranked = rankDashboardCards(cards);
   const featured = ranked[0];
   const featuredTone = featured.pct >= 100 ? '#00e87a' : featured.pct >= 50 ? '#00d4ff' : '#9d8cff';
+  const updatedCopy = formatDashboardCount(featured.updatedToday, 'block', 'blocks');
+  const claimsCopy = formatDashboardCount(featured.claimedToday, 'claim', 'claims');
 
   spotlight.innerHTML = `
     <article class="dashboard-spotlight-card" onclick="openTracker(${featured.id})">
       <div class="dashboard-spotlight-copy">
         <div class="dashboard-spotlight-kicker">Spotlight Tracker</div>
         <h2 class="dashboard-spotlight-title">${featured.icon || '📋'} ${featured.name}</h2>
-        <p class="dashboard-spotlight-sub">${featured.updatedToday} blocks touched today, ${featured.activeClaims} active claims, and ${featured.crewCount} crew members currently moving this tracker forward.</p>
+        <p class="dashboard-spotlight-sub">${updatedCopy} updated today, ${featured.activeClaims} active claims, and ${featured.crewCount} crew members currently moving this tracker forward.</p>
         <div class="dashboard-spotlight-meta-row">
-          <span class="dashboard-spotlight-pill">${featured.claimedToday} claims started today</span>
+          <span class="dashboard-spotlight-pill">${claimsCopy} started today</span>
           <span class="dashboard-spotlight-pill">Last activity ${formatDashboardActivityTime(featured.lastActivity)}</span>
         </div>
       </div>
@@ -938,7 +957,7 @@ function renderDashboardSpotlight(cards) {
     </article>
   `;
 
-  return ranked.length > 1 ? ranked.slice(1) : ranked;
+  return ranked;
 }
 
 function renderDashboardOverview(cards) {
@@ -980,7 +999,7 @@ function renderDashboardOverview(cards) {
     {
       kicker: 'Trackers Active',
       value: `${activeTrackers}/${totalTrackers}`,
-      meta: `${updatedToday} blocks touched today`,
+      meta: `${formatDashboardCount(updatedToday, 'block', 'blocks')} updated today`,
       tone: 'emerald'
     },
     {
@@ -1010,7 +1029,7 @@ function renderDashboardOverview(cards) {
   strip.innerHTML = activeFeed.map(card => `
     <button type="button" class="dashboard-activity-chip" onclick="openTracker(${card.id})">
       <span class="dashboard-activity-chip-name">${card.icon || '📋'} ${card.name}</span>
-      <span class="dashboard-activity-chip-meta">${card.updatedToday} touched today</span>
+      <span class="dashboard-activity-chip-meta">${formatDashboardCount(card.updatedToday, 'block', 'blocks')} updated today</span>
       <span class="dashboard-activity-chip-meta">${card.activeClaims} active claims</span>
     </button>
   `).join('');
@@ -1053,12 +1072,12 @@ async function loadDashboard() {
       const pct = totalItems > 0 ? Math.round((termedItems / totalItems) * 100) : 0;
       const activeClaims = blocks.filter(b => Array.isArray(b.claimed_people) && b.claimed_people.length > 0).length;
       const claimedToday = blocks.filter(b => isDateToday(b.claimed_at)).length;
-      const updatedToday = blocks.filter(b => isDateToday(b.last_updated_at) || isDateToday(b.claimed_at)).length;
+      const updatedToday = blocks.filter(b => isDateToday(b.last_updated_at)).length;
       const crewCount = new Set(blocks.flatMap(b => Array.isArray(b.claimed_people) ? b.claimed_people : [])).size;
       const lastActivity = blocks
         .map(b => b.last_updated_at || b.claimed_at)
         .filter(Boolean)
-        .sort((left, right) => new Date(right) - new Date(left))[0] || null;
+        .sort((left, right) => (parseServerDate(right)?.getTime() || 0) - (parseServerDate(left)?.getTime() || 0))[0] || null;
       return { ...t, totalBlocks, completedBlocks, totalItems, termedItems, pct, activeClaims, claimedToday, updatedToday, crewCount, lastActivity };
     } catch(e) {
       return { ...t, totalBlocks: 0, completedBlocks: 0, totalItems: 0, termedItems: 0, pct: 0, activeClaims: 0, claimedToday: 0, updatedToday: 0, crewCount: 0, lastActivity: null };
@@ -1076,7 +1095,7 @@ async function loadDashboard() {
     return `
     <div class="tracker-hub-card" onclick="openTracker(${t.id})">
       <div class="thc-activity-rail">
-        <span class="thc-activity-badge">${t.updatedToday} touched today</span>
+        <span class="thc-activity-badge">${formatDashboardCount(t.updatedToday, 'block', 'blocks')} updated today</span>
         <span class="thc-activity-badge thc-activity-badge-muted">${t.activeClaims} active claims</span>
       </div>
       <div class="thc-top">
@@ -1097,7 +1116,7 @@ async function loadDashboard() {
       </div>
       <div class="thc-bar-wrap"><div class="thc-bar-fill" style="width:${t.pct}%;background:${barColor};"></div></div>
       <div class="thc-footer">
-        <span class="thc-footer-copy">${t.claimedToday} new claims today</span>
+        <span class="thc-footer-copy">${formatDashboardCount(t.claimedToday, 'new claim', 'new claims')} today</span>
         <button type="button" class="thc-open-btn" onclick="event.stopPropagation(); openTracker(${t.id}); return false;">${openTrackerLabel} →</button>
       </div>
     </div>`;

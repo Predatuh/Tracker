@@ -736,12 +736,25 @@ body::after {
 }
 
 .dashboard-spotlight-shell {
-  margin: 0 0 26px;
+  margin: 0;
+}
+
+.dashboard-main-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.9fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.dashboard-trackers-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .dashboard-spotlight-card {
   display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(240px, 0.8fr);
+  grid-template-columns: 1fr;
   gap: 18px;
   border-radius: 24px;
   padding: 24px;
@@ -1049,14 +1062,16 @@ body::after {
   text-shadow: 0 0 20px rgba(0,212,255,0.95), 0 0 40px rgba(0,212,255,0.4);
 }
 
+@media (max-width: 1080px) {
+  .dashboard-main-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 720px) {
   .dashboard-overview-grid,
   .dashboard-activity-strip,
   .tracker-hub-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .dashboard-spotlight-card {
     grid-template-columns: 1fr;
   }
 
