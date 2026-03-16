@@ -200,6 +200,12 @@ function renderHeaderTrackerSwitcher() {
   const select = document.getElementById('header-tracker-select');
   if (!shell || !select) return;
 
+  const isMainAdmin = !!(currentUser && currentUser.is_admin);
+  if (!isMainAdmin) {
+    shell.style.display = 'none';
+    return;
+  }
+
   const activePage = document.querySelector('.page.active');
   const hideOnDashboard = !activePage || activePage.id === 'page-dashboard';
   const allowNoTrackerState = activePage && activePage.id === 'page-sitemap';
@@ -2604,7 +2610,8 @@ function renderPBMarkers() {
     m.dataset.pbId = pb.id;
 
     // All markers are rectangles
-    const fontSize = Math.max(8, Number(adminSettings?.pb_label_font_size || 14));
+    const configuredFontSize = Number(adminSettings?.pb_label_font_size || 14);
+    const fontSize = Math.max(8, Math.round(configuredFontSize * 0.72));
     const appearance = adminSettings?.appearance || {};
     const labelColor = hasActiveTracker
       ? (appearance.pb_number_active_color || '#ffffff')
