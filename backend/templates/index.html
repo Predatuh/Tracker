@@ -83,12 +83,16 @@
                     <span style="font-size:12px;color:rgba(238,242,255,0.45);">&#x30FB;</span>
                     <span id="active-tracker-name" style="font-size:13px;font-weight:600;color:#eef2ff;font-family:'Orbitron',sans-serif;letter-spacing:0.5px;"></span>
                 </div>
+                <div id="header-tracker-switcher" class="tracker-switch-shell" style="display:none;align-items:center;gap:8px;margin-left:8px;padding:6px 10px;border-radius:14px;border:1px solid rgba(0,212,255,0.16);background:rgba(0,212,255,0.06);">
+                  <span style="font-size:11px;font-weight:700;color:rgba(238,242,255,0.58);letter-spacing:0.7px;text-transform:uppercase;">Tracker</span>
+                  <select id="header-tracker-select" onchange="switchTracker(this.value)" style="min-width:180px;background:rgba(7,9,26,0.88);border:1px solid rgba(0,212,255,0.22);border-radius:9px;color:#eef2ff;padding:6px 10px;font-size:12px;font-weight:600;font-family:'Space Grotesk',sans-serif;"></select>
+                </div>
                 <ul class="nav-menu">
                     <li><a href="#" onclick="showPage('dashboard')" id="nav-link-dashboard">Dashboard</a></li>
                     <li><a href="#" onclick="showPage('upload')" class="admin-only" data-perm="upload_pdf" id="nav-link-upload">Upload PDF</a></li>
                     <li><a href="#" onclick="showPage('blocks')" id="nav-link-blocks">Power Blocks</a></li>
                     <li><a href="#" onclick="showPage('sitemap')" id="nav-link-sitemap">Site Map</a></li>
-                    <li><a href="#" onclick="showPage('worklog')" id="nav-link-worklog">Work Log</a></li>
+                    <li><a href="#" onclick="showPage('worklog')" id="nav-link-worklog">Claim</a></li>
                     <li><a href="#" onclick="showPage('reports')" id="nav-link-reports">Reports</a></li>
                     <li><a href="#" onclick="showPage('admin')" class="admin-only" data-perm="admin_settings" id="nav-link-admin">Admin</a></li>
                 </ul>
@@ -590,8 +594,8 @@
                       <input type="text" id="ul-nav-blocks" class="appearance-input" placeholder="Power Blocks" />
                       <label class="appearance-label">Site Map</label>
                       <input type="text" id="ul-nav-sitemap" class="appearance-input" placeholder="Site Map" />
-                      <label class="appearance-label">Work Log</label>
-                      <input type="text" id="ul-nav-worklog" class="appearance-input" placeholder="Work Log" />
+                      <label class="appearance-label">Claim</label>
+                      <input type="text" id="ul-nav-worklog" class="appearance-input" placeholder="Claim" />
                       <label class="appearance-label">Reports</label>
                       <input type="text" id="ul-nav-reports" class="appearance-input" placeholder="Reports" />
                       <label class="appearance-label">Admin</label>
@@ -617,8 +621,8 @@
                       <input type="text" id="ul-title-blocks" class="appearance-input" placeholder="Power Blocks & LBDs" />
                       <label class="appearance-label">Upload page</label>
                       <input type="text" id="ul-title-upload" class="appearance-input" placeholder="Upload & Extract PDF" />
-                      <label class="appearance-label">Work Log page</label>
-                      <input type="text" id="ul-title-worklog" class="appearance-input" placeholder="Work Log" />
+                      <label class="appearance-label">Claim page</label>
+                      <input type="text" id="ul-title-worklog" class="appearance-input" placeholder="Claim" />
                       <label class="appearance-label">Reports page</label>
                       <input type="text" id="ul-title-reports" class="appearance-input" placeholder="Daily Reports" />
                       <label class="appearance-label">Admin Controls page</label>
@@ -677,10 +681,10 @@
               </div>
             </div><!-- /page-admin -->
 
-            <!-- Work Log Page -->
+            <!-- Claim Page -->
             <div id="page-worklog" class="page">
                 <div class="container">
-                    <h1 class="section-title" id="page-title-worklog">Work Log</h1>
+                <h1 class="section-title" id="page-title-worklog">Claim</h1>
                     <div id="worklog-content"></div>
                 </div>
             </div>

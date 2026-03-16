@@ -183,7 +183,28 @@ async function loadTrackers() {
     if (!currentTracker && allTrackers.length > 0) {
       currentTracker = allTrackers[0];
     }
+    renderHeaderTrackerSwitcher();
   } catch(e) { console.warn('Failed to load trackers:', e); }
+}
+
+function renderHeaderTrackerSwitcher() {
+  const shell = document.getElementById('header-tracker-switcher');
+  const select = document.getElementById('header-tracker-select');
+  if (!shell || !select) return;
+
+  const activePage = document.querySelector('.page.active');
+  const hideOnDashboard = !activePage || activePage.id === 'page-dashboard';
+  if (!currentTracker || allTrackers.length <= 1 || hideOnDashboard) {
+    shell.style.display = 'none';
+    return;
+  }
+
+  select.innerHTML = allTrackers.map((tracker) => {
+    const selected = currentTracker && Number(currentTracker.id) === Number(tracker.id) ? ' selected' : '';
+    return `<option value="${tracker.id}"${selected}>${_escapeHtml(tracker.name)}</option>`;
+  }).join('');
+  select.value = String(currentTracker.id);
+  shell.style.display = 'flex';
 }
 
 function updateTrackerCrumb() {
@@ -204,6 +225,7 @@ async function switchTracker(trackerId) {
   currentTracker = t;
   await loadAdminSettings();
   updateTrackerCrumb();
+  renderHeaderTrackerSwitcher();
   const activePage = document.querySelector('.page.active');
   if (activePage) {
     const name = activePage.id.replace('page-', '');
@@ -238,13 +260,14 @@ function showPage(pageName) {
   } else {
     updateTrackerCrumb();
   }
+  renderHeaderTrackerSwitcher();
 
   // Load data for the page
   if (pageName === 'dashboard') loadDashboard();
   if (pageName === 'blocks') loadBlocks();
   if (pageName === 'sitemap') loadSiteMap();
   if (pageName === 'admin') loadAdminPage();
-  if (pageName === 'worklog') loadWorkLogPage();
+  if (pageName === 'worklog') loadClaimPage();
   if (pageName === 'reports') loadReportsPage();
 }
 
@@ -432,10 +455,16 @@ function _renderClaimAssignmentSections(overlay, block) {
 
 async function claimBlock(blockId, action, people = [], assignments = {}) {
   try {
-    await api.claimBlock(blockId, action, people, assignments);
+    const response = await api.claimBlock(blockId, action, people, assignments);
+    if (_blocksCache[blockId] && response.data) {
+      Object.assign(_blocksCache[blockId], response.data);
+    }
     loadBlockLBDs(blockId);
     if (document.getElementById('blocks-list')) {
       loadBlocks();
+    }
+    if (document.getElementById('worklog-content')) {
+      loadClaimPage();
     }
   } catch(e) { alert('Error: ' + e.message); }
 }
@@ -466,37 +495,45 @@ async function showClaimPeopleDialog(block) {
         <div style="display:flex;align-items:start;justify-content:space-between;gap:12px;">
           <div>
             <div style="color:#eef2ff;font-size:18px;font-weight:700;">Claim ${_escapeHtml(block.name)}</div>
-            <div style="color:#94a3b8;font-size:12px;margin-top:4px;">Choose the team first, then choose which LBDs are being worked for each selected entry.</div>
+            <div style="color:#94a3b8;font-size:12px;margin-top:4px;">Build the crew and task assignments first, then review the full claim before you submit it.</div>
           </div>
           <button type="button" id="claim-people-close" style="background:transparent;border:none;color:#94a3b8;font-size:20px;cursor:pointer;">×</button>
         </div>
-        <div style="margin-top:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;">
-          ${optionsHtml || '<div style="color:#94a3b8;font-size:12px;">No saved people yet.</div>'}
-        </div>
-        <div style="margin-top:16px;">
-          <label style="display:block;color:#cbd5e1;font-size:12px;margin-bottom:6px;">Work types</label>
-          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;">
-            ${LBD_STATUS_TYPES.map(statusType => {
-              const label = _escapeHtml(STATUS_LABELS[statusType] || statusType.replace(/_/g, ' '));
-              const checked = Array.isArray(existingAssignments[statusType]) && existingAssignments[statusType].length ? 'checked' : '';
-              return `<label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid rgba(255,255,255,0.08);border-radius:10px;background:rgba(255,255,255,0.03);cursor:pointer;">
-                <input type="checkbox" class="claim-status-type" value="${_escapeHtml(statusType)}" ${checked} />
-                <span style="color:#eef2ff;font-size:12px;">${label}</span>
-              </label>`;
-            }).join('')}
+        <div id="claim-editor-panel">
+          <div style="margin-top:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;">
+            ${optionsHtml || '<div style="color:#94a3b8;font-size:12px;">No saved people yet.</div>'}
+          </div>
+          <div style="margin-top:16px;">
+            <label style="display:block;color:#cbd5e1;font-size:12px;margin-bottom:6px;">Work types</label>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;">
+              ${LBD_STATUS_TYPES.map(statusType => {
+                const label = _escapeHtml(STATUS_LABELS[statusType] || statusType.replace(/_/g, ' '));
+                const checked = Array.isArray(existingAssignments[statusType]) && existingAssignments[statusType].length ? 'checked' : '';
+                return `<label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid rgba(255,255,255,0.08);border-radius:10px;background:rgba(255,255,255,0.03);cursor:pointer;">
+                  <input type="checkbox" class="claim-status-type" value="${_escapeHtml(statusType)}" ${checked} />
+                  <span style="color:#eef2ff;font-size:12px;">${label}</span>
+                </label>`;
+              }).join('')}
+            </div>
+          </div>
+          <div style="margin-top:16px;">
+            <label style="display:block;color:#cbd5e1;font-size:12px;margin-bottom:6px;">LBD selection by work type</label>
+            <div id="claim-assignment-sections"></div>
+          </div>
+          <div style="margin-top:16px;">
+            <label style="display:block;color:#cbd5e1;font-size:12px;margin-bottom:6px;">Extra crew names</label>
+            <textarea id="claim-extra-names" rows="3" placeholder="Type names separated by commas or new lines" style="width:100%;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:10px 12px;color:#eef2ff;resize:vertical;"></textarea>
           </div>
         </div>
-        <div style="margin-top:16px;">
-          <label style="display:block;color:#cbd5e1;font-size:12px;margin-bottom:6px;">LBD selection by work type</label>
-          <div id="claim-assignment-sections"></div>
-        </div>
-        <div style="margin-top:16px;">
-          <label style="display:block;color:#cbd5e1;font-size:12px;margin-bottom:6px;">Extra names</label>
-          <textarea id="claim-extra-names" rows="3" placeholder="Type names separated by commas or new lines" style="width:100%;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:10px 12px;color:#eef2ff;resize:vertical;"></textarea>
+        <div id="claim-review-panel" style="display:none;margin-top:16px;padding:16px;border-radius:14px;border:1px solid rgba(0,212,255,0.16);background:rgba(0,212,255,0.05);">
+          <div style="font-size:12px;font-weight:700;color:#8adfff;letter-spacing:0.7px;text-transform:uppercase;">Review Claim</div>
+          <div id="claim-review-content" style="margin-top:12px;"></div>
         </div>
         <div style="margin-top:18px;display:flex;justify-content:flex-end;gap:10px;">
           <button type="button" id="claim-people-cancel" class="btn btn-secondary">Cancel</button>
-          <button type="button" id="claim-people-save" class="btn btn-primary">Save Claim</button>
+          <button type="button" id="claim-people-back" class="btn btn-secondary" style="display:none;">Back</button>
+          <button type="button" id="claim-people-save" class="btn btn-primary">Review Claim</button>
+          <button type="button" id="claim-people-submit" class="btn btn-success" style="display:none;">Submit Claim</button>
         </div>
       </div>`;
 
@@ -512,7 +549,14 @@ async function showClaimPeopleDialog(block) {
     });
     overlay.querySelector('#claim-people-close').addEventListener('click', close);
     overlay.querySelector('#claim-people-cancel').addEventListener('click', close);
-    overlay.querySelector('#claim-people-save').addEventListener('click', async () => {
+    const editorPanel = overlay.querySelector('#claim-editor-panel');
+    const reviewPanel = overlay.querySelector('#claim-review-panel');
+    const reviewContent = overlay.querySelector('#claim-review-content');
+    const reviewBtn = overlay.querySelector('#claim-people-save');
+    const backBtn = overlay.querySelector('#claim-people-back');
+    const submitBtn = overlay.querySelector('#claim-people-submit');
+
+    const buildDraft = () => {
       const checked = Array.from(overlay.querySelectorAll('.claim-person-option:checked'))
         .map(el => el.value.trim())
         .filter(Boolean);
@@ -531,7 +575,59 @@ async function showClaimPeopleDialog(block) {
           assignments[statusType] = lbdIds;
         }
       });
-      await claimBlock(block.id, 'claim', people, assignments);
+      return { people, assignments };
+    };
+
+    reviewBtn.addEventListener('click', () => {
+      const draft = buildDraft();
+      if (draft.people.length === 0) {
+        alert('Choose at least one crew member before reviewing the claim.');
+        return;
+      }
+      const assignmentRows = Object.entries(draft.assignments).map(([statusType, lbdIds]) => {
+        const label = _escapeHtml(STATUS_LABELS[statusType] || statusType.replace(/_/g, ' '));
+        const lbdNames = (block.lbds || [])
+          .filter(lbd => lbdIds.includes(lbd.id))
+          .map(lbd => _escapeHtml(lbd.identifier || lbd.name || `LBD ${lbd.id}`));
+        return `<div style="padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);">
+          <div style="font-weight:700;color:#eef2ff;">${label}</div>
+          <div style="margin-top:4px;color:#94a3b8;font-size:12px;">${lbdNames.length > 0 ? lbdNames.join(', ') : 'No specific LBDs selected'}</div>
+        </div>`;
+      }).join('');
+      reviewContent.innerHTML = `
+        <div style="display:grid;gap:12px;">
+          <div>
+            <div style="font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:0.7px;text-transform:uppercase;">Crew</div>
+            <div style="margin-top:6px;color:#eef2ff;font-size:14px;">${draft.people.map(_escapeHtml).join(', ')}</div>
+          </div>
+          <div>
+            <div style="font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:0.7px;text-transform:uppercase;">Power Block</div>
+            <div style="margin-top:6px;color:#eef2ff;font-size:14px;">${_escapeHtml(block.name)}</div>
+          </div>
+          <div>
+            <div style="font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:0.7px;text-transform:uppercase;">Assignments</div>
+            <div style="margin-top:8px;display:grid;gap:8px;">${assignmentRows || '<div style="color:#94a3b8;font-size:12px;">This claim will assign crew only and will not mark specific LBD rows yet.</div>'}</div>
+          </div>
+        </div>`;
+      editorPanel.style.display = 'none';
+      reviewPanel.style.display = 'block';
+      reviewBtn.style.display = 'none';
+      backBtn.style.display = 'inline-flex';
+      submitBtn.style.display = 'inline-flex';
+      submitBtn._draft = draft;
+    });
+
+    backBtn.addEventListener('click', () => {
+      editorPanel.style.display = 'block';
+      reviewPanel.style.display = 'none';
+      reviewBtn.style.display = 'inline-flex';
+      backBtn.style.display = 'none';
+      submitBtn.style.display = 'none';
+    });
+
+    submitBtn.addEventListener('click', async () => {
+      const draft = submitBtn._draft || buildDraft();
+      await claimBlock(block.id, 'claim', draft.people, draft.assignments);
       close();
     });
   } catch (e) {
@@ -568,20 +664,8 @@ function _buildClaimedBanner(block) {
   if (claimed) {
     claimPart = '<span style="color:#1565c0;font-weight:600;">&#128204; Claimed by ' + _escapeHtml(claimedLabel || claimed) + '</span>'
       + '<span style="color:#666;font-size:11px;"> &mdash; ' + claimedAt + '</span>';
-    if (currentUser) {
-      claimPart += ' <button onclick="showClaimPeopleDialogById(' + block.id + ')" '
-        + 'style="margin-left:8px;background:#1976d2;color:#fff;border:none;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer;">&#128101; Edit Team</button>';
-    }
-    if (currentUser && Array.isArray(claimedPeople) && claimedPeople.includes(currentUser.name)) {
-      claimPart += ' <button onclick="claimBlock(' + block.id + ',\'unclaim\')" '
-        + 'style="margin-left:8px;background:#dc3545;color:#fff;border:none;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer;">&#x2715; Release</button>';
-    }
   } else {
     claimPart = '<span style="color:#999;font-size:12px;">Unclaimed</span>';
-    if (currentUser) {
-      claimPart += ' <button onclick="showClaimPeopleDialogById(' + block.id + ')" '
-        + 'style="margin-left:8px;background:#1976d2;color:#fff;border:none;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer;">&#128204; Claim</button>';
-    }
   }
 
   let lastPart = '';
@@ -590,9 +674,12 @@ function _buildClaimedBanner(block) {
   }
 
   const assignmentSummary = _buildClaimAssignmentSummary(block);
+  const claimHint = currentUser
+    ? '<div style="margin-top:6px;color:#4b5563;font-size:11px;">Use the Claim tab to start, review, or release claims for this power block.</div>'
+    : '';
 
   return '<div id="pb-claimed-banner" style="margin-bottom:12px;padding:9px 14px;background:#e8f5e9;border-radius:6px;border:1px solid #c8e6c9;">'
-    + '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;">' + claimPart + '</div>' + assignmentSummary + lastPart + '</div>';
+    + '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;">' + claimPart + '</div>' + assignmentSummary + claimHint + lastPart + '</div>';
 }
 
 function addLBD(blockId) {
@@ -1489,18 +1576,20 @@ function applyAppearance(a) {
 
 function applyUIText(t) {
   if (!t) return;
+  const navWorklog = t.nav_worklog === 'Work Log' ? 'Claim' : t.nav_worklog;
+  const titleWorklog = t.title_worklog === 'Work Log' ? 'Claim' : t.title_worklog;
   const pairs = {
     'nav-link-dashboard': t.nav_dashboard,
     'nav-link-upload':    t.nav_upload,
     'nav-link-blocks':    t.nav_blocks,
     'nav-link-sitemap':   t.nav_sitemap,
-    'nav-link-worklog':   t.nav_worklog,
+    'nav-link-worklog':   navWorklog,
     'nav-link-reports':   t.nav_reports,
     'nav-link-admin':     t.nav_admin,
     'page-title-dashboard': t.title_dashboard,
     'page-title-blocks':    t.title_blocks,
     'page-title-upload':    t.title_upload,
-    'page-title-worklog':   t.title_worklog,
+    'page-title-worklog':   titleWorklog,
     'page-title-reports':   t.title_reports,
     'page-title-admin':     t.title_admin,
   };
@@ -3463,7 +3552,176 @@ function showStatus(elementId, message, type) {
 }
 
 // ============================================================
-// WORK LOG PAGE
+// CLAIM PAGE
+// ============================================================
+let claimPageState = {
+  blocks: [],
+  selectedBlockId: null,
+  search: '',
+  loading: false,
+};
+
+function claimSelectedBlock() {
+  return claimPageState.blocks.find(block => Number(block.id) === Number(claimPageState.selectedBlockId)) || null;
+}
+
+function canReleaseClaim(block) {
+  if (!block || !currentUser) return false;
+  if (currentUser.is_admin) return true;
+  const claimedPeople = Array.isArray(block.claimed_people) ? block.claimed_people : [];
+  return claimedPeople.includes(currentUser.name);
+}
+
+function claimFilteredBlocks() {
+  const query = claimPageState.search.trim().toLowerCase();
+  if (!query) return claimPageState.blocks;
+  return claimPageState.blocks.filter((block) => {
+    const haystack = [block.name, block.zone, block.claimed_label, block.claimed_by]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+    return haystack.includes(query);
+  });
+}
+
+function claimSelectBlock(blockId) {
+  claimPageState.selectedBlockId = Number(blockId);
+  renderClaimPage();
+}
+
+function claimUpdateSearch(value) {
+  claimPageState.search = String(value || '');
+  renderClaimPage();
+}
+
+async function claimReleaseSelectedBlock() {
+  const block = claimSelectedBlock();
+  if (!block) return;
+  await claimBlock(block.id, 'unclaim');
+}
+
+async function loadClaimPage() {
+  const el = document.getElementById('worklog-content');
+  if (!el || claimPageState.loading) return;
+  claimPageState.loading = true;
+
+  el.innerHTML = '<div class="form-section" style="padding:18px 20px;color:#94a3b8;">Loading claim workflow...</div>';
+  try {
+    const response = await api.getPowerBlocks();
+    const blocks = Array.isArray(response.data) ? response.data : [];
+    claimPageState.blocks = blocks;
+    blocks.forEach((block) => { _blocksCache[block.id] = block; });
+    if (!claimPageState.selectedBlockId || !blocks.some(block => Number(block.id) === Number(claimPageState.selectedBlockId))) {
+      claimPageState.selectedBlockId = blocks.length ? blocks[0].id : null;
+    }
+  } catch (e) {
+    el.innerHTML = `<div class="form-section" style="padding:18px 20px;color:#ff8fa3;">Failed to load claim workflow: ${_escapeHtml(e.message)}</div>`;
+    claimPageState.loading = false;
+    return;
+  }
+
+  renderClaimPage();
+  claimPageState.loading = false;
+}
+
+function renderClaimPage() {
+  const el = document.getElementById('worklog-content');
+  if (!el) return;
+
+  const filtered = claimFilteredBlocks();
+  const selectedBlock = claimSelectedBlock();
+  const claimedBlocks = claimPageState.blocks.filter(block => block.claimed_by);
+  const crewCount = new Set(claimedBlocks.flatMap(block => Array.isArray(block.claimed_people) ? block.claimed_people : [])).size;
+
+  const summaryCard = (label, value, tone) => `
+    <div style="padding:16px 18px;border-radius:16px;border:1px solid ${tone};background:rgba(255,255,255,0.03);min-width:150px;">
+      <div style="font-size:11px;font-weight:700;letter-spacing:0.7px;text-transform:uppercase;color:#94a3b8;">${label}</div>
+      <div style="margin-top:8px;font-size:28px;font-weight:800;color:#eef2ff;line-height:1;">${value}</div>
+    </div>`;
+
+  const blockTiles = filtered.map((block) => {
+    const selected = selectedBlock && Number(selectedBlock.id) === Number(block.id);
+    const claimLabel = block.claimed_by ? `Claimed by ${_escapeHtml(block.claimed_label || block.claimed_by)}` : 'Ready to claim';
+    const zoneText = block.zone ? _escapeHtml(block.zone) : 'No zone';
+    const zoneColor = block.zone ? '#8adfff' : '#64748b';
+    return `<button type="button" onclick="claimSelectBlock(${block.id})" style="text-align:left;padding:14px 16px;border-radius:14px;border:1px solid ${selected ? 'rgba(0,212,255,0.45)' : 'rgba(255,255,255,0.08)'};background:${selected ? 'rgba(0,212,255,0.12)' : 'rgba(255,255,255,0.03)'};cursor:pointer;display:flex;flex-direction:column;gap:6px;box-shadow:${selected ? '0 0 0 2px rgba(0,212,255,0.12)' : 'none'};">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+        <span style="font-size:15px;font-weight:700;color:#eef2ff;">${_escapeHtml(block.name)}</span>
+        <span style="font-size:11px;color:${zoneColor};">${zoneText}</span>
+      </div>
+      <div style="font-size:12px;color:${block.claimed_by ? '#8adfff' : '#94a3b8'};">${claimLabel}</div>
+      <div style="font-size:11px;color:#64748b;">${block.lbd_count || 0} ${(currentTracker && currentTracker.item_name_plural) || 'Items'}</div>
+    </button>`;
+  }).join('');
+
+  const selectedAssignments = selectedBlock ? _buildClaimAssignmentSummary(selectedBlock) : '';
+  const selectedClaimedPeople = selectedBlock && Array.isArray(selectedBlock.claimed_people) ? selectedBlock.claimed_people.map(_escapeHtml).join(', ') : '';
+  const claimActionButton = selectedBlock
+    ? `<button class="btn btn-primary" onclick="showClaimPeopleDialogById(${selectedBlock.id})">Claim Block</button>`
+    : '<button class="btn btn-primary" disabled>Claim Block</button>';
+  const releaseButton = selectedBlock && canReleaseClaim(selectedBlock)
+    ? `<button class="btn btn-danger" onclick="claimReleaseSelectedBlock()">Release Claim</button>`
+    : '';
+  const detailsButton = selectedBlock
+    ? `<button class="btn btn-secondary" onclick="showBlockModal(${selectedBlock.id})">View Details</button>`
+    : '';
+
+  el.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:18px;">
+      <div class="form-section" style="padding:18px 20px;display:flex;flex-direction:column;gap:16px;">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+          <div>
+            <div style="font-size:12px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:#8adfff;">Claim Center</div>
+            <div style="margin-top:6px;font-size:14px;color:#94a3b8;max-width:720px;">Select a power block, press Claim Block, build the crew and assignments, then review the claim before it is submitted. Claim edits and releases now live here instead of inside the generic power block detail modal.</div>
+          </div>
+          <div style="display:flex;gap:12px;flex-wrap:wrap;">
+            ${summaryCard('Blocks', claimPageState.blocks.length, 'rgba(255,255,255,0.08)')}
+            ${summaryCard('Claimed', claimedBlocks.length, 'rgba(0,212,255,0.2)')}
+            ${summaryCard('Crew Active', crewCount, 'rgba(0,232,122,0.18)')}
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <input type="text" value="${_escapeHtml(claimPageState.search)}" oninput="claimUpdateSearch(this.value)" placeholder="Search blocks, zones, or claimed crew" style="flex:1;min-width:240px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:11px 14px;color:#eef2ff;" />
+          <button class="btn btn-secondary" onclick="loadClaimPage()">Refresh</button>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:minmax(300px,1.1fr) minmax(320px,0.9fr);gap:18px;align-items:start;">
+        <div class="form-section" style="padding:18px 20px;display:flex;flex-direction:column;gap:14px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+            <div>
+              <div style="font-size:12px;font-weight:700;letter-spacing:0.7px;text-transform:uppercase;color:#94a3b8;">Select Power Block</div>
+              <div style="margin-top:4px;font-size:13px;color:#64748b;">Claims can only be started from this page.</div>
+            </div>
+            <div style="font-size:12px;color:#94a3b8;">${filtered.length} shown</div>
+          </div>
+          <div style="display:grid;gap:10px;max-height:620px;overflow:auto;">${blockTiles || '<div style="color:#94a3b8;font-size:13px;">No power blocks match the current filter.</div>'}</div>
+        </div>
+
+        <div class="form-section" style="padding:18px 20px;display:flex;flex-direction:column;gap:16px;position:sticky;top:86px;">
+          <div>
+            <div style="font-size:12px;font-weight:700;letter-spacing:0.7px;text-transform:uppercase;color:#94a3b8;">Selected Block</div>
+            <div style="margin-top:8px;font-size:24px;font-weight:800;color:#eef2ff;">${selectedBlock ? _escapeHtml(selectedBlock.name) : 'None selected'}</div>
+            <div style="margin-top:6px;font-size:13px;color:#94a3b8;">${selectedBlock ? `${selectedBlock.lbd_count || 0} ${(currentTracker && currentTracker.item_name_plural) || 'items'} in the active tracker` : 'Choose a power block to manage its claim workflow.'}</div>
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">${claimActionButton}${releaseButton}${detailsButton}</div>
+          <div style="padding:14px 16px;border-radius:14px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);">
+            <div style="font-size:11px;font-weight:700;letter-spacing:0.7px;text-transform:uppercase;color:#94a3b8;">Claim Status</div>
+            <div style="margin-top:8px;font-size:14px;color:#eef2ff;">${selectedBlock && selectedBlock.claimed_by ? `Claimed by ${_escapeHtml(selectedBlock.claimed_label || selectedBlock.claimed_by)}` : 'Unclaimed'}</div>
+            <div style="margin-top:4px;font-size:12px;color:#94a3b8;">${selectedClaimedPeople || 'No crew assigned yet.'}</div>
+            ${selectedAssignments || ''}
+          </div>
+          <div style="padding:14px 16px;border-radius:14px;background:rgba(0,212,255,0.05);border:1px solid rgba(0,212,255,0.14);">
+            <div style="font-size:11px;font-weight:700;letter-spacing:0.7px;text-transform:uppercase;color:#8adfff;">Safeguards</div>
+            <div style="margin-top:8px;font-size:13px;color:#cbd5e1;">Every manual claim now goes through a review step before submit. The next pass will add claim-scan upload and review to this same page so manual and scanned claims share one workflow.</div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
+// ============================================================
+// LEGACY WORK LOG PAGE HELPERS (PENDING REMOVAL)
 // ============================================================
 let wl_workers = [];
 let wl_blocks = [];
@@ -3474,6 +3732,10 @@ let wl_date = new Date().toISOString().slice(0, 10);
 let wl_loading = false;
 
 async function loadWorkLogPage() {
+  return loadClaimPage();
+}
+
+async function loadWorkLogBuilderLegacy() {
   const el = document.getElementById('worklog-content');
   if (!el) return;
   if (wl_loading) return;
@@ -4035,7 +4297,7 @@ function loadUILabelsTab() {
   setVal('ul-nav-upload',    t.nav_upload,    'Upload PDF');
   setVal('ul-nav-blocks',    t.nav_blocks,    'Power Blocks');
   setVal('ul-nav-sitemap',   t.nav_sitemap,   'Site Map');
-  setVal('ul-nav-worklog',   t.nav_worklog,   'Work Log');
+  setVal('ul-nav-worklog',   t.nav_worklog === 'Work Log' ? 'Claim' : t.nav_worklog,   'Claim');
   setVal('ul-nav-reports',   t.nav_reports,   'Reports');
   setVal('ul-nav-admin',     t.nav_admin,     'Admin');
   setVal('ul-title-dashboard', t.title_dashboard, 'All Trackers');
@@ -4047,7 +4309,7 @@ function loadUILabelsTab() {
   setVal('ul-dashboard-open',     t.dashboard_open_tracker, 'Open Tracker');
   setVal('ul-title-blocks',    t.title_blocks,    'Power Blocks & LBDs');
   setVal('ul-title-upload',    t.title_upload,    'Upload & Extract PDF');
-  setVal('ul-title-worklog',   t.title_worklog,   'Work Log');
+  setVal('ul-title-worklog',   t.title_worklog === 'Work Log' ? 'Claim' : t.title_worklog,   'Claim');
   setVal('ul-title-reports',   t.title_reports,   'Daily Reports');
   setVal('ul-title-admin',     t.title_admin,     'Admin Controls');
   const claimPeopleField = document.getElementById('admin-claim-people');
