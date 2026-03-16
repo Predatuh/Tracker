@@ -1877,10 +1877,10 @@ let siteMapViewState = {
   currentMap: null,
 };
 const PB_LABEL_POSITION_OVERRIDES = {
-  '11': { x: -1, y: 0 },
-  '33': { x: 1, y: 0 },
-  '48': { x: -1, y: 1 },
-  '81': { x: 1, y: -1 },
+  '11': { x: 4, y: 1 },
+  '33': { x: -3, y: 0 },
+  '48': { x: -3, y: 2 },
+  '81': { x: 2, y: -2 },
   '117': { x: 0, y: -1 },
   '118': { x: 0, y: -1 },
   '119': { x: 0, y: -1 },
