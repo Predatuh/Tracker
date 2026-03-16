@@ -136,6 +136,18 @@ const api = {
       body: JSON.stringify({ action, people, assignments })
     });
   },
+  draftClaimScan(payload) {
+    return this.call('/reports/claim-scan/draft', {
+      method:'POST',
+      body: JSON.stringify(payload)
+    });
+  },
+  submitClaimScan(payload) {
+    return this.call('/reports/claim-scan/submit', {
+      method:'POST',
+      body: JSON.stringify(payload)
+    });
+  },
 
   // ---- Tracker API ----
   getTrackers() { return this.call('/admin/trackers'); },
@@ -3558,7 +3570,13 @@ let claimPageState = {
   blocks: [],
   selectedBlockId: null,
   search: '',
+  peopleSuggestions: [],
+  scanDraft: null,
+  scanFileName: '',
+  scanCrewText: '',
   loading: false,
+  scanLoading: false,
+  scanSubmitting: false,
 };
 
 function claimSelectedBlock() {
@@ -3586,6 +3604,8 @@ function claimFilteredBlocks() {
 
 function claimSelectBlock(blockId) {
   claimPageState.selectedBlockId = Number(blockId);
+  claimPageState.scanDraft = null;
+  claimPageState.scanFileName = '';
   renderClaimPage();
 }
 
@@ -3600,6 +3620,115 @@ async function claimReleaseSelectedBlock() {
   await claimBlock(block.id, 'unclaim');
 }
 
+function claimSetScanCrewText(value) {
+  claimPageState.scanCrewText = String(value || '');
+}
+
+function claimAppendCrewName(name) {
+  const parts = claimPageState.scanCrewText
+    .split(/[\n,]/)
+    .map(part => part.trim())
+    .filter(Boolean);
+  if (!parts.some(part => part.toLowerCase() === String(name).trim().toLowerCase())) {
+    parts.push(String(name).trim());
+  }
+  claimPageState.scanCrewText = parts.join(', ');
+  renderClaimPage();
+}
+
+function claimResetScanDraft() {
+  claimPageState.scanDraft = null;
+  claimPageState.scanFileName = '';
+  claimPageState.scanLoading = false;
+  claimPageState.scanSubmitting = false;
+  renderClaimPage();
+}
+
+function claimParseCrewNames(text) {
+  return String(text || '')
+    .split(/[\n,]/)
+    .map(name => name.trim())
+    .filter(Boolean);
+}
+
+function claimReadFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('Failed to read claim scan file'));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function claimDraftScanFile(input) {
+  const block = claimSelectedBlock();
+  const file = input && input.files ? input.files[0] : null;
+  if (!block) {
+    alert('Select a power block before uploading a claim scan.');
+    if (input) input.value = '';
+    return;
+  }
+  if (!file) return;
+
+  claimPageState.scanLoading = true;
+  claimPageState.scanDraft = null;
+  claimPageState.scanFileName = file.name;
+  renderClaimPage();
+
+  try {
+    const imageBase64 = await claimReadFileAsDataUrl(file);
+    const response = await api.draftClaimScan({
+      power_block_id: block.id,
+      tracker_id: currentTracker ? currentTracker.id : null,
+      image_base64: imageBase64,
+      file_name: file.name,
+    });
+    claimPageState.scanDraft = response.data || null;
+    if (!claimPageState.scanCrewText && currentUser?.name) {
+      claimPageState.scanCrewText = currentUser.name;
+    }
+  } catch (e) {
+    alert('Claim scan draft failed: ' + e.message);
+  } finally {
+    claimPageState.scanLoading = false;
+    renderClaimPage();
+  }
+}
+
+async function claimSubmitScanDraft() {
+  const block = claimSelectedBlock();
+  const draft = claimPageState.scanDraft;
+  if (!block || !draft) return;
+
+  const people = claimParseCrewNames(claimPageState.scanCrewText);
+  if (people.length === 0) {
+    alert('Add at least one crew member before submitting the scan claim.');
+    return;
+  }
+
+  claimPageState.scanSubmitting = true;
+  renderClaimPage();
+  try {
+    const response = await api.submitClaimScan({
+      power_block_id: block.id,
+      tracker_id: currentTracker ? currentTracker.id : null,
+      people,
+      assignments: draft.assignments || {},
+      draft,
+    });
+    if (_blocksCache[block.id] && response.data && response.data.claim) {
+      Object.assign(_blocksCache[block.id], response.data.claim);
+    }
+    claimPageState.scanDraft = null;
+    claimPageState.scanFileName = '';
+    await loadClaimPage();
+  } catch (e) {
+    alert('Claim scan submit failed: ' + e.message);
+    claimPageState.scanSubmitting = false;
+    renderClaimPage();
+  }
+}
+
 async function loadClaimPage() {
   const el = document.getElementById('worklog-content');
   if (!el || claimPageState.loading) return;
@@ -3607,12 +3736,18 @@ async function loadClaimPage() {
 
   el.innerHTML = '<div class="form-section" style="padding:18px 20px;color:#94a3b8;">Loading claim workflow...</div>';
   try {
-    const response = await api.getPowerBlocks();
-    const blocks = Array.isArray(response.data) ? response.data : [];
+    const [blocksResponse, peopleResponse] = await Promise.all([
+      api.getPowerBlocks(),
+      api.getClaimPeople().catch(() => ({ data: [] }))
+    ]);
+    const blocks = Array.isArray(blocksResponse.data) ? blocksResponse.data : [];
     claimPageState.blocks = blocks;
+    claimPageState.peopleSuggestions = Array.isArray(peopleResponse.data) ? peopleResponse.data : [];
     blocks.forEach((block) => { _blocksCache[block.id] = block; });
     if (!claimPageState.selectedBlockId || !blocks.some(block => Number(block.id) === Number(claimPageState.selectedBlockId))) {
       claimPageState.selectedBlockId = blocks.length ? blocks[0].id : null;
+      claimPageState.scanDraft = null;
+      claimPageState.scanFileName = '';
     }
   } catch (e) {
     el.innerHTML = `<div class="form-section" style="padding:18px 20px;color:#ff8fa3;">Failed to load claim workflow: ${_escapeHtml(e.message)}</div>`;
@@ -3632,6 +3767,7 @@ function renderClaimPage() {
   const selectedBlock = claimSelectedBlock();
   const claimedBlocks = claimPageState.blocks.filter(block => block.claimed_by);
   const crewCount = new Set(claimedBlocks.flatMap(block => Array.isArray(block.claimed_people) ? block.claimed_people : [])).size;
+  const scanDraft = claimPageState.scanDraft;
 
   const summaryCard = (label, value, tone) => `
     <div style="padding:16px 18px;border-radius:16px;border:1px solid ${tone};background:rgba(255,255,255,0.03);min-width:150px;">
@@ -3656,6 +3792,22 @@ function renderClaimPage() {
 
   const selectedAssignments = selectedBlock ? _buildClaimAssignmentSummary(selectedBlock) : '';
   const selectedClaimedPeople = selectedBlock && Array.isArray(selectedBlock.claimed_people) ? selectedBlock.claimed_people.map(_escapeHtml).join(', ') : '';
+  const scanPreviewRows = scanDraft ? (scanDraft.preview_rows || []).map((row) => {
+    const statuses = Array.isArray(row.statuses) && row.statuses.length
+      ? row.statuses.map(status => _escapeHtml(STATUS_LABELS[status] || status.replace(/_/g, ' '))).join(', ')
+      : 'No tasks detected';
+    return `<div style="display:flex;justify-content:space-between;gap:12px;padding:8px 10px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);">
+      <span style="color:#eef2ff;font-size:12px;font-weight:600;">${_escapeHtml(row.lbd_label || `LBD ${row.lbd_id}`)}</span>
+      <span style="color:#94a3b8;font-size:12px;text-align:right;">${statuses}</span>
+    </div>`;
+  }).join('') : '';
+  const warningHtml = scanDraft && Array.isArray(scanDraft.warnings) && scanDraft.warnings.length
+    ? `<div style="display:grid;gap:8px;">${scanDraft.warnings.map((warning) => `<div style="padding:10px 12px;border-radius:10px;background:rgba(255,193,7,0.08);border:1px solid rgba(255,193,7,0.18);color:#facc15;font-size:12px;">${_escapeHtml(warning)}</div>`).join('')}</div>`
+    : '<div style="color:#94a3b8;font-size:12px;">No scan warnings.</div>';
+  const suggestionButtons = claimPageState.peopleSuggestions.slice(0, 10).map((name) => {
+    const encodedName = encodeURIComponent(String(name));
+    return `<button type="button" class="btn btn-secondary" onclick="claimAppendCrewName(decodeURIComponent('${encodedName}'))" style="padding:6px 10px;font-size:11px;">${_escapeHtml(name)}</button>`;
+  }).join('');
   const claimActionButton = selectedBlock
     ? `<button class="btn btn-primary" onclick="showClaimPeopleDialogById(${selectedBlock.id})">Claim Block</button>`
     : '<button class="btn btn-primary" disabled>Claim Block</button>';
@@ -3713,7 +3865,36 @@ function renderClaimPage() {
           </div>
           <div style="padding:14px 16px;border-radius:14px;background:rgba(0,212,255,0.05);border:1px solid rgba(0,212,255,0.14);">
             <div style="font-size:11px;font-weight:700;letter-spacing:0.7px;text-transform:uppercase;color:#8adfff;">Safeguards</div>
-            <div style="margin-top:8px;font-size:13px;color:#cbd5e1;">Every manual claim now goes through a review step before submit. The next pass will add claim-scan upload and review to this same page so manual and scanned claims share one workflow.</div>
+            <div style="margin-top:8px;font-size:13px;color:#cbd5e1;">Every manual claim now goes through a review step before submit. Claim scans below also require a preview plus crew confirmation before they are committed.</div>
+          </div>
+          <div class="form-section" style="padding:16px 16px 18px;display:flex;flex-direction:column;gap:14px;">
+            <div>
+              <div style="font-size:11px;font-weight:700;letter-spacing:0.7px;text-transform:uppercase;color:#8adfff;">Claim Scan</div>
+              <div style="margin-top:6px;font-size:12px;color:#94a3b8;">Upload a marked claim sheet for the selected power block. The server will detect likely assignments and let you review them before submit.</div>
+            </div>
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+              <input type="file" id="claim-scan-file" accept="image/*" onchange="claimDraftScanFile(this)" ${selectedBlock ? '' : 'disabled'} style="flex:1;min-width:180px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:10px;color:#cbd5e1;" />
+              <button class="btn btn-secondary" onclick="claimResetScanDraft()" ${scanDraft || claimPageState.scanFileName ? '' : 'disabled'}>Clear</button>
+            </div>
+            <div style="font-size:12px;color:${claimPageState.scanLoading ? '#8adfff' : '#64748b'};">${claimPageState.scanLoading ? `Scanning ${_escapeHtml(claimPageState.scanFileName || 'claim image')}...` : (claimPageState.scanFileName ? `Loaded: ${_escapeHtml(claimPageState.scanFileName)}` : 'No scan selected yet.')}</div>
+            <div>
+              <div style="font-size:11px;font-weight:700;letter-spacing:0.7px;text-transform:uppercase;color:#94a3b8;">Crew For This Scan</div>
+              <textarea oninput="claimSetScanCrewText(this.value)" placeholder="Add crew names separated by commas or new lines" style="margin-top:8px;width:100%;min-height:78px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:10px 12px;color:#eef2ff;resize:vertical;">${_escapeHtml(claimPageState.scanCrewText)}</textarea>
+              <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:8px;">${suggestionButtons || '<span style="color:#64748b;font-size:12px;">No saved crew suggestions yet.</span>'}</div>
+            </div>
+            <div style="display:grid;gap:12px;">
+              <div>
+                <div style="font-size:11px;font-weight:700;letter-spacing:0.7px;text-transform:uppercase;color:#94a3b8;">Detected Assignments</div>
+                <div style="margin-top:8px;display:grid;gap:8px;max-height:180px;overflow:auto;">${scanDraft ? (scanPreviewRows || '<div style="color:#94a3b8;font-size:12px;">The scan did not detect any marked task cells yet.</div>') : '<div style="color:#64748b;font-size:12px;">Upload a claim sheet to preview detected LBD rows and tasks.</div>'}</div>
+              </div>
+              <div>
+                <div style="font-size:11px;font-weight:700;letter-spacing:0.7px;text-transform:uppercase;color:#94a3b8;">Scan Warnings</div>
+                <div style="margin-top:8px;">${scanDraft ? warningHtml : '<div style="color:#64748b;font-size:12px;">Warnings and review notes will appear here after the scan finishes.</div>'}</div>
+              </div>
+            </div>
+            <div style="display:flex;justify-content:flex-end;gap:10px;">
+              <button class="btn btn-success" onclick="claimSubmitScanDraft()" ${(scanDraft && !claimPageState.scanSubmitting) ? '' : 'disabled'}>${claimPageState.scanSubmitting ? 'Submitting...' : 'Submit Scan Claim'}</button>
+            </div>
           </div>
         </div>
       </div>
