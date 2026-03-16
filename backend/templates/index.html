@@ -24,6 +24,9 @@
   <canvas id="login-canvas"></canvas>
   <div class="login-box" style="position:relative;z-index:1;background:rgba(10,14,31,0.75);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(0,212,255,0.12);border-radius:22px;padding:40px 44px;width:390px;max-width:93vw;box-shadow:0 32px 90px rgba(0,0,0,0.85),0 0 80px rgba(0,212,255,0.06);">
     <div style="text-align:center;margin-bottom:24px;">
+      <div class="login-brand-crown-wrap">
+        <video class="site-crown-video login-crown-video js-random-crown" autoplay muted loop playsinline preload="auto"></video>
+      </div>
       <img id="login-logo" src="{{ url_for('static', filename='Logo.png') }}" alt="Logo" style="height:70px;width:auto;object-fit:contain;margin:0 auto 14px;display:block;filter:drop-shadow(0 0 24px rgba(0,212,255,0.35));transition:all 0.3s;" />
       <h2 id="login-title-text" style="margin:0 0 4px;font-size:22px;font-weight:800;color:#eef2ff;font-family:'Orbitron',sans-serif;letter-spacing:1px;text-shadow:0 0 20px rgba(0,212,255,0.2);">Princess Trackers</h2>
       <div id="login-subtitle-text" style="color:rgba(238,242,255,0.4);font-size:13px;font-family:'Space Grotesk',sans-serif;letter-spacing:0.3px;">Sign in to check off your work</div>
@@ -76,7 +79,7 @@
         <nav class="navbar">
             <div class="navbar-container">
                 <div class="navbar-brand" onclick="showPage('dashboard')" style="cursor:pointer;" title="All Trackers">
-                  <span class="brand-name"><span class="brand-crown-icon">&#x265B;</span><span class="brand-princess"><span class="brand-p">P</span><span id="brand-rest1">RINCESS</span></span><span class="brand-sep"> <span id="brand-sep-sym">&#x25C8;</span> </span><span class="brand-trackers" id="brand-word2">TRACKERS</span></span>
+                  <span class="brand-name"><video class="site-crown-video brand-crown-video js-random-crown" autoplay muted loop playsinline preload="auto"></video><span class="brand-princess"><span class="brand-p">P</span><span id="brand-rest1">RINCESS</span></span><span class="brand-sep"> <span id="brand-sep-sym">&#x25C8;</span> </span><span class="brand-trackers" id="brand-word2">TRACKERS</span></span>
                   <span class="brand-shimmer"></span>
                 </div>
                 <div id="active-tracker-crumb" style="display:none;align-items:center;gap:6px;margin-left:14px;padding:3px 10px;background:rgba(0,212,255,0.08);border:1px solid rgba(0,212,255,0.2);border-radius:20px;">
@@ -106,7 +109,7 @@
             <div id="page-dashboard" class="page active">
                 <div class="hub-hero">
                   <div class="hub-hero-wordmark">
-                    <span class="hub-hero-crown-icon">&#x265B;</span>
+                    <video class="site-crown-video hub-crown-video js-random-crown" autoplay muted loop playsinline preload="auto"></video>
                     <span class="hub-hero-princess">PRINCESS</span>
                     <span class="hub-hero-sep">&#x25C8;</span>
                     <span class="hub-hero-trackers">TRACKERS</span>

@@ -1,5 +1,11 @@
 // API helper functions
 const DEBUG_API = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+const SESSION_CROWN_KEY = 'site_random_crown_asset';
+const CROWN_ASSET_PATHS = [
+  '/static/animations/crown1.mp4',
+  '/static/animations/crown2.mp4',
+  '/static/animations/crown3.mp4'
+];
 
 const api = {
   async call(endpoint, options = {}) {
@@ -186,6 +192,42 @@ const api = {
 // ============================================================
 let allTrackers = [];
 let currentTracker = null;   // active Tracker object {id, name, slug, ...}
+
+function pickRandomCrownAsset() {
+  return CROWN_ASSET_PATHS[Math.floor(Math.random() * CROWN_ASSET_PATHS.length)];
+}
+
+function getSelectedCrownAsset() {
+  try {
+    const saved = sessionStorage.getItem(SESSION_CROWN_KEY);
+    if (saved && CROWN_ASSET_PATHS.includes(saved)) return saved;
+  } catch (e) {}
+  const picked = pickRandomCrownAsset();
+  try { sessionStorage.setItem(SESSION_CROWN_KEY, picked); } catch (e) {}
+  return picked;
+}
+
+function assignSessionCrown(forceNew = false) {
+  let selected = null;
+  if (!forceNew) {
+    selected = getSelectedCrownAsset();
+  } else {
+    selected = pickRandomCrownAsset();
+    try { sessionStorage.setItem(SESSION_CROWN_KEY, selected); } catch (e) {}
+  }
+
+  document.querySelectorAll('.js-random-crown').forEach((video) => {
+    if (!(video instanceof HTMLVideoElement)) return;
+    if (video.dataset.crownSrc === selected) return;
+    video.dataset.crownSrc = selected;
+    video.src = selected;
+    video.load();
+    const playPromise = video.play();
+    if (playPromise && typeof playPromise.catch === 'function') {
+      playPromise.catch(() => {});
+    }
+  });
+}
 
 async function loadTrackers() {
   try {
@@ -1865,6 +1907,7 @@ function _applyRoleUI() {
 // ── Login modal helpers ───────────────────────────────────────
 function showLoginModal() {
   const o = document.getElementById('login-overlay');
+  assignSessionCrown();
   if (o) { o.style.display = 'flex'; startLoginAnimation(); }
 }
 
@@ -1907,6 +1950,7 @@ async function submitLogin() {
     const d = await r.json();
     if (!r.ok) { _loginError(d.error || 'Error'); } else {
       currentUser = d.user;
+      assignSessionCrown(true);
       // Play explosion animation then show dashboard
       playLoginExplosion(() => {
         document.getElementById('login-overlay').style.display = 'none';
@@ -1930,6 +1974,7 @@ function _loginError(msg) {
 async function logout() {
   await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {});
   currentUser = null;
+  try { sessionStorage.removeItem(SESSION_CROWN_KEY); } catch (e) {}
   _applyRoleUI();
   if (_socket) { _socket.disconnect(); _socket = null; }
 }
@@ -4925,6 +4970,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Initialize tab state for login modal
   const submitBtn = document.getElementById('login-submit-btn');
   if (submitBtn) submitBtn._mode = 'signin';
+  assignSessionCrown();
 
   // Load trackers first, then settings + dashboard
   loadTrackers().then(() => loadAdminSettings()).then(() => loadDashboard());
