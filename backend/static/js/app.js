@@ -2,9 +2,9 @@
 const DEBUG_API = ['localhost', '127.0.0.1'].includes(window.location.hostname);
 const SESSION_CROWN_KEY = 'site_random_crown_asset';
 const CROWN_ASSET_PATHS = [
-  '/static/animations/crown1.mp4',
-  '/static/animations/crown2.mp4',
-  '/static/animations/crown3.mp4'
+  '/static/animations/crown1-alpha.webm',
+  '/static/animations/crown2-alpha.webm',
+  '/static/animations/crown3-alpha.webm'
 ];
 
 const api = {

@@ -204,9 +204,9 @@ body::after {
   display: inline-block;
   object-fit: contain;
   background: transparent !important;
-  mix-blend-mode: screen;
+  mix-blend-mode: normal;
   isolation: isolate;
-  filter: brightness(1.18) contrast(1.16) saturate(1.08) drop-shadow(0 0 8px rgba(115, 225, 255, 0.22)) drop-shadow(0 0 14px rgba(255, 214, 110, 0.28));
+  filter: brightness(1.04) contrast(1.04) saturate(1.02) drop-shadow(0 0 6px rgba(115, 225, 255, 0.14)) drop-shadow(0 0 10px rgba(255, 214, 110, 0.18));
   pointer-events: none;
 }
 
@@ -229,11 +229,11 @@ body::after {
   position: absolute;
   object-fit: fill;
   background: transparent !important;
-  mix-blend-mode: screen;
+  mix-blend-mode: normal;
   isolation: isolate;
-  opacity: 0.94;
+  opacity: 0.28;
   pointer-events: none;
-  filter: brightness(1.28) contrast(1.36) saturate(1.15) drop-shadow(0 0 10px rgba(90, 225, 255, 0.52)) drop-shadow(0 0 22px rgba(90, 225, 255, 0.28));
+  filter: brightness(1.02) contrast(1.08) saturate(1) drop-shadow(0 0 6px rgba(90, 225, 255, 0.18));
   z-index: 1;
 }
 
@@ -241,12 +241,12 @@ body::after {
   position: absolute;
   top: 50%;
   left: -12%;
-  width: 124%;
-  height: 28px;
+  width: 122%;
+  height: 18px;
   transform: translateY(-50%);
   object-position: center;
-  opacity: 0.78;
-  clip-path: inset(18% 0 18% 0);
+  opacity: 0.22;
+  clip-path: inset(26% 0 26% 0);
 }
 
 @keyframes electricArcTravel {
@@ -1138,12 +1138,12 @@ body::after {
   position: absolute;
   top: 50%;
   left: -9%;
-  width: 118%;
-  height: 42px;
+  width: 116%;
+  height: 24px;
   transform: translateY(-50%);
   object-position: center;
-  opacity: 0.86;
-  clip-path: inset(12% 0 12% 0);
+  opacity: 0.3;
+  clip-path: inset(24% 0 24% 0);
 }
 .hub-hero-princess {
   background: linear-gradient(90deg, #d08dff 0%, #e0a5ff 20%, #a78bfa 40%, #ede0ff 60%, #d08dff 80%, #a78bfa 100%);
@@ -3119,8 +3119,8 @@ code { background: rgba(0,212,255,0.1); color: var(--cyan); padding: 2px 6px; bo
   .navbar-brand .brand-shimmer {
     left: -6%;
     width: 112%;
-    height: 22px;
-    opacity: 0.72;
+    height: 14px;
+    opacity: 0.18;
   }
   .brand-crown-video {
     width: 19px;
@@ -3146,8 +3146,8 @@ code { background: rgba(0,212,255,0.1); color: var(--cyan); padding: 2px 6px; bo
   .navbar-brand .brand-shimmer {
     left: 0;
     width: 100%;
-    height: 18px;
-    opacity: 0.62;
+    height: 12px;
+    opacity: 0.14;
   }
   .brand-crown-video {
     width: 17px;
@@ -3227,8 +3227,8 @@ code { background: rgba(0,212,255,0.1); color: var(--cyan); padding: 2px 6px; bo
   .hub-hero-shimmer {
     left: -2%;
     width: 104%;
-    height: 28px;
-    opacity: 0.74;
+    height: 16px;
+    opacity: 0.22;
   }
 }
 
@@ -3255,8 +3255,8 @@ code { background: rgba(0,212,255,0.1); color: var(--cyan); padding: 2px 6px; bo
 
   .hub-hero-shimmer {
     width: 100%;
-    height: 22px;
-    opacity: 0.68;
+    height: 14px;
+    opacity: 0.18;
   }
 }
 
