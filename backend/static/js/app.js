@@ -953,15 +953,18 @@ function renderDashboardOverview(cards) {
   }
 
   const totalTrackers = cards.length;
+  const ranked = rankDashboardCards(cards);
+  const featured = ranked[0] || cards[0];
   const activeTrackers = cards.filter(card => card.activeClaims > 0 || card.updatedToday > 0).length;
-  const totalBlocks = cards.reduce((sum, card) => sum + card.totalBlocks, 0);
-  const completedBlocks = cards.reduce((sum, card) => sum + card.completedBlocks, 0);
   const totalItems = cards.reduce((sum, card) => sum + card.totalItems, 0);
   const termedItems = cards.reduce((sum, card) => sum + card.termedItems, 0);
   const updatedToday = cards.reduce((sum, card) => sum + card.updatedToday, 0);
   const claimedToday = cards.reduce((sum, card) => sum + card.claimedToday, 0);
   const overallPct = totalItems > 0 ? Math.round((termedItems / totalItems) * 100) : 0;
-  const blockPct = totalBlocks > 0 ? Math.round((completedBlocks / totalBlocks) * 100) : 0;
+  const featuredBlockPct = featured && featured.totalBlocks > 0
+    ? Math.round((featured.completedBlocks / featured.totalBlocks) * 100)
+    : 0;
+  const featuredBlocksLabel = featured?.dashboard_blocks_label || 'Power Blocks';
 
   const overviewCards = [
     {
@@ -972,8 +975,8 @@ function renderDashboardOverview(cards) {
     },
     {
       kicker: 'Completed Blocks',
-      value: `${completedBlocks}`,
-      meta: `${blockPct}% of ${totalBlocks} power blocks finished`,
+      value: `${featured?.completedBlocks || 0}`,
+      meta: `${featuredBlockPct}% of ${featured?.totalBlocks || 0} ${featuredBlocksLabel.toLowerCase()} finished in ${featured?.name || 'the featured tracker'}`,
       tone: 'amber'
     },
     {
