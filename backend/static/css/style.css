@@ -1655,14 +1655,89 @@ body::after {
 }
 
 @media (max-width: 720px) {
+  .app-main {
+    padding: 20px 14px;
+  }
+
+  .container,
+  .glass-card,
+  .form-section {
+    border-radius: 16px;
+  }
+
+  .hub-hero {
+    padding: 24px 16px;
+  }
+
+  .hub-hero-wordmark {
+    font-size: 22px;
+    letter-spacing: 2px;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .hub-hero-crown-icon {
+    font-size: 22px;
+  }
+
+  .hub-hero-sep {
+    font-size: 18px;
+  }
+
   .dashboard-overview-grid,
   .dashboard-activity-strip,
   .tracker-hub-grid {
     grid-template-columns: 1fr;
   }
 
+  .dashboard-overview-card,
+  .dashboard-spotlight-card,
+  .tracker-hub-card {
+    padding: 18px 16px;
+  }
+
+  .dashboard-overview-value {
+    font-size: 26px;
+  }
+
+  .dashboard-panel-head {
+    align-items: stretch;
+  }
+
+  .dashboard-panel-count {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .dashboard-spotlight-title {
+    font-size: 20px;
+  }
+
+  .dashboard-spotlight-score {
+    font-size: 38px;
+  }
+
   .dashboard-spotlight-mini-grid {
     grid-template-columns: 1fr;
+  }
+
+  .thc-top {
+    align-items: flex-start;
+  }
+
+  .thc-icon {
+    width: 44px;
+    height: 44px;
+    font-size: 22px;
+  }
+
+  .thc-stats {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .thc-stat-pill {
+    width: 100%;
   }
 
   .thc-footer {
@@ -2108,6 +2183,53 @@ body::after {
   .reports-list-layout,
   .reports-calendar-shell {
     grid-template-columns: 1fr;
+  }
+
+  .reports-detail-head {
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 720px) {
+  .reports-toolbar {
+    align-items: stretch;
+  }
+
+  .reports-toolbar-tabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .reports-tab-btn,
+  .reports-generate-btn {
+    justify-content: center;
+    width: 100%;
+  }
+
+  .reports-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .reports-summary-card,
+  .reports-list-panel,
+  .reports-detail-shell,
+  .reports-calendar-grid {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  .reports-list-card {
+    grid-template-columns: 1fr;
+  }
+
+  .reports-list-thumb,
+  .reports-list-thumb-empty {
+    width: 100%;
+    height: 120px;
+  }
+
+  .reports-detail-title {
+    font-size: 18px;
   }
 }
 .stat-card::before {
@@ -2647,6 +2769,43 @@ body::after {
 }
 
 @media (max-width: 640px) {
+  .blocks-hero {
+    padding: 16px;
+  }
+
+  .blocks-title {
+    font-size: 24px;
+  }
+
+  .blocks-subtitle {
+    font-size: 12px;
+  }
+
+  .blocks-hero-controls,
+  .blocks-filter-bar,
+  .blocks-summary-card,
+  .block-card {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  .blocks-filter-group {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .blocks-filter-select {
+    width: 100%;
+  }
+
+  .blocks-filter-btn {
+    width: 100%;
+  }
+
+  .blocks-summary-card strong {
+    font-size: 18px;
+  }
+
   .blocks-grid {
     grid-template-columns: 1fr;
   }
@@ -2657,6 +2816,21 @@ body::after {
 
   .pb-card-meta {
     justify-content: flex-start;
+  }
+
+  .pb-card-stats {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .pb-status-row {
+    grid-template-columns: 82px 1fr 36px;
+    gap: 6px;
+  }
+
+  .lbd-tbl-wrap {
+    margin-left: -2px;
+    margin-right: -2px;
   }
 }
 
