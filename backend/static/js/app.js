@@ -1844,6 +1844,7 @@ let adminSettings = { colors: STATUS_COLORS, names: STATUS_LABELS, all_columns: 
 
 let currentUser = null;  // {id, name, username, is_admin}
 let _socket     = null;
+let loginVerificationEmail = '';
 
 // ── Auth check ────────────────────────────────────────────────
 async function checkAuth() {
@@ -1908,62 +1909,170 @@ function _applyRoleUI() {
 function showLoginModal() {
   const o = document.getElementById('login-overlay');
   assignSessionCrown();
+  switchLoginTab('signin');
   if (o) { o.style.display = 'flex'; startLoginAnimation(); }
 }
 
 function switchLoginTab(tab) {
   const isSignin = tab === 'signin';
+  const isRegister = tab === 'register';
+  const isVerify = tab === 'verify';
   const siBtn = document.getElementById('tab-signin-btn');
   const regBtn = document.getElementById('tab-register-btn');
   const submitBtn = document.getElementById('login-submit-btn');
+  const emailWrap = document.getElementById('login-register-email-wrap');
+  const tokenWrap = document.getElementById('login-register-token-wrap');
+  const pinWrap = document.getElementById('login-pin-wrap');
+  const verifyWrap = document.getElementById('login-verify-code-wrap');
+  const resendBtn = document.getElementById('login-resend-btn');
+  const emailEl = document.getElementById('login-email');
+  const verifyEl = document.getElementById('login-verification-code');
   if (siBtn)  { siBtn.style.color  = isSignin ? '#00d4ff' : '#4a5568'; siBtn.style.borderBottomColor  = isSignin ? '#00d4ff' : 'transparent'; }
   if (regBtn) { regBtn.style.color = isSignin ? '#4a5568' : '#00d4ff'; regBtn.style.borderBottomColor = isSignin ? 'transparent' : '#00d4ff'; }
-  if (submitBtn) submitBtn.textContent = isSignin ? 'Sign In' : 'Create Account';
+  _setLoginButtonLabel(isSignin ? 'Sign In' : (isVerify ? 'Verify Email' : 'Create Account'));
   submitBtn._mode = tab;
+  if (emailWrap) emailWrap.style.display = (isRegister || isVerify) ? 'block' : 'none';
+  if (tokenWrap) tokenWrap.style.display = isRegister ? 'block' : 'none';
+  if (pinWrap) pinWrap.style.display = isVerify ? 'none' : 'block';
+  if (verifyWrap) verifyWrap.style.display = isVerify ? 'block' : 'none';
+  if (resendBtn) resendBtn.style.display = isVerify ? 'block' : 'none';
+  if (emailEl) emailEl.readOnly = isVerify;
+  if (verifyEl && !isVerify) verifyEl.value = '';
   const errEl = document.getElementById('login-error');
   if (errEl) errEl.style.display = 'none';
+  const helpEl = document.getElementById('login-help');
+  if (helpEl) helpEl.style.display = 'none';
+}
+
+function _setLoginHelp(msg) {
+  const el = document.getElementById('login-help');
+  if (el) { el.textContent = msg; el.style.display = 'block'; }
+}
+
+function _setLoginButtonLabel(text) {
+  const btnText = document.getElementById('login-btn-text');
+  if (btnText) {
+    btnText.textContent = text;
+    return;
+  }
+  const btn = document.getElementById('login-submit-btn');
+  if (btn) btn.textContent = text;
+}
+
+function _verificationMessage(data, fallback) {
+  if (!data) return fallback;
+  if (data.preview_code) return `${data.message} Code: ${data.preview_code}`;
+  return data.message || fallback;
+}
+
+async function _finalizeAuthenticatedSession(user) {
+  currentUser = user;
+  assignSessionCrown(true);
+  try {
+    await loadTrackers();
+    await loadAdminSettings();
+    await loadDashboard();
+  } catch (e) {
+    console.warn('Failed to refresh post-auth data:', e);
+  }
+  _applyRoleUI();
+  _initSocket();
+  playLoginExplosion(() => {
+    document.getElementById('login-overlay').style.display = 'none';
+    stopLoginAnimation();
+    showPage('dashboard');
+  });
 }
 
 async function submitLogin() {
   const nameEl = document.getElementById('login-name');
   const pinEl  = document.getElementById('login-pin');
+  const emailEl = document.getElementById('login-email');
+  const tokenEl = document.getElementById('login-job-token');
+  const codeEl = document.getElementById('login-verification-code');
   const errEl  = document.getElementById('login-error');
   const btn    = document.getElementById('login-submit-btn');
   const name   = (nameEl.value || '').trim();
   const pin    = (pinEl.value || '').trim();
+  const email  = (emailEl.value || '').trim().toLowerCase();
+  const jobToken = (tokenEl.value || '').trim();
+  const code = (codeEl.value || '').trim();
   const mode   = btn._mode || 'signin';
 
   if (errEl) errEl.style.display = 'none';
-  if (!name || !pin) { _loginError('Please enter your name and PIN'); return; }
+  const helpEl = document.getElementById('login-help');
+  if (helpEl) helpEl.style.display = 'none';
+  if (mode === 'signin' && (!name || !pin)) { _loginError('Please enter your name and PIN'); return; }
+  if (mode === 'register' && (!name || !pin || !email || !jobToken)) { _loginError('Name, PIN, recovery email, and job token are required'); return; }
+  if (mode === 'verify' && (!email || !code)) { _loginError('Enter the recovery email and 6-digit verification code'); return; }
 
   btn.disabled = true;
-  btn.textContent = '...';
+  _setLoginButtonLabel('...');
 
   try {
-    const endpoint = mode === 'register' ? '/api/auth/register' : '/api/auth/login';
+    let endpoint = '/api/auth/login';
+    let payload = { name, pin };
+    if (mode === 'register') {
+      endpoint = '/api/auth/register';
+      payload = { name, pin, email, job_token: jobToken };
+    } else if (mode === 'verify') {
+      endpoint = '/api/auth/verify-email';
+      payload = { email: email || loginVerificationEmail, code };
+    }
     const r = await fetch(endpoint, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, pin })
+      body: JSON.stringify(payload)
     });
     const d = await r.json();
-    if (!r.ok) { _loginError(d.error || 'Error'); } else {
-      currentUser = d.user;
-      assignSessionCrown(true);
-      // Play explosion animation then show dashboard
-      playLoginExplosion(() => {
-        document.getElementById('login-overlay').style.display = 'none';
-        stopLoginAnimation();
-        showPage('dashboard');
-      });
-      _applyRoleUI();
-      _initSocket();
+    if (!r.ok) {
+      if (d.verification_required && d.email) {
+        loginVerificationEmail = d.email;
+        if (emailEl) emailEl.value = d.email;
+        switchLoginTab('verify');
+        _setLoginHelp(`Enter the verification code for ${d.email}${d.job_site_name ? ` (${d.job_site_name})` : ''}.`);
+      } else {
+        _loginError(d.error || 'Error');
+      }
+    } else if (d.verification_required) {
+      loginVerificationEmail = d.email || email;
+      if (emailEl) emailEl.value = loginVerificationEmail;
+      switchLoginTab('verify');
+      _setLoginHelp(_verificationMessage(d, `We sent a verification code to ${loginVerificationEmail}.`));
+    } else if (d.user) {
+      await _finalizeAuthenticatedSession(d.user);
     }
   } catch(e) { _loginError('Network error — try again'); }
 
   btn.disabled = false;
-  btn.textContent = mode === 'register' ? 'Create Account' : 'Sign In';
+  _setLoginButtonLabel(mode === 'register' ? 'Create Account' : (mode === 'verify' ? 'Verify Email' : 'Sign In'));
+}
+
+async function resendVerificationCode() {
+  const emailEl = document.getElementById('login-email');
+  const email = (emailEl?.value || loginVerificationEmail || '').trim().toLowerCase();
+  if (!email) {
+    _loginError('Enter your recovery email first');
+    return;
+  }
+  try {
+    const response = await fetch('/api/auth/resend-verification', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      _loginError(data.error || 'Could not resend verification code');
+      return;
+    }
+    loginVerificationEmail = email;
+    _setLoginHelp(_verificationMessage(data, `A new verification code was sent to ${email}.`));
+  } catch (e) {
+    _loginError('Network error — try again');
+  }
 }
 
 function _loginError(msg) {
@@ -1974,6 +2083,10 @@ function _loginError(msg) {
 async function logout() {
   await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {});
   currentUser = null;
+  loginVerificationEmail = '';
+  allTrackers = [];
+  currentTracker = null;
+  renderHeaderTrackerSwitcher();
   try { sessionStorage.removeItem(SESSION_CROWN_KEY); } catch (e) {}
   _applyRoleUI();
   if (_socket) { _socket.disconnect(); _socket = null; }
@@ -6212,7 +6325,9 @@ async function saveUserRole(userId) {
 function showCreateUserForm() {
   document.getElementById('create-user-form').classList.remove('hidden');
   document.getElementById('new-user-name').value = '';
+  document.getElementById('new-user-email').value = '';
   document.getElementById('new-user-pin').value = '';
+  document.getElementById('new-user-job-token').value = '';
   document.getElementById('create-user-error').classList.add('hidden');
 }
 
@@ -6222,18 +6337,22 @@ function hideCreateUserForm() {
 
 async function createUser() {
   const name = document.getElementById('new-user-name').value.trim();
+  const email = document.getElementById('new-user-email').value.trim().toLowerCase();
   const pin = document.getElementById('new-user-pin').value.trim();
+  const jobToken = document.getElementById('new-user-job-token').value.trim();
   const errEl = document.getElementById('create-user-error');
 
   if (!name) { errEl.textContent = 'Name is required'; errEl.classList.remove('hidden'); return; }
+  if (!email) { errEl.textContent = 'Recovery email is required'; errEl.classList.remove('hidden'); return; }
   if (pin.length !== 4 || !/^\d{4}$/.test(pin)) { errEl.textContent = 'PIN must be 4 digits'; errEl.classList.remove('hidden'); return; }
+  if (!jobToken) { errEl.textContent = 'Job token is required'; errEl.classList.remove('hidden'); return; }
 
   try {
-    const res = await fetch('/api/auth/register', {
+    const res = await fetch('/api/auth/users', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       credentials: 'include',
-      body: JSON.stringify({ name, pin })
+      body: JSON.stringify({ name, email, pin, job_token: jobToken })
     });
     const data = await res.json();
     if (!res.ok) {
@@ -6243,6 +6362,7 @@ async function createUser() {
     }
     hideCreateUserForm();
     loadUsersTab();
+    alert(data.preview_code ? `User created. Verification preview code: ${data.preview_code}` : (data.message || 'User created. They must verify their email before signing in.'));
   } catch(e) {
     errEl.textContent = 'Network error: ' + e.message;
     errEl.classList.remove('hidden');

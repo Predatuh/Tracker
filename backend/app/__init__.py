@@ -41,6 +41,13 @@ def create_app():
     # Secret key (required for Flask sessions)
     app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'lbd-tracker-dev-secret-CHANGE-ME')
     app.config['PERMANENT_SESSION_LIFETIME'] = 60 * 60 * 24 * 30  # 30 days
+    app.config['IS_CLOUD_MODE'] = is_cloud_mode
+    app.config['MAIL_SMTP_HOST'] = os.environ.get('MAIL_SMTP_HOST', '')
+    app.config['MAIL_SMTP_PORT'] = os.environ.get('MAIL_SMTP_PORT', '587')
+    app.config['MAIL_SMTP_USERNAME'] = os.environ.get('MAIL_SMTP_USERNAME', '')
+    app.config['MAIL_SMTP_PASSWORD'] = os.environ.get('MAIL_SMTP_PASSWORD', '')
+    app.config['MAIL_FROM_EMAIL'] = os.environ.get('MAIL_FROM_EMAIL', '')
+    app.config['MAIL_SMTP_USE_TLS'] = os.environ.get('MAIL_SMTP_USE_TLS', 'true')
 
     # Database: prefer DATABASE_URL env var (Railway PostgreSQL), fall back to SQLite
     if database_url:
@@ -166,6 +173,7 @@ def _seed_admin():
     if not admin:
         admin = User(name='Admin', username='admin', is_admin=True, role='admin')
         admin.set_pin(admin_pin)
+        admin.email_verified = True
         db.session.add(admin)
         db.session.commit()
     elif not admin.role or admin.role != 'admin':
@@ -209,11 +217,20 @@ def _migrate_generic(app):
         ('site_areas', 'zone', 'VARCHAR(50)'),
         ('users', 'role', "VARCHAR(20) DEFAULT 'user'"),
         ('users', 'permissions', "TEXT DEFAULT '[]'"),
+        ('users', 'email', 'VARCHAR(255)'),
+        ('users', 'job_site_name', 'VARCHAR(120)'),
+        ('users', 'job_site_slug', 'VARCHAR(120)'),
+        ('users', 'email_verified', 'BOOLEAN DEFAULT FALSE'),
+        ('users', 'verification_code_hash', 'VARCHAR(255)'),
+        ('users', 'verification_sent_at', 'TIMESTAMP'),
+        ('users', 'verification_expires_at', 'TIMESTAMP'),
+        ('users', 'verified_at', 'TIMESTAMP'),
         ('site_maps', 'image_data', 'BYTEA'),
         ('site_maps', 'image_mime', 'VARCHAR(50)'),
         ('trackers', 'dashboard_progress_label', "VARCHAR(100) DEFAULT 'Complete'"),
         ('trackers', 'dashboard_blocks_label', "VARCHAR(100) DEFAULT 'Power Blocks'"),
         ('trackers', 'dashboard_open_label', "VARCHAR(100) DEFAULT 'Open Tracker'"),
+        ('trackers', 'job_site_name', 'VARCHAR(120)'),
     ]
     for table, col, dtype in migrations:
         try:
@@ -256,11 +273,20 @@ def _migrate_sqlite(app, db_uri):
     _add_col(cur, 'site_areas', 'zone', 'VARCHAR(50)')
     _add_col(cur, 'users', 'role', "VARCHAR(20) DEFAULT 'user'")
     _add_col(cur, 'users', 'permissions', "TEXT DEFAULT '[]'")
+    _add_col(cur, 'users', 'email', 'VARCHAR(255)')
+    _add_col(cur, 'users', 'job_site_name', 'VARCHAR(120)')
+    _add_col(cur, 'users', 'job_site_slug', 'VARCHAR(120)')
+    _add_col(cur, 'users', 'email_verified', 'BOOLEAN DEFAULT 0')
+    _add_col(cur, 'users', 'verification_code_hash', 'VARCHAR(255)')
+    _add_col(cur, 'users', 'verification_sent_at', 'DATETIME')
+    _add_col(cur, 'users', 'verification_expires_at', 'DATETIME')
+    _add_col(cur, 'users', 'verified_at', 'DATETIME')
     _add_col(cur, 'site_maps', 'image_data', 'BLOB')
     _add_col(cur, 'site_maps', 'image_mime', 'VARCHAR(50)')
     _add_col(cur, 'trackers', 'dashboard_progress_label', "VARCHAR(100) DEFAULT 'Complete'")
     _add_col(cur, 'trackers', 'dashboard_blocks_label', "VARCHAR(100) DEFAULT 'Power Blocks'")
     _add_col(cur, 'trackers', 'dashboard_open_label', "VARCHAR(100) DEFAULT 'Open Tracker'")
+    _add_col(cur, 'trackers', 'job_site_name', 'VARCHAR(120)')
     conn.commit()
     conn.close()
 
@@ -386,7 +412,10 @@ def _seed_trackers(app):
     from app.models.tracker import Tracker
     from app.models.admin_settings import AdminSettings
     from app.models.status import LBDStatus
+    from app.utils.job_sites import default_job_site
     import json
+
+    job_site = default_job_site()
 
     deprecated_statuses = {'quality_check', 'quality_docs'}
 
@@ -446,6 +475,7 @@ def _seed_trackers(app):
             item_name_singular='LBD',
             item_name_plural='LBDs',
             stat_label='Total LBDs',
+            job_site_name=job_site['name'],
             icon='🔌',
             sort_order=0,
         )
@@ -476,6 +506,9 @@ def _seed_trackers(app):
         app.logger.info(f'Created LBD tracker (id={lbd_tracker.id}) and migrated existing data')
     else:
         tracker_changed = False
+        if lbd_tracker.job_site_name != job_site['name']:
+            lbd_tracker.job_site_name = job_site['name']
+            tracker_changed = True
         types = _remove_deprecated_statuses(lbd_tracker.get_status_types())
         if types != lbd_tracker.get_status_types():
             lbd_tracker.set_status_types(types)
@@ -519,6 +552,7 @@ def _seed_trackers(app):
             item_name_singular='Inverter',
             item_name_plural='Inverters',
             stat_label='Inverters Landed',
+            job_site_name=job_site['name'],
             icon='⚡',
             sort_order=1,
         )
@@ -528,5 +562,8 @@ def _seed_trackers(app):
         db.session.add(inv_tracker)
         db.session.commit()
         app.logger.info(f'Created Inverter DC Landing tracker (id={inv_tracker.id})')
+    elif inv_tracker.job_site_name != job_site['name']:
+        inv_tracker.job_site_name = job_site['name']
+        db.session.commit()
 
 

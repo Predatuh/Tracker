@@ -4,6 +4,8 @@ from app.models import LBDStatus, AuditLog
 from app.models.admin_settings import AdminSettings
 from app.models.tracker import Tracker
 from app.utils.audit import require_permission, log_action
+from app.utils.job_sites import default_job_site
+from app.utils.tracker_access import allowed_tracker_query, resolve_accessible_tracker
 
 bp = Blueprint('admin', __name__, url_prefix='/api/admin')
 
@@ -13,7 +15,7 @@ bp = Blueprint('admin', __name__, url_prefix='/api/admin')
 # ------------------------------------------------------------------ #
 @bp.route('/trackers', methods=['GET'])
 def list_trackers():
-    trackers = Tracker.query.filter_by(is_active=True).order_by(Tracker.sort_order, Tracker.id).all()
+    trackers = allowed_tracker_query().all()
     return jsonify({'success': True, 'data': [t.to_dict() for t in trackers]}), 200
 
 
@@ -38,6 +40,7 @@ def create_tracker():
         dashboard_progress_label=data.get('dashboard_progress_label', 'Complete'),
         dashboard_blocks_label=data.get('dashboard_blocks_label', 'Power Blocks'),
         dashboard_open_label=data.get('dashboard_open_label', 'Open Tracker'),
+        job_site_name=data.get('job_site_name') or default_job_site()['name'],
         icon=data.get('icon', '📋'),
         sort_order=data.get('sort_order', 99),
     )
@@ -58,7 +61,7 @@ def update_tracker(tracker_id):
         return err, status
     t = Tracker.query.get_or_404(tracker_id)
     data = request.get_json() or {}
-    for field in ('name', 'slug', 'item_name_singular', 'item_name_plural', 'stat_label', 'dashboard_progress_label', 'dashboard_blocks_label', 'dashboard_open_label', 'icon', 'sort_order'):
+    for field in ('name', 'slug', 'item_name_singular', 'item_name_plural', 'stat_label', 'dashboard_progress_label', 'dashboard_blocks_label', 'dashboard_open_label', 'job_site_name', 'icon', 'sort_order'):
         if field in data:
             setattr(t, field, data[field])
     if 'status_types' in data:
@@ -101,10 +104,7 @@ def list_audit_logs():
 # ------------------------------------------------------------------ #
 def _get_tracker():
     """Return the Tracker for the current request (from tracker_id param)."""
-    tid = request.args.get('tracker_id') or (request.get_json(silent=True) or {}).get('tracker_id')
-    if tid:
-        return Tracker.query.get(int(tid))
-    return Tracker.query.filter_by(is_active=True).order_by(Tracker.sort_order, Tracker.id).first()
+    return resolve_accessible_tracker()
 
 
 # ------------------------------------------------------------------ #

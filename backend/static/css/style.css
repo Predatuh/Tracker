@@ -235,7 +235,8 @@ body::after {
   font-size: 15px;
   letter-spacing: 2.5px;
   font-weight: 900;
-  animation: princessGlow 3s ease-in-out infinite alternate, princessGradientSweep 4s ease infinite;
+  display: inline-block;
+  animation: princessGlow 3s ease-in-out infinite alternate, princessGradientSweep 4s ease infinite, wordGlitchShift 9s steps(1, end) infinite, wordGlitchSplitPurple 7s steps(1, end) infinite;
 }
 .navbar-brand .brand-p {
   display: inline;
@@ -273,7 +274,8 @@ body::after {
   font-size: 15px;
   letter-spacing: 2.5px;
   font-weight: 900;
-  animation: trackersPulse 3s ease-in-out infinite alternate, trackersGradientSweep 4s ease infinite;
+  display: inline-block;
+  animation: trackersPulse 3s ease-in-out infinite alternate, trackersGradientSweep 4s ease infinite, wordGlitchShift 11s steps(1, end) infinite reverse, wordGlitchSplitCyan 8s steps(1, end) infinite;
 }
 @keyframes trackersPulse {
   from { filter: drop-shadow(0 0 4px rgba(0,212,255,0.5)); }
@@ -1102,7 +1104,8 @@ body::after {
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  animation: princessGlow 3s ease-in-out infinite alternate, princessGradientSweep 4s ease infinite;
+  display: inline-block;
+  animation: princessGlow 3s ease-in-out infinite alternate, princessGradientSweep 4s ease infinite, wordGlitchShift 10s steps(1, end) infinite, wordGlitchSplitPurple 7.5s steps(1, end) infinite;
 }
 .hub-hero-sep {
   font-size: 24px;
@@ -1116,7 +1119,43 @@ body::after {
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  animation: trackersPulse 3s ease-in-out infinite alternate, trackersGradientSweep 4s ease infinite;
+  display: inline-block;
+  animation: trackersPulse 3s ease-in-out infinite alternate, trackersGradientSweep 4s ease infinite, wordGlitchShift 12s steps(1, end) infinite reverse, wordGlitchSplitCyan 8.5s steps(1, end) infinite;
+}
+
+#login-title-text {
+  display: inline-block;
+  animation: loginTitleGlitch 12s steps(1, end) infinite;
+}
+
+@keyframes wordGlitchShift {
+  0%, 86%, 100% { transform: translate3d(0, 0, 0) skewX(0deg); }
+  87% { transform: translate3d(-1px, 0, 0) skewX(-6deg); }
+  88% { transform: translate3d(2px, -1px, 0) skewX(8deg); }
+  89% { transform: translate3d(-2px, 1px, 0) skewX(-10deg); }
+  90% { transform: translate3d(1px, 0, 0) skewX(4deg); }
+  91% { transform: translate3d(0, 0, 0) skewX(0deg); }
+}
+
+@keyframes wordGlitchSplitPurple {
+  0%, 88%, 100% { text-shadow: 0 0 0 rgba(0,0,0,0); opacity: 1; }
+  89% { text-shadow: -2px 0 rgba(255, 76, 106, 0.7), 2px 0 rgba(0, 212, 255, 0.55), 0 0 20px rgba(208, 141, 255, 0.22); }
+  90% { text-shadow: 3px 0 rgba(255, 76, 106, 0.55), -2px 0 rgba(255, 255, 255, 0.35); opacity: 0.96; }
+  91% { text-shadow: -1px 0 rgba(0, 212, 255, 0.65), 1px 0 rgba(255, 76, 106, 0.55); }
+}
+
+@keyframes wordGlitchSplitCyan {
+  0%, 90%, 100% { text-shadow: 0 0 0 rgba(0,0,0,0); opacity: 1; }
+  91% { text-shadow: -3px 0 rgba(255, 76, 106, 0.5), 2px 0 rgba(127, 251, 255, 0.9), 0 0 24px rgba(0, 212, 255, 0.24); }
+  92% { text-shadow: 2px 0 rgba(255,255,255,0.38), -2px 0 rgba(255, 76, 106, 0.58); opacity: 0.94; }
+  93% { text-shadow: -1px 0 rgba(127, 251, 255, 0.88), 1px 0 rgba(255, 76, 106, 0.5); }
+}
+
+@keyframes loginTitleGlitch {
+  0%, 92%, 100% { transform: translate3d(0, 0, 0); text-shadow: 0 0 20px rgba(0,212,255,0.2); }
+  93% { transform: translate3d(1px, -1px, 0); text-shadow: -2px 0 rgba(255, 76, 106, 0.55), 2px 0 rgba(0, 212, 255, 0.7), 0 0 20px rgba(0,212,255,0.24); }
+  94% { transform: translate3d(-1px, 1px, 0); text-shadow: 2px 0 rgba(255,255,255,0.4), -2px 0 rgba(255, 76, 106, 0.45), 0 0 20px rgba(0,212,255,0.24); }
+  95% { transform: translate3d(0, 0, 0); text-shadow: 0 0 20px rgba(0,212,255,0.2); }
 }
 /* Hover intensify on hero */
 .hub-hero-wordmark:hover .hub-crown-video {

@@ -17,6 +17,7 @@ class Tracker(db.Model):
     dashboard_progress_label = db.Column(db.String(100), default='Complete')
     dashboard_blocks_label   = db.Column(db.String(100), default='Power Blocks')
     dashboard_open_label     = db.Column(db.String(100), default='Open Tracker')
+    job_site_name       = db.Column(db.String(120), nullable=True)
     icon                = db.Column(db.String(10), default='📋')
     _status_types       = db.Column('status_types', db.Text)                  # JSON list
     _status_colors      = db.Column('status_colors', db.Text)                 # JSON dict
@@ -92,6 +93,7 @@ class Tracker(db.Model):
             'dashboard_progress_label': self.dashboard_progress_label,
             'dashboard_blocks_label':   self.dashboard_blocks_label,
             'dashboard_open_label':     self.dashboard_open_label,
+            'job_site_name':       self.job_site_name,
             'icon':                self.icon,
             'status_types':        self.get_status_types(),
             'status_colors':       self.get_status_colors(),

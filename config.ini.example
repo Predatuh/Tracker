@@ -27,6 +27,14 @@ github_repo = Predatuh/Tracker
 # Leave blank to run a local server instead.
 server_url = 
 
+# SMTP settings for account verification emails.
+smtp_host = 
+smtp_port = 587
+smtp_username = 
+smtp_password = 
+from_email = 
+smtp_use_tls = true
+
 [admin]
 # 4-digit PIN for the Admin account.  Change this before deploying!
 pin = 1234
