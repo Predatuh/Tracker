@@ -968,7 +968,7 @@ function renderDashboardOverview(cards) {
     {
       kicker: 'Live Progress',
       value: `${overallPct}%`,
-      meta: `${termedItems}/${totalItems} termed items across the current tracker snapshot`,
+      meta: `LBD Boxes Terminated: ${termedItems}/${totalItems}`,
       tone: 'cyan'
     },
     {
