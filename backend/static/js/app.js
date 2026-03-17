@@ -2313,7 +2313,7 @@ const DEFAULT_PB_LABEL_POSITION_OVERRIDES = {
 };
 const MAX_SNAP_BBOX_W_PCT = 20;
 const MAX_SNAP_BBOX_H_PCT = 20;
-const MAX_SNAP_BBOX_AREA_PCT = 12;
+const MAX_SNAP_BBOX_AREA_PCT = 80;
 
 // Snap threshold in % of map dimensions
 

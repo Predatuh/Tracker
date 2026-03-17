@@ -12,7 +12,7 @@ bp = Blueprint('map', __name__, url_prefix='/api/map')
 ALLOWED_EXTENSIONS = {'svg', 'png', 'jpg', 'jpeg'}
 MAX_SNAP_BBOX_W_PCT = 20.0
 MAX_SNAP_BBOX_H_PCT = 20.0
-MAX_SNAP_BBOX_AREA_PCT = 12.0
+MAX_SNAP_BBOX_AREA_PCT = 80.0
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
