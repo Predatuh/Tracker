@@ -1,0 +1,37 @@
+.ifc-viewer {
+  display: grid;
+  gap: 18px;
+}
+
+.ifc-viewer-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: 16px;
+}
+
+.ifc-viewer-copy {
+  margin-top: 10px;
+  color: var(--text-soft);
+}
+
+.ifc-frame-wrap {
+  min-height: 78vh;
+  border-radius: 24px;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(12, 20, 36, 0.86);
+}
+
+.ifc-frame {
+  width: 100%;
+  min-height: 78vh;
+  border: 0;
+}
+
+@media (max-width: 720px) {
+  .ifc-viewer-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

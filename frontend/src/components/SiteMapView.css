@@ -274,7 +274,7 @@
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
-  pointer-events: none;
+  pointer-events: auto;
 }
 
 .map-region.detected {
@@ -285,6 +285,7 @@
 .map-region.saved {
   border: 1.5px solid rgba(0, 212, 255, 0.4);
   background: rgba(0, 212, 255, 0.08);
+  cursor: pointer;
 }
 
 .region-label {

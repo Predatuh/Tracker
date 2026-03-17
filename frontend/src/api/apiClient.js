@@ -34,9 +34,12 @@ export const auth_api = {
   register: (payload) => client.post('/auth/register', payload),
   logout: () => client.post('/auth/logout'),
   listUsers: () => client.get('/auth/users'),
+  updateUserJobSite: (userId, jobToken) => client.put(`/auth/users/${userId}/job-site`, { job_token: jobToken }),
 };
 
 export const tracker_api = {
+  getPowerBlockIfcUrl: (blockId) => `${API_BASE_URL}/tracker/power-blocks/${blockId}/ifc`,
+
   getPowerBlocks: (options = {}) => {
     const params = {};
     if (options.trackerId) params.tracker_id = options.trackerId;

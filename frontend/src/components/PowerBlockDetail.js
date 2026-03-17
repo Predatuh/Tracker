@@ -185,6 +185,12 @@ function PowerBlockDetail() {
                   <span>Last updated</span>
                   <strong>{block.last_updated_by || 'No updates yet'}</strong>
                 </div>
+                {block.has_ifc && (
+                  <div>
+                    <span>IFC</span>
+                    <strong><Link to={`/ifc/${block.id}`} className="pbd-ifc-link">View IFC</Link></strong>
+                  </div>
+                )}
               </div>
             </div>
             <div className="pbd-hero-stats">

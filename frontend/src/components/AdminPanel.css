@@ -292,10 +292,83 @@
   justify-content: center;
 }
 
+.access-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.access-card {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+  border-radius: 22px;
+  background: rgba(15, 23, 42, 0.62);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.access-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+}
+
+.access-meta {
+  color: var(--text-soft);
+  font-size: 0.9rem;
+  margin-top: 4px;
+}
+
+.access-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.access-badge--active {
+  background: rgba(79, 227, 213, 0.16);
+  color: var(--text-strong);
+}
+
+.access-badge--empty {
+  background: rgba(148, 163, 184, 0.14);
+  color: var(--text-soft);
+}
+
+.access-form-row {
+  align-items: end;
+}
+
+.access-form-group {
+  flex: 1;
+}
+
+.access-form-group select {
+  width: 100%;
+  min-height: 46px;
+  padding: 0 14px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 16px;
+  font-size: 14px;
+  background: rgba(8, 15, 29, 0.84);
+  color: var(--text-strong);
+}
+
+.access-actions {
+  display: flex;
+  align-items: center;
+}
+
 @media (max-width: 920px) {
   .admin-hero,
   .color-row,
-  .name-row {
+  .name-row,
+  .access-card-head {
     grid-template-columns: 1fr;
     flex-direction: column;
     align-items: flex-start;

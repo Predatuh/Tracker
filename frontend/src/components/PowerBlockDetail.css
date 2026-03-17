@@ -55,6 +55,15 @@
   color: var(--text-strong);
 }
 
+.pbd-ifc-link {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.pbd-ifc-link:hover {
+  text-decoration: underline;
+}
+
 .pbd-hero-stats {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

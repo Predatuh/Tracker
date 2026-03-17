@@ -11,6 +11,7 @@ import AdminPanel from './components/AdminPanel';
 import WorkLog from './components/WorkLog';
 import Reports from './components/Reports';
 import AuthScreen from './components/AuthScreen';
+import IfcViewer from './components/IfcViewer';
 import { AppProvider, useAppContext } from './context/AppContext';
 
 function AppBoot() {
@@ -40,6 +41,7 @@ function AppBoot() {
           <Route path="/site-map" element={<SiteMapView />} />
           <Route path="/worklog" element={<WorkLog />} />
           <Route path="/reports" element={<Reports />} />
+          <Route path="/ifc/:id" element={<IfcViewer />} />
           <Route
             path="/upload"
             element={hasPermission('upload_pdf') ? <PDFUpload /> : <Navigate to="/" replace />}

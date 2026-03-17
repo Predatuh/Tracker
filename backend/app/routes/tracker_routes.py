@@ -1,4 +1,5 @@
-from flask import Blueprint, request, jsonify, session
+from flask import Blueprint, request, jsonify, session, send_file
+from io import BytesIO
 from sqlalchemy.orm import subqueryload
 from sqlalchemy import func
 from app import db
@@ -48,6 +49,9 @@ def _lbd_is_accessible(lbd):
 
 
 def _block_is_accessible(block):
+    user = current_session_user()
+    if user and (user.is_admin or user.role == 'admin'):
+        return True
     allowed_ids = _allowed_tracker_id_set()
     if not allowed_ids:
         return False
@@ -56,6 +60,9 @@ def _block_is_accessible(block):
 
 
 def _serialize_accessible_block(block):
+    user = current_session_user()
+    if user and (user.is_admin or user.role == 'admin'):
+        return block.to_dict()
     allowed_ids = _allowed_tracker_id_set()
     payload = block.to_dict()
     visible_lbds = [lbd for lbd in payload.get('lbds', []) if lbd.get('tracker_id') in allowed_ids]
@@ -336,6 +343,25 @@ def get_power_block(block_id):
             'success': True,
             'data': _serialize_accessible_block(block)
         }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/power-blocks/<int:block_id>/ifc', methods=['GET'])
+def get_power_block_ifc(block_id):
+    try:
+        block = PowerBlock.query.options(subqueryload(PowerBlock.lbds)).get_or_404(block_id)
+        if not _block_is_accessible(block):
+            return jsonify({'error': 'That power block is not accessible for your job site'}), 403
+        if not block.ifc_pdf_data:
+            return jsonify({'error': 'No IFC drawing is assigned to this power block'}), 404
+
+        return send_file(
+            BytesIO(block.ifc_pdf_data),
+            mimetype=block.ifc_pdf_mime or 'application/pdf',
+            download_name=block.ifc_pdf_filename or f'{block.name}-IFC.pdf',
+            max_age=0,
+        )
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

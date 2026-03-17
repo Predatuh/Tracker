@@ -1,18 +1,21 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { admin_api } from '../api/apiClient';
+import { admin_api, auth_api } from '../api/apiClient';
 import './AdminPanel.css';
 import { useAppContext } from '../context/AppContext';
 
-const TABS = ['Colors', 'Column Names', 'Columns', 'Map Labels'];
+const BASE_TABS = ['Colors', 'Column Names', 'Columns', 'Map Labels'];
 
 function AdminPanel() {
-  const { currentTracker, currentTrackerId } = useAppContext();
+  const { currentTracker, currentTrackerId, isAdmin } = useAppContext();
   const [activeTab, setActiveTab] = useState('Colors');
   const [settings, setSettings] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [userAdminData, setUserAdminData] = useState({ users: [], job_sites: [] });
+  const [siteDrafts, setSiteDrafts] = useState({});
 
   // Local edit buffers
   const [colors, setColors] = useState({});
@@ -37,7 +40,32 @@ function AdminPanel() {
     }
   }, [currentTrackerId]);
 
+  const fetchUsers = useCallback(async () => {
+    if (!isAdmin) {
+      return;
+    }
+    setUsersLoading(true);
+    try {
+      const res = await auth_api.listUsers();
+      const users = res.data.users || [];
+      const jobSites = res.data.job_sites || [];
+      setUserAdminData({ users, job_sites: jobSites });
+      setSiteDrafts(
+        users.reduce((acc, user) => {
+          const matchingSite = jobSites.find((site) => site.name === user.job_site_name);
+          acc[user.id] = matchingSite?.token || '';
+          return acc;
+        }, {})
+      );
+    } catch (e) {
+      flash('Failed to load user access', true);
+    } finally {
+      setUsersLoading(false);
+    }
+  }, [isAdmin]);
+
   useEffect(() => { fetchSettings(); }, [fetchSettings]);
+  useEffect(() => { fetchUsers(); }, [fetchUsers]);
 
   const flash = (msg, isError = false) => {
     if (isError) { setError(msg); setSuccess(''); }
@@ -111,6 +139,20 @@ function AdminPanel() {
     } finally { setSaving(false); }
   };
 
+  const updateUserAccess = async (user) => {
+    setSaving(true);
+    try {
+      const jobToken = siteDrafts[user.id] || '';
+      const response = await auth_api.updateUserJobSite(user.id, jobToken);
+      flash(response.data.message || 'User access updated');
+      fetchUsers();
+    } catch (e) {
+      flash(e.response?.data?.error || 'Error updating user access', true);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="admin-panel container">
@@ -124,6 +166,7 @@ function AdminPanel() {
   ];
   const customKeys = settings?.custom_columns || [];
   const allKeys = settings?.all_columns || builtinKeys;
+  const tabs = isAdmin ? [...BASE_TABS, 'User Access'] : BASE_TABS;
 
   return (
     <div className="admin-panel admin-shell">
@@ -161,7 +204,7 @@ function AdminPanel() {
         {success && <div className="alert alert-success">{success}</div>}
 
         <div className="admin-tabs">
-          {TABS.map(t => (
+          {tabs.map(t => (
             <button
               key={t}
               className={`admin-tab-btn ${activeTab === t ? 'active' : ''}`}
@@ -323,6 +366,56 @@ function AdminPanel() {
               >
                 {saving ? 'Adding…' : 'Add Column'}
               </button>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'User Access' && isAdmin && (
+          <div className="admin-section">
+            <h2 className="section-subtitle">User Access</h2>
+            <p className="admin-hint">Assign or revoke job-token access for existing accounts. Older users created before token gating will show no assigned site until you set one here.</p>
+            {usersLoading ? <div className="admin-hint">Loading user access…</div> : null}
+            <div className="access-grid">
+              {userAdminData.users
+                .filter((user) => user.username !== 'admin')
+                .map((user) => (
+                  <div className="access-card" key={user.id}>
+                    <div className="access-card-head">
+                      <div>
+                        <strong>{user.name}</strong>
+                        <div className="access-meta">@{user.username} • {user.role || 'user'}</div>
+                      </div>
+                      <span className={`access-badge ${user.job_site_name ? 'access-badge--active' : 'access-badge--empty'}`}>
+                        {user.job_site_name || 'No access assigned'}
+                      </span>
+                    </div>
+                    <div className="form-row access-form-row">
+                      <div className="form-group access-form-group">
+                        <label>Job Token Access</label>
+                        <select
+                          value={siteDrafts[user.id] || ''}
+                          onChange={(event) => setSiteDrafts((current) => ({ ...current, [user.id]: event.target.value }))}
+                        >
+                          <option value="">No access</option>
+                          {userAdminData.job_sites.map((site) => (
+                            <option key={site.token} value={site.token}>
+                              {site.name} ({site.token})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="access-actions">
+                        <button
+                          className="btn btn-primary"
+                          onClick={() => updateUserAccess(user)}
+                          disabled={saving}
+                        >
+                          {saving ? 'Saving…' : 'Save Access'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
             </div>
           </div>
         )}

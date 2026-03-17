@@ -1,7 +1,9 @@
 from flask import Flask, render_template, send_from_directory
+from flask.sessions import SecureCookieSessionInterface
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from flask_socketio import SocketIO
+import importlib.util
 import os
 import warnings
 
@@ -17,6 +19,21 @@ db = SQLAlchemy()
 socketio = SocketIO()
 
 
+class LocalAwareSessionInterface(SecureCookieSessionInterface):
+    def _local_http_dev(self):
+        return os.environ.get('LOCAL_HTTP_DEV', '').strip().lower() in {'1', 'true', 'yes'}
+
+    def get_cookie_secure(self, app):
+        if self._local_http_dev():
+            return False
+        return super().get_cookie_secure(app)
+
+    def get_cookie_samesite(self, app):
+        if self._local_http_dev():
+            return 'Lax'
+        return super().get_cookie_samesite(app)
+
+
 def create_app():
     # Setup paths
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -29,6 +46,7 @@ def create_app():
         static_folder=static_dir,
         static_url_path='/backend-static',
     )
+    app.session_interface = LocalAwareSessionInterface()
 
     database_url = os.environ.get('DATABASE_URL', '')
     is_cloud_mode = bool(database_url)
@@ -53,6 +71,11 @@ def create_app():
     if database_url:
         if database_url.startswith('postgres://'):
             database_url = database_url.replace('postgres://', 'postgresql://', 1)
+        if database_url.startswith('postgresql://') and '+pg8000://' not in database_url:
+            has_psycopg2 = importlib.util.find_spec('psycopg2') is not None
+            has_pg8000 = importlib.util.find_spec('pg8000') is not None
+            if not has_psycopg2 and has_pg8000:
+                database_url = database_url.replace('postgresql://', 'postgresql+pg8000://', 1)
         app.config['SQLALCHEMY_DATABASE_URI'] = database_url
         app.config['UPLOAD_FOLDER'] = os.environ.get('UPLOAD_FOLDER', '/tmp/lbd_uploads')
         # Connection pool settings for PostgreSQL over network
@@ -80,9 +103,12 @@ def create_app():
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500 MB
     app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
-    # Allow cross-origin session cookies (Flutter web on localhost)
-    app.config['SESSION_COOKIE_SAMESITE'] = 'None'
-    app.config['SESSION_COOKIE_SECURE'] = True
+    # Keep secure cookies on Railway/HTTPS deployments, but allow local HTTP dev sign-in.
+    force_secure_cookie = os.environ.get('FORCE_SECURE_SESSION_COOKIE', '').strip().lower() in {'1', 'true', 'yes'}
+    local_http_dev = os.environ.get('LOCAL_HTTP_DEV', '').strip().lower() in {'1', 'true', 'yes'}
+    secure_cookie = force_secure_cookie or (bool(os.environ.get('RAILWAY_ENVIRONMENT')) and not local_http_dev)
+    app.config['SESSION_COOKIE_SECURE'] = secure_cookie
+    app.config['SESSION_COOKIE_SAMESITE'] = 'None' if secure_cookie else 'Lax'
 
     # Initialize extensions
     db.init_app(app)
@@ -195,6 +221,10 @@ def _migrate_generic(app):
     """For PostgreSQL / non-SQLite: use raw SQL via SQLAlchemy engine."""
     migrations = [
         ('power_blocks', 'power_block_number', 'VARCHAR(255)'),
+        ('power_blocks', 'ifc_pdf_data', 'BYTEA'),
+        ('power_blocks', 'ifc_pdf_mime', 'VARCHAR(100)'),
+        ('power_blocks', 'ifc_pdf_filename', 'VARCHAR(255)'),
+        ('power_blocks', 'ifc_page_number', 'INTEGER'),
         ('power_blocks', 'claimed_by', 'VARCHAR(100)'),
         ('power_blocks', 'claimed_people', "TEXT DEFAULT '[]'"),
         ('power_blocks', 'claimed_at', 'TIMESTAMP'),
@@ -251,6 +281,10 @@ def _migrate_sqlite(app, db_uri):
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
     _add_col(cur, 'power_blocks', 'power_block_number', 'TEXT')
+    _add_col(cur, 'power_blocks', 'ifc_pdf_data', 'BLOB')
+    _add_col(cur, 'power_blocks', 'ifc_pdf_mime', 'TEXT')
+    _add_col(cur, 'power_blocks', 'ifc_pdf_filename', 'TEXT')
+    _add_col(cur, 'power_blocks', 'ifc_page_number', 'INTEGER')
     _add_col(cur, 'power_blocks', 'claimed_by', 'VARCHAR(100)')
     _add_col(cur, 'power_blocks', 'claimed_people', "TEXT DEFAULT '[]'")
     _add_col(cur, 'power_blocks', 'claimed_at', 'DATETIME')

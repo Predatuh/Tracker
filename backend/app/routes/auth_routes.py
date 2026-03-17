@@ -5,7 +5,7 @@ from flask import Blueprint, jsonify, request, session
 from app import db
 from app.models.user import User
 from app.utils.audit import log_action
-from app.utils.job_sites import resolve_job_site
+from app.utils.job_sites import list_job_sites, resolve_job_site
 
 bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 
@@ -160,6 +160,7 @@ def list_users():
     return jsonify({
         'users': [u.to_dict() for u in users],
         'all_privileges': ALL_PRIVILEGES,
+        'job_sites': list_job_sites(),
     }), 200
 
 
@@ -236,3 +237,43 @@ def update_user_role(user_id):
     db.session.commit()
     log_action('user.role.update', 'user', target.id, {'role': new_role, 'permissions': valid_perms}, actor=caller)
     return jsonify({'user': target.to_dict()}), 200
+
+
+@bp.route('/users/<int:user_id>/job-site', methods=['PUT'])
+def update_user_job_site(user_id):
+    caller, *err = _require_admin()
+    if not caller:
+        return err[0], err[1]
+
+    target = User.query.get(user_id)
+    if not target:
+        return jsonify({'error': 'User not found'}), 404
+
+    if target.username == 'admin':
+        return jsonify({'error': 'Cannot change access for the main admin account'}), 400
+
+    data = request.get_json() or {}
+    raw_token = str(data.get('job_token') or '').strip()
+
+    if not raw_token:
+        target.job_site_name = None
+        target.job_site_slug = None
+        db.session.commit()
+        log_action('user.job_site.clear', 'user', target.id, {'cleared_by': caller.name}, actor=caller)
+        return jsonify({'user': target.to_dict(), 'message': f'Access removed for {target.name}'}), 200
+
+    job_site = resolve_job_site(raw_token)
+    if not job_site:
+        return jsonify({'error': 'That job token is not valid'}), 400
+
+    target.job_site_name = job_site['name']
+    target.job_site_slug = job_site['slug']
+    db.session.commit()
+    log_action(
+        'user.job_site.update',
+        'user',
+        target.id,
+        {'job_site_name': target.job_site_name, 'job_site_slug': target.job_site_slug, 'updated_by': caller.name},
+        actor=caller,
+    )
+    return jsonify({'user': target.to_dict(), 'message': f'Access updated for {target.name}'}), 200

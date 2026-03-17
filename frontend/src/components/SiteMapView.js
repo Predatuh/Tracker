@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import { map_api, admin_api, tracker_api } from '../api/apiClient';
+import { useNavigate } from 'react-router-dom';
 import './SiteMapView.css';
 import { useAppContext } from '../context/AppContext';
 
 function SiteMapView() {
   const { currentTracker, currentTrackerId, isAdmin, hasPermission } = useAppContext();
+  const navigate = useNavigate();
   const [maps, setMaps] = useState([]);
   const [selectedMap, setSelectedMap] = useState(null);
   const [mapAreas, setMapAreas] = useState([]);   // saved SiteArea rows
@@ -39,6 +41,7 @@ function SiteMapView() {
   const [showLabels, setShowLabels] = useState(false);
   const [showOutlines, setShowOutlines] = useState(false);
   const [showAllAreas, setShowAllAreas] = useState(false);
+  const [selectedAreaBlock, setSelectedAreaBlock] = useState(null);
 
   const formatMapLabel = useCallback((name) => {
     const raw = String(name || '').trim();
@@ -119,6 +122,7 @@ function SiteMapView() {
     setAssignments({});
     setPendingSnap(null);
     setPlacementMode(false);
+    setSelectedAreaBlock(null);
     setError('');
     try {
       // Load saved areas (with bbox data)
@@ -300,7 +304,32 @@ function SiteMapView() {
   // Get names of PBs already placed on map
   const placedNames = new Set(visibleMapAreas.map(a => a.name));
 
-  const trackerTitle = currentTracker?.name || 'Tracker';
+  const trackerTitle = currentTracker?.name || 'All Trackers';
+
+  const resolveBlockForArea = useCallback((area) => {
+    if (!area) return null;
+    return powerBlocks.find((block) => (
+      (area.power_block_id && block.id === area.power_block_id)
+      || (area.name && block.name === area.name)
+    )) || null;
+  }, [powerBlocks]);
+
+  const handleAreaOpen = useCallback((area) => {
+    if (placementMode) return;
+    const block = resolveBlockForArea(area);
+    if (!block) {
+      setError('That map area is not linked to a visible power block.');
+      return;
+    }
+    setSelectedAreaBlock(block);
+    if (!currentTrackerId) {
+      if (block.has_ifc) {
+        navigate(`/ifc/${block.id}`);
+      } else {
+        setError('No IFC drawing is assigned to that power block yet.');
+      }
+    }
+  }, [currentTrackerId, navigate, placementMode, resolveBlockForArea]);
 
   useEffect(() => {
     setShowLabels(false);
@@ -545,6 +574,15 @@ function SiteMapView() {
                   <h2>Current Site Map</h2>
                 </div>
                 <div className="toolbar-buttons">
+                  {selectedAreaBlock && currentTrackerId && (
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => navigate(`/ifc/${selectedAreaBlock.id}`)}
+                      disabled={!selectedAreaBlock.has_ifc}
+                    >
+                      View IFC
+                    </button>
+                  )}
                   <button
                     className={`btn ${placementMode ? 'btn-warning' : 'btn-primary'}`}
                     onClick={() => {
@@ -572,6 +610,12 @@ function SiteMapView() {
                     : pendingSnap
                       ? '\u2705 Outline detected! Select a name below and click Save.'
                       : '\uD83D\uDC46 Click inside a black-outlined area on the map to snap to its shape.'}
+                </div>
+              )}
+
+              {selectedAreaBlock && currentTrackerId && (
+                <div className="placement-hint">
+                  Selected {selectedAreaBlock.name}. {selectedAreaBlock.has_ifc ? 'Use View IFC to open its drawing.' : 'No IFC drawing is assigned to this power block yet.'}
                 </div>
               )}
 
@@ -668,6 +712,8 @@ function SiteMapView() {
                           <polygon
                             points={polygonToSvgPoints(area.polygon)}
                             className="saved-polygon"
+                            style={{ pointerEvents: placementMode ? 'none' : 'auto', cursor: placementMode ? 'default' : 'pointer' }}
+                            onClick={() => handleAreaOpen(area)}
                           />
                           {showLabels && bounds.w >= 30 && bounds.h >= 18 && (
                           <text
@@ -724,6 +770,7 @@ function SiteMapView() {
                       className="map-region saved"
                       style={{ left: x, top: y, width: bw, height: bh }}
                       title={area.name}
+                      onClick={() => handleAreaOpen(area)}
                     >
                       <span className="region-label" style={{ fontSize: fs, opacity: showLabels && bw >= 30 && bh >= 18 ? 1 : 0 }}>
                         {area.name}

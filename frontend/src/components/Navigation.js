@@ -57,6 +57,7 @@ function Navigation() {
             value={currentTrackerId || ''}
             onChange={(event) => setCurrentTrackerId(event.target.value ? Number(event.target.value) : null)}
           >
+            <option value="">All Trackers</option>
             {trackers.map((tracker) => (
               <option key={tracker.id} value={tracker.id}>{tracker.name}</option>
             ))}

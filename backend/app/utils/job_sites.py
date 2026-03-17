@@ -31,3 +31,14 @@ def default_job_site():
         'name': DEFAULT_JOB_SITE['name'],
         'slug': DEFAULT_JOB_SITE['slug'],
     }
+
+
+def list_job_sites():
+    return [
+        {
+            'token': token,
+            'name': site['name'],
+            'slug': site['slug'],
+        }
+        for token, site in sorted(JOB_SITE_REGISTRY.items(), key=lambda item: item[1]['name'])
+    ]

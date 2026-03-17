@@ -11,6 +11,10 @@ class PowerBlock(db.Model):
     page_number = db.Column(db.Integer)
     image_path = db.Column(db.String(255))
     power_block_number = db.Column(db.String(50))  # e.g., "1" from INV-1
+    ifc_pdf_data = db.Column(db.LargeBinary)
+    ifc_pdf_mime = db.Column(db.String(100))
+    ifc_pdf_filename = db.Column(db.String(255))
+    ifc_page_number = db.Column(db.Integer)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     is_completed = db.Column(db.Boolean, default=False)
@@ -34,6 +38,10 @@ class PowerBlock(db.Model):
             'description': self.description,
             'page_number': self.page_number,
             'image_path': self.image_path,
+            'has_ifc': bool(self.ifc_pdf_data),
+            'ifc_page_number': self.ifc_page_number,
+            'ifc_filename': self.ifc_pdf_filename,
+            'ifc_url': f'/api/tracker/power-blocks/{self.id}/ifc' if self.ifc_pdf_data else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
             'is_completed': self.is_completed,

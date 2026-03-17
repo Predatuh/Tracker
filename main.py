@@ -486,6 +486,8 @@ def main():
 
     # -- Python path ---------------------------------------------------
     meipass = sys._MEIPASS if getattr(sys, 'frozen', False) else base
+    if meipass not in sys.path:
+        sys.path.insert(0, meipass)
     backend_path = os.path.join(meipass, 'backend')
     if backend_path not in sys.path:
         sys.path.insert(0, backend_path)

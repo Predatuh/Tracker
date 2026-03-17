@@ -8,6 +8,9 @@ const AppContext = createContext(null);
 
 function readStoredTrackerId() {
   const value = window.localStorage.getItem(TRACKER_STORAGE_KEY);
+  if (value === null || value === '') {
+    return null;
+  }
   const numericValue = Number(value);
   return Number.isFinite(numericValue) && numericValue > 0 ? numericValue : null;
 }
@@ -45,7 +48,7 @@ export function AppProvider({ children }) {
         }
 
         const preferredTrackerId = readStoredTrackerId();
-        const nextTracker = trackerList.find((tracker) => tracker.id === preferredTrackerId) || trackerList[0] || null;
+        const nextTracker = trackerList.find((tracker) => tracker.id === preferredTrackerId) || null;
         setCurrentTrackerIdState(nextTracker ? nextTracker.id : null);
       } catch (error) {
         if (!mounted) {
@@ -134,10 +137,10 @@ export function AppProvider({ children }) {
   };
 
   const currentTracker = useMemo(() => {
-    if (!trackers.length) {
+    if (!trackers.length || !currentTrackerId) {
       return null;
     }
-    return trackers.find((tracker) => tracker.id === currentTrackerId) || trackers[0];
+    return trackers.find((tracker) => tracker.id === currentTrackerId) || null;
   }, [currentTrackerId, trackers]);
 
   const isAdmin = Boolean(currentUser?.is_admin || currentUser?.role === 'admin');

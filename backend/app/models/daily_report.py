@@ -1,3 +1,6 @@
+import os
+from flask import current_app
+
 from app import db
 from datetime import datetime
 import json
@@ -26,19 +29,43 @@ class DailyReport(db.Model):
         except Exception:
             return {}
 
+    def _claim_scan_file_exists(self, scan):
+        image_path = str((scan or {}).get('image_path') or '').replace('\\', '/').lstrip('/')
+        if not image_path:
+            return False
+        upload_root = current_app.config.get('UPLOAD_FOLDER')
+        if not upload_root:
+            return False
+        abs_path = os.path.abspath(os.path.join(upload_root, image_path))
+        claim_scan_root = os.path.abspath(os.path.join(upload_root, 'claim_scans'))
+        return abs_path.startswith(claim_scan_root) and os.path.exists(abs_path)
+
+    def _serialized_claim_scans(self, claim_scans):
+        serialized = []
+        for scan in list(claim_scans or []):
+            item = dict(scan)
+            if not self._claim_scan_file_exists(item):
+                item['image_url'] = None
+            serialized.append(item)
+        return serialized
+
     def to_dict(self):
+        data = self.get_data()
+        if 'claim_scans' in data:
+            data = dict(data)
+            data['claim_scans'] = self._serialized_claim_scans(data.get('claim_scans'))
         return {
             'id':           self.id,
             'report_date':  self.report_date.isoformat() if self.report_date else None,
             'generated_at': self.generated_at.isoformat() if self.generated_at else None,
-            'data':         self.get_data(),
+            'data':         data,
         }
 
     def to_summary(self):
         """Lighter version for list views – no full data payload."""
         data = self.get_data()
-        claim_scans = list(data.get('claim_scans') or [])
-        latest_scan = claim_scans[-1] if claim_scans else {}
+        claim_scans = self._serialized_claim_scans(data.get('claim_scans'))
+        latest_scan = next((scan for scan in reversed(claim_scans) if scan.get('image_url')), {})
         return {
             'id':            self.id,
             'report_date':   self.report_date.isoformat() if self.report_date else None,

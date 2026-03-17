@@ -270,7 +270,6 @@
 .rp-task-badge--lg { font-size: 0.82rem; padding: 5px 12px; }
 .rp-task-badge--sm { font-size: 0.7rem;  padding: 2px 8px;  }
 
-.rp-week-wrap {}
 .rp-week-nav {
   display: flex;
   align-items: center;
@@ -328,7 +327,6 @@
 }
 .rp-week-blocks { font-size: 0.72rem; color: var(--text-soft); }
 
-.rp-month-wrap {}
 .rp-month-nav {
   display: flex;
   align-items: center;
