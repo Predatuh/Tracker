@@ -553,6 +553,7 @@ select.snap-name-input {
   stroke-width: 3px;
   stroke-linecap: round;
   stroke-linejoin: round;
+  pointer-events: none;
 }
 
 /* ── Warning button variation ── */

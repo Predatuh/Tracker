@@ -7,6 +7,8 @@ function AuthScreen() {
   const [mode, setMode] = useState('signin');
   const [name, setName] = useState('');
   const [pin, setPin] = useState('');
+  const [jobToken, setJobToken] = useState('');
+  const [guestToken, setGuestToken] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -20,12 +22,29 @@ function AuthScreen() {
         throw new Error('Please enter your name and PIN.');
       }
       if (mode === 'register') {
+        payload.job_token = jobToken.trim();
         await register(payload);
       } else {
         await login(payload);
       }
     } catch (requestError) {
       setError(requestError.response?.data?.error || requestError.message || 'Unable to continue.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const submitGuest = async () => {
+    setSubmitting(true);
+    setError('');
+    try {
+      const payload = { job_token: guestToken.trim() };
+      if (!payload.job_token) {
+        throw new Error('Please enter a site token to continue as guest.');
+      }
+      await continueAsGuest(payload);
+    } catch (requestError) {
+      setError(requestError.response?.data?.error || requestError.message || 'Unable to continue as guest.');
     } finally {
       setSubmitting(false);
     }
@@ -95,13 +114,41 @@ function AuthScreen() {
               onChange={(event) => setPin(event.target.value.replace(/\D/g, '').slice(0, 4))}
             />
           </label>
+          {mode === 'register' && (
+            <label>
+              <span>Site Token</span>
+              <input
+                className="app-input"
+                type="text"
+                inputMode="numeric"
+                autoComplete="off"
+                placeholder="Enter your site token"
+                value={jobToken}
+                onChange={(event) => setJobToken(event.target.value.replace(/\D/g, ''))}
+              />
+            </label>
+          )}
           <button className="app-btn app-btn-primary auth-submit-btn" type="submit" disabled={submitting}>
             {submitting ? 'Working...' : mode === 'signin' ? 'Sign In' : 'Create Account'}
           </button>
         </form>
-        <button className="app-btn app-btn-secondary auth-guest-btn" onClick={continueAsGuest}>
-          Continue as guest
-        </button>
+        <div className="auth-guest-panel">
+          <label>
+            <span>Guest Site Token</span>
+            <input
+              className="app-input"
+              type="text"
+              inputMode="numeric"
+              autoComplete="off"
+              placeholder="Enter a site token to view as guest"
+              value={guestToken}
+              onChange={(event) => setGuestToken(event.target.value.replace(/\D/g, ''))}
+            />
+          </label>
+          <button className="app-btn app-btn-secondary auth-guest-btn" onClick={submitGuest} disabled={submitting}>
+            {submitting ? 'Working...' : 'Continue as guest'}
+          </button>
+        </div>
         <p className="auth-admin-note">Admin uses the name Admin with the configured admin PIN.</p>
       </section>
     </div>

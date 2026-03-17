@@ -11,12 +11,33 @@ def current_session_user():
     return User.query.get(user_id)
 
 
+def current_guest_job_site():
+    job_site_name = session.get('guest_job_site_name')
+    job_site_slug = session.get('guest_job_site_slug')
+    if not job_site_name:
+        return None
+    return {
+        'name': job_site_name,
+        'slug': job_site_slug,
+        'job_site_name': job_site_name,
+        'job_site_slug': job_site_slug,
+    }
+
+
+def guest_session_active():
+    return current_guest_job_site() is not None
+
+
 def allowed_tracker_query(user=None, include_inactive=False):
     user = user or current_session_user()
     query = Tracker.query
     if not include_inactive:
         query = query.filter_by(is_active=True)
     if not user:
+        guest_job_site = current_guest_job_site()
+        if guest_job_site and guest_job_site.get('name'):
+            query = query.filter(Tracker.job_site_name == guest_job_site['name'])
+            return query.order_by(Tracker.sort_order, Tracker.id)
         return query.filter(False).order_by(Tracker.sort_order, Tracker.id)
     if user.is_admin or user.role == 'admin':
         return query.order_by(Tracker.sort_order, Tracker.id)

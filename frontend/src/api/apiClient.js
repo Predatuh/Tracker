@@ -31,6 +31,7 @@ export const pdf_api = {
 export const auth_api = {
   me: () => client.get('/auth/me'),
   login: (payload) => client.post('/auth/login', payload),
+  guest: (payload) => client.post('/auth/guest', payload),
   register: (payload) => client.post('/auth/register', payload),
   logout: () => client.post('/auth/logout'),
   listUsers: () => client.get('/auth/users'),

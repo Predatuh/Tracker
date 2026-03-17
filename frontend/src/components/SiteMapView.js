@@ -5,7 +5,7 @@ import './SiteMapView.css';
 import { useAppContext } from '../context/AppContext';
 
 function SiteMapView() {
-  const { currentTracker, currentTrackerId, isAdmin, hasPermission } = useAppContext();
+  const { currentTracker, currentTrackerId, isAdmin, isGuest, hasPermission } = useAppContext();
   const navigate = useNavigate();
   const [maps, setMaps] = useState([]);
   const [selectedMap, setSelectedMap] = useState(null);
@@ -323,13 +323,15 @@ function SiteMapView() {
     }
     setSelectedAreaBlock(block);
     if (!currentTrackerId) {
-      if (block.has_ifc) {
+      if (!isGuest && block.has_ifc) {
         navigate(`/ifc/${block.id}`);
+      } else if (isGuest) {
+        setError('IFC drawings are only available to created users.');
       } else {
         setError('No IFC drawing is assigned to that power block yet.');
       }
     }
-  }, [currentTrackerId, navigate, placementMode, resolveBlockForArea]);
+  }, [currentTrackerId, isGuest, navigate, placementMode, resolveBlockForArea]);
 
   useEffect(() => {
     setShowLabels(true);
@@ -583,7 +585,7 @@ function SiteMapView() {
                     <button
                       className="btn btn-secondary"
                       onClick={() => navigate(`/ifc/${selectedAreaBlock.id}`)}
-                      disabled={!selectedAreaBlock.has_ifc}
+                      disabled={isGuest || !selectedAreaBlock.has_ifc}
                     >
                       View IFC
                     </button>
@@ -624,7 +626,7 @@ function SiteMapView() {
 
               {selectedAreaBlock && currentTrackerId && (
                 <div className="placement-hint">
-                  Selected {selectedAreaBlock.name}. {selectedAreaBlock.has_ifc ? 'Use View IFC to open its drawing.' : 'No IFC drawing is assigned to this power block yet.'}
+                  Selected {selectedAreaBlock.name}. {isGuest ? 'IFC drawings are only available to created users.' : selectedAreaBlock.has_ifc ? 'Use View IFC to open its drawing.' : 'No IFC drawing is assigned to this power block yet.'}
                 </div>
               )}
 
@@ -697,7 +699,7 @@ function SiteMapView() {
                       left: 0,
                       width: '100%',
                       height: '100%',
-                      pointerEvents: 'none',
+                      pointerEvents: placementMode ? 'none' : 'auto',
                     }}
                   >
                     {/* ── Pending snap polygon (preview) ── */}

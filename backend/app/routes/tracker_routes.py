@@ -11,7 +11,7 @@ from app.models.worker import Worker
 from app.models.admin_settings import AdminSettings
 from datetime import datetime
 import re
-from app.utils.tracker_access import allowed_tracker_ids, current_session_user, resolve_accessible_tracker
+from app.utils.tracker_access import allowed_tracker_ids, current_session_user, guest_session_active, resolve_accessible_tracker
 
 
 def _get_socketio():
@@ -31,6 +31,10 @@ def _current_user_name():
 def _is_admin_user(user=None):
     user = user or current_session_user()
     return bool(user and (user.is_admin or user.role == 'admin'))
+
+
+def _can_view_ifc(user=None):
+    return bool(user or current_session_user())
 
 
 def _pb_sort_key(name):
@@ -81,6 +85,11 @@ def _serialize_accessible_block(block):
             if any(status.get('status_type') == col and status.get('is_completed') for status in lbd.get('statuses', []))
         )
     payload['lbd_summary'] = summary
+    if not _can_view_ifc(user):
+        payload['has_ifc'] = False
+        payload['ifc_page_number'] = None
+        payload['ifc_filename'] = None
+        payload['ifc_url'] = None
     return payload
 
 
@@ -242,6 +251,7 @@ def get_power_blocks():
     try:
         user = current_session_user()
         is_admin = _is_admin_user(user)
+        can_view_ifc = _can_view_ifc(user)
         tracker = _resolve_tracker()
         allowed_ids = _allowed_tracker_id_set()
         if not is_admin and not allowed_ids:
@@ -320,10 +330,10 @@ def get_power_blocks():
                 'description': b.description,
                 'page_number': b.page_number,
                 'image_path': b.image_path,
-                'has_ifc': bool(b.ifc_pdf_data),
-                'ifc_page_number': b.ifc_page_number,
-                'ifc_filename': b.ifc_pdf_filename,
-                'ifc_url': f'/api/tracker/power-blocks/{b.id}/ifc' if b.ifc_pdf_data else None,
+                'has_ifc': bool(b.ifc_pdf_data) if can_view_ifc else False,
+                'ifc_page_number': b.ifc_page_number if can_view_ifc else None,
+                'ifc_filename': b.ifc_pdf_filename if can_view_ifc else None,
+                'ifc_url': f'/api/tracker/power-blocks/{b.id}/ifc' if can_view_ifc and b.ifc_pdf_data else None,
                 'is_completed': b.is_completed,
                 'claimed_by': b.claimed_by,
                 'claimed_people': b.get_claimed_people(),
@@ -366,6 +376,8 @@ def get_power_block(block_id):
 def get_power_block_ifc(block_id):
     try:
         block = PowerBlock.query.options(subqueryload(PowerBlock.lbds)).get_or_404(block_id)
+        if guest_session_active() and not current_session_user():
+            return jsonify({'error': 'IFC drawings are only available to created users'}), 403
         if not _block_is_accessible(block):
             return jsonify({'error': 'That power block is not accessible for your job site'}), 403
         if not block.ifc_pdf_data:

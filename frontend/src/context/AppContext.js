@@ -18,6 +18,7 @@ function readStoredTrackerId() {
 export function AppProvider({ children }) {
   const [booting, setBooting] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
+  const [guestAccess, setGuestAccess] = useState(null);
   const [trackers, setTrackers] = useState([]);
   const [currentTrackerId, setCurrentTrackerIdState] = useState(() => readStoredTrackerId());
   const [trackerSettings, setTrackerSettings] = useState({});
@@ -39,22 +40,28 @@ export function AppProvider({ children }) {
 
         const trackerList = trackersResponse.data.data || [];
         const resolvedUser = sessionResponse.data.user;
+        const resolvedGuest = sessionResponse.data.guest || null;
         setCurrentUser(resolvedUser || null);
+        setGuestAccess(resolvedGuest);
         setTrackers(trackerList);
 
         if (resolvedUser && accessMode !== 'user') {
           setAccessMode('user');
           window.localStorage.setItem(ACCESS_MODE_KEY, 'user');
+        } else if (resolvedGuest && accessMode !== 'guest') {
+          setAccessMode('guest');
+          window.localStorage.setItem(ACCESS_MODE_KEY, 'guest');
         }
 
         const preferredTrackerId = readStoredTrackerId();
-        const nextTracker = trackerList.find((tracker) => tracker.id === preferredTrackerId) || null;
+        const nextTracker = trackerList.find((tracker) => tracker.id === preferredTrackerId) || trackerList[0] || null;
         setCurrentTrackerIdState(nextTracker ? nextTracker.id : null);
       } catch (error) {
         if (!mounted) {
           return;
         }
         setCurrentUser(null);
+        setGuestAccess(null);
         setTrackers([]);
         setCurrentTrackerIdState(null);
       } finally {
@@ -108,6 +115,7 @@ export function AppProvider({ children }) {
   const login = async (payload) => {
     const response = await auth_api.login(payload);
     setCurrentUser(response.data.user || null);
+    setGuestAccess(null);
     setAccessMode('user');
     window.localStorage.setItem(ACCESS_MODE_KEY, 'user');
     return response.data.user;
@@ -116,22 +124,32 @@ export function AppProvider({ children }) {
   const register = async (payload) => {
     const response = await auth_api.register(payload);
     setCurrentUser(response.data.user || null);
+    setGuestAccess(null);
     setAccessMode('user');
     window.localStorage.setItem(ACCESS_MODE_KEY, 'user');
     return response.data.user;
   };
 
-  const continueAsGuest = () => {
+  const continueAsGuest = async (payload) => {
+    const response = await auth_api.guest(payload);
     setCurrentUser(null);
+    setGuestAccess(response.data.guest || null);
     setAccessMode('guest');
     window.localStorage.setItem(ACCESS_MODE_KEY, 'guest');
+    const trackersResponse = await admin_api.listTrackers();
+    const trackerList = trackersResponse.data.data || [];
+    setTrackers(trackerList);
+    const preferredTrackerId = readStoredTrackerId();
+    const nextTracker = trackerList.find((tracker) => tracker.id === preferredTrackerId) || trackerList[0] || null;
+    setCurrentTrackerIdState(nextTracker ? nextTracker.id : null);
   };
 
   const logout = async () => {
-    if (currentUser) {
+    if (currentUser || guestAccess) {
       await auth_api.logout().catch(() => null);
     }
     setCurrentUser(null);
+    setGuestAccess(null);
     setAccessMode(null);
     window.localStorage.removeItem(ACCESS_MODE_KEY);
   };
@@ -144,6 +162,7 @@ export function AppProvider({ children }) {
   }, [currentTrackerId, trackers]);
 
   const isAdmin = Boolean(currentUser?.is_admin || currentUser?.role === 'admin');
+  const isGuest = Boolean(guestAccess && !currentUser);
 
   const hasPermission = (permission) => {
     if (isAdmin) {
@@ -155,13 +174,15 @@ export function AppProvider({ children }) {
   const value = {
     accessMode,
     booting,
-    canAccessApp: Boolean(currentUser || accessMode === 'guest'),
+    canAccessApp: Boolean(currentUser || guestAccess),
     continueAsGuest,
     currentTracker,
     currentTrackerId: currentTracker?.id || null,
     currentUser,
+    guestAccess,
     hasPermission,
     isAdmin,
+    isGuest,
     login,
     logout,
     register,

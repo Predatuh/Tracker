@@ -6,6 +6,7 @@ from app import db
 from app.models.user import User
 from app.utils.audit import log_action
 from app.utils.job_sites import list_job_sites, resolve_job_site
+from app.utils.tracker_access import current_guest_job_site
 
 bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 
@@ -78,12 +79,12 @@ def _create_user(payload):
 def me():
     user_id = session.get('user_id')
     if not user_id:
-        return jsonify({'user': None}), 200
+        return jsonify({'user': None, 'guest': current_guest_job_site()}), 200
     user = User.query.get(user_id)
     if not user:
         session.clear()
-        return jsonify({'user': None}), 200
-    return jsonify({'user': user.to_dict()}), 200
+        return jsonify({'user': None, 'guest': None}), 200
+    return jsonify({'user': user.to_dict(), 'guest': None}), 200
 
 
 @bp.route('/login', methods=['POST'])
@@ -104,6 +105,21 @@ def login():
     session['user_id'] = user.id
     session.permanent = True
     return jsonify({'user': user.to_dict()}), 200
+
+
+@bp.route('/guest', methods=['POST'])
+def guest_login():
+    data = request.get_json() or {}
+    job_token = str(data.get('job_token') or '').strip()
+    job_site = resolve_job_site(job_token)
+    if not job_site:
+        return jsonify({'error': 'That site token is not valid'}), 400
+
+    session.clear()
+    session['guest_job_site_name'] = job_site['name']
+    session['guest_job_site_slug'] = job_site['slug']
+    session.permanent = True
+    return jsonify({'guest': {'job_site_name': job_site['name'], 'job_site_slug': job_site['slug']}}), 200
 
 
 @bp.route('/register', methods=['POST'])

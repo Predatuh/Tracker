@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { tracker_api } from '../api/apiClient';
+import { useAppContext } from '../context/AppContext';
 import './IfcViewer.css';
 
 function IfcViewer() {
   const { id } = useParams();
+  const { isGuest } = useAppContext();
   const [block, setBlock] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -27,6 +29,10 @@ function IfcViewer() {
       active = false;
     };
   }, [id]);
+
+  if (isGuest) {
+    return <div className="container"><div className="alert alert-error">IFC drawings are only available to created users.</div></div>;
+  }
 
   if (loading) {
     return <div className="container"><div className="loading"><div className="spinner" /></div></div>;

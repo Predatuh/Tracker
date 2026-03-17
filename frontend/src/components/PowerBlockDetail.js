@@ -7,7 +7,7 @@ import { useAppContext } from '../context/AppContext';
 
 function PowerBlockDetail() {
   const { id } = useParams();
-  const { currentTracker, currentTrackerId } = useAppContext();
+  const { currentTracker, currentTrackerId, isGuest } = useAppContext();
   const [block, setBlock] = useState(null);
   const [lbds, setLbds] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -185,7 +185,7 @@ function PowerBlockDetail() {
                   <span>Last updated</span>
                   <strong>{block.last_updated_by || 'No updates yet'}</strong>
                 </div>
-                {block.has_ifc && (
+                {block.has_ifc && !isGuest && (
                   <div>
                     <span>IFC</span>
                     <strong><Link to={`/ifc/${block.id}`} className="pbd-ifc-link">View IFC</Link></strong>
