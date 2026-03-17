@@ -253,8 +253,7 @@ function syncActiveTracker(forceSelection = false) {
   }
 
   const activePage = document.querySelector('.page.active');
-  const isAdmin = !!(currentUser && currentUser.is_admin);
-  const allowNoTrackerState = isAdmin && activePage && activePage.id === 'page-sitemap';
+  const allowNoTrackerState = activePage && activePage.id === 'page-sitemap';
   if (!forceSelection && allowNoTrackerState) {
     currentTracker = null;
     return null;
@@ -271,8 +270,7 @@ function renderHeaderTrackerSwitcher() {
 
   const activePage = document.querySelector('.page.active');
   const hideOnDashboard = !activePage || activePage.id === 'page-dashboard';
-  const isAdmin = !!(currentUser && currentUser.is_admin);
-  const allowNoTrackerState = isAdmin && activePage && activePage.id === 'page-sitemap';
+  const allowNoTrackerState = activePage && activePage.id === 'page-sitemap';
   if (allTrackers.length <= 0 || hideOnDashboard || (!allowNoTrackerState && !currentTracker)) {
     shell.style.display = 'none';
     return;
@@ -366,15 +364,10 @@ function showPage(pageName) {
 }
 
 function openSiteMap(resetTracker = false) {
-  const isAdmin = !!(currentUser && currentUser.is_admin);
-  if (resetTracker && isAdmin) {
+  if (resetTracker) {
     currentTracker = null;
     updateTrackerCrumb();
     renderHeaderTrackerSwitcher();
-  }
-  // Non-admins: always ensure a tracker is selected
-  if (!isAdmin && !currentTracker && allTrackers.length) {
-    currentTracker = allTrackers[0];
   }
   showPage('sitemap');
 }
@@ -1790,34 +1783,37 @@ async function loadSiteMap() {
         // Always populate loadedMapAreas so zone assign works regardless of cache state
         loadedMapAreas = currentMap.areas;
         const cachedLabelOffsets = JSON.parse(localStorage.getItem('pb_label_offsets') || '{}');
-        if (Object.keys(bboxes).length === 0) {
-          // Only seed localStorage bbox cache if it hasn't been populated yet
-          for (const area of currentMap.areas) {
-            if (area.power_block_id && area.bbox_x != null) {
-              bboxes[String(area.power_block_id)] = {
+        // Always merge DB area positions into localStorage cache (fills gaps, preserves user overrides)
+        let bboxChanged = false;
+        for (const area of currentMap.areas) {
+          if (area.power_block_id && area.bbox_x != null) {
+            const pk = String(area.power_block_id);
+            if (!bboxes[pk]) {
+              bboxes[pk] = {
                 x: area.bbox_x,
                 y: area.bbox_y,
                 w: area.bbox_w,
                 h: area.bbox_h
               };
-              // Also load polygon data if available
-              if (area.polygon && area.polygon.length >= 3) {
-                pbPolygons[String(area.power_block_id)] = area.polygon;
-              }
-              // Load per-label color if set
-              if (area.label_color) {
-                pbLabelColors[String(area.power_block_id)] = area.label_color;
-              }
+              bboxChanged = true;
+            }
+            // Always load polygon data from DB
+            if (area.polygon && area.polygon.length >= 3) {
+              pbPolygons[pk] = area.polygon;
+            }
+            // Load per-label color if set
+            if (area.label_color) {
+              pbLabelColors[pk] = area.label_color;
             }
           }
-          if (Object.keys(bboxes).length > 0) {
-            localStorage.setItem('pb_bboxes', JSON.stringify(bboxes));
-          }
-          if (Object.keys(pbPolygons).length > 0) {
-            localStorage.setItem('pb_polygons', JSON.stringify(pbPolygons));
-          }
-          localStorage.setItem('pb_label_colors', JSON.stringify(pbLabelColors));
         }
+        if (bboxChanged || Object.keys(bboxes).length > 0) {
+          localStorage.setItem('pb_bboxes', JSON.stringify(bboxes));
+        }
+        if (Object.keys(pbPolygons).length > 0) {
+          localStorage.setItem('pb_polygons', JSON.stringify(pbPolygons));
+        }
+        localStorage.setItem('pb_label_colors', JSON.stringify(pbLabelColors));
         if (Object.keys(cachedLabelOffsets).length === 0) {
           for (const area of currentMap.areas) {
             if (!area.power_block_id) continue;
@@ -3091,8 +3087,17 @@ function renderPBMarkers() {
     const key = String(pb.id);
     const savedBbox = savedBboxes[key];
 
+    // Look up area position from loadedMapAreas as fallback
+    let areaBbox = null;
+    if (!savedBbox) {
+      const matchArea = loadedMapAreas.find(a => a && String(a.power_block_id) === key);
+      if (matchArea && matchArea.bbox_x != null) {
+        areaBbox = { x: matchArea.bbox_x, y: matchArea.bbox_y, w: matchArea.bbox_w, h: matchArea.bbox_h };
+      }
+    }
+
     // Legacy map view should only render PBs that have real saved positions once a layout exists.
-    if (!savedBbox && hasPlacedLayout && !mapEditMode && !snapPlaceMode) {
+    if (!savedBbox && !areaBbox && hasPlacedLayout && !mapEditMode && !snapPlaceMode) {
       return;
     }
 
@@ -3105,10 +3110,10 @@ function renderPBMarkers() {
       w: DEFAULT_PB_W,
       h: DEFAULT_PB_H
     };
-    const areaBbox = pb.__baseline_only && pb.bbox_x != null
+    const areaBboxBaseline = pb.__baseline_only && pb.bbox_x != null
       ? { x: pb.bbox_x, y: pb.bbox_y, w: pb.bbox_w, h: pb.bbox_h }
       : null;
-    const bbox = savedBbox || areaBbox || defaultBbox;
+    const bbox = savedBbox || areaBbox || areaBboxBaseline || defaultBbox;
 
     const { total, summary, completedTypes, partialTypes, allDone, inProgress } = getMapPBVisualState(pb);
     const isActive = false; // markers always render the same regardless of selection
@@ -3178,7 +3183,8 @@ function renderPBMarkers() {
     ].join(';');
 
     // Apply polygon clip-path if this PB has been snap-placed (only in view mode)
-    const polyData = pbPolygons[key] || pb.polygon;
+    const matchedArea = loadedMapAreas.find(a => a && String(a.power_block_id) === key);
+    const polyData = pbPolygons[key] || pb.polygon || (matchedArea && matchedArea.polygon);
     if (polyData && polyData.length >= 3 && !mapEditMode) {
       // Convert polygon points from map-% coords to element-relative %
       const clipPoints = polyData.map(pt => {
