@@ -10,9 +10,30 @@ from app.utils.map_storage import list_uploaded_map_files, resolve_site_map_file
 bp = Blueprint('map', __name__, url_prefix='/api/map')
 
 ALLOWED_EXTENSIONS = {'svg', 'png', 'jpg', 'jpeg'}
+MAX_SNAP_BBOX_W_PCT = 20.0
+MAX_SNAP_BBOX_H_PCT = 20.0
+MAX_SNAP_BBOX_AREA_PCT = 12.0
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+def _snap_bbox_is_reasonable(bbox):
+    try:
+        width = float(bbox.get('w_pct') or 0)
+        height = float(bbox.get('h_pct') or 0)
+    except (TypeError, ValueError, AttributeError):
+        return False
+
+    if width <= 0 or height <= 0:
+        return False
+
+    area_pct = width * height
+    return (
+        width <= MAX_SNAP_BBOX_W_PCT
+        and height <= MAX_SNAP_BBOX_H_PCT
+        and area_pct <= MAX_SNAP_BBOX_AREA_PCT
+    )
 
 
 def _current_site_map_query():
@@ -444,6 +465,13 @@ def snap_outline(map_id):
             'w_pct': round(w / w_img * 100, 3),
             'h_pct': round(h / h_img * 100, 3),
         }
+
+        if not _snap_bbox_is_reasonable(bbox):
+            return jsonify({
+                'success': False,
+                'error': 'Detected outline is too large for a single power block. Try clicking deeper inside the PB outline.',
+                'bbox': bbox,
+            }), 422
 
         return jsonify({
             'success': True,

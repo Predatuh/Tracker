@@ -2303,8 +2303,23 @@ const DEFAULT_PB_LABEL_POSITION_OVERRIDES = {
   '118': { x: 0, y: -1 },
   '119': { x: 0, y: -1 },
 };
+const MAX_SNAP_BBOX_W_PCT = 20;
+const MAX_SNAP_BBOX_H_PCT = 20;
+const MAX_SNAP_BBOX_AREA_PCT = 12;
 
 // Snap threshold in % of map dimensions
+
+function isReasonableMapBBox(bbox) {
+  if (!bbox) return false;
+  const width = Number(bbox.w ?? bbox.w_pct);
+  const height = Number(bbox.h ?? bbox.h_pct);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return false;
+  }
+  return width <= MAX_SNAP_BBOX_W_PCT
+    && height <= MAX_SNAP_BBOX_H_PCT
+    && (width * height) <= MAX_SNAP_BBOX_AREA_PCT;
+}
 
 function getPBLabelOffset(pbKey) {
   const fallback = DEFAULT_PB_LABEL_POSITION_OVERRIDES[pbKey] || { x: 0, y: 0 };
@@ -2868,6 +2883,12 @@ async function snapPlaceClick(e) {
       return;
     }
 
+    if (!isReasonableMapBBox(bbox)) {
+      showSnapFeedback('⚠ Detected outline is too large for a single PB. Try clicking deeper inside the PB outline.', 'warn');
+      if (container) container.style.cursor = 'crosshair';
+      return;
+    }
+
     // Store polygon and bbox
     pbPolygons[String(pbId)] = polygon;
     localStorage.setItem('pb_polygons', JSON.stringify(pbPolygons));
@@ -3111,8 +3132,11 @@ function renderPBMarkers() {
       }
     }
 
+    const usableSavedBbox = isReasonableMapBBox(savedBbox) ? savedBbox : null;
+    const usableAreaBbox = isReasonableMapBBox(areaBbox) ? areaBbox : null;
+
     // Legacy map view should only render PBs that have real saved positions once a layout exists.
-    if (!savedBbox && !areaBbox && hasPlacedLayout && !mapEditMode && !snapPlaceMode) {
+    if (!usableSavedBbox && !usableAreaBbox && hasPlacedLayout && !mapEditMode && !snapPlaceMode) {
       return;
     }
 
@@ -3128,7 +3152,8 @@ function renderPBMarkers() {
     const areaBboxBaseline = pb.__baseline_only && pb.bbox_x != null
       ? { x: pb.bbox_x, y: pb.bbox_y, w: pb.bbox_w, h: pb.bbox_h }
       : null;
-    const bbox = savedBbox || areaBbox || areaBboxBaseline || defaultBbox;
+    const usableBaselineBbox = isReasonableMapBBox(areaBboxBaseline) ? areaBboxBaseline : null;
+    const bbox = usableSavedBbox || usableAreaBbox || usableBaselineBbox || defaultBbox;
 
     const { total, summary, completedTypes, partialTypes, allDone, inProgress } = getMapPBVisualState(pb);
     const isActive = false; // markers always render the same regardless of selection
