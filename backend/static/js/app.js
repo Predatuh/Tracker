@@ -2341,6 +2341,71 @@ function normalizeMapBBox(bbox) {
   return { x, y, w, h };
 }
 
+function clearPBHiddenState(pbId) {
+  const normalizedId = String(pbId);
+  const hidden = JSON.parse(localStorage.getItem('pb_hidden') || '[]')
+    .filter((id) => String(id) !== normalizedId);
+  localStorage.setItem('pb_hidden', JSON.stringify(hidden));
+}
+
+function getNearbySnapReferenceBBox(pbId, xPct, yPct) {
+  const targetId = String(pbId);
+  const candidates = [];
+  const savedBboxes = JSON.parse(localStorage.getItem('pb_bboxes') || '{}');
+
+  Object.entries(savedBboxes).forEach(([candidateId, bbox]) => {
+    if (candidateId === targetId) return;
+    const normalized = normalizeMapBBox(bbox);
+    if (!isReasonableMapBBox(normalized)) return;
+    candidates.push(normalized);
+  });
+
+  loadedMapAreas.forEach((area) => {
+    if (!area || String(area.power_block_id) === targetId) return;
+    const normalized = normalizeMapBBox({
+      x: area.bbox_x,
+      y: area.bbox_y,
+      w: area.bbox_w,
+      h: area.bbox_h
+    });
+    if (!isReasonableMapBBox(normalized)) return;
+    candidates.push(normalized);
+  });
+
+  if (candidates.length === 0) return null;
+
+  candidates.sort((left, right) => {
+    const leftCx = left.x + (left.w / 2);
+    const leftCy = left.y + (left.h / 2);
+    const rightCx = right.x + (right.w / 2);
+    const rightCy = right.y + (right.h / 2);
+    const leftDist = Math.hypot(leftCx - xPct, leftCy - yPct);
+    const rightDist = Math.hypot(rightCx - xPct, rightCy - yPct);
+    return leftDist - rightDist;
+  });
+
+  const sample = candidates.slice(0, Math.min(3, candidates.length));
+  return {
+    w: sample.reduce((sum, bbox) => sum + bbox.w, 0) / sample.length,
+    h: sample.reduce((sum, bbox) => sum + bbox.h, 0) / sample.length,
+  };
+}
+
+function buildOversizedSnapFallbackBBox(pbId, clickXPct, clickYPct, sourceBbox) {
+  const normalizedSource = normalizeMapBBox(sourceBbox);
+  const anchorX = normalizedSource ? normalizedSource.x + (normalizedSource.w / 2) : clickXPct;
+  const anchorY = normalizedSource ? normalizedSource.y + (normalizedSource.h / 2) : clickYPct;
+  const reference = getNearbySnapReferenceBBox(pbId, anchorX, anchorY);
+  const width = reference ? reference.w : DEFAULT_PB_W;
+  const height = reference ? reference.h : DEFAULT_PB_H;
+  return {
+    x: Math.max(0, Math.min(100 - width, anchorX - (width / 2))),
+    y: Math.max(0, Math.min(100 - height, anchorY - (height / 2))),
+    w: width,
+    h: height,
+  };
+}
+
 function getPBLabelOffset(pbKey) {
   const fallback = DEFAULT_PB_LABEL_POSITION_OVERRIDES[pbKey] || { x: 0, y: 0 };
   const saved = pbLabelOffsets[pbKey];
@@ -2888,58 +2953,74 @@ async function snapPlaceClick(e) {
   try {
     const result = await api.snapOutline(snapPlaceMapId, x_pct, y_pct);
 
-    if (!result.success && result.error) {
+    if (!result.success && result.error && !result.oversized) {
       showSnapFeedback('⚠ ' + result.error, 'warn');
       if (container) container.style.cursor = 'crosshair';
       return;
     }
 
-    const polygon = result.polygon;
-    const bbox = result.bbox;
+    const polygon = Array.isArray(result.polygon) ? result.polygon : null;
+    const bbox = normalizeMapBBox(result.bbox);
+    const oversizedSnap = !!result.oversized || (bbox && !isReasonableMapBBox(bbox));
+    const placementBbox = oversizedSnap
+      ? buildOversizedSnapFallbackBBox(pbId, x_pct, y_pct, bbox)
+      : bbox;
+    const polygonToSave = oversizedSnap ? null : polygon;
 
-    if (!polygon || polygon.length < 3) {
+    if (!oversizedSnap && (!polygon || polygon.length < 3)) {
       showSnapFeedback('⚠ No outline detected at that position. Try again.', 'warn');
       if (container) container.style.cursor = 'crosshair';
       return;
     }
 
-    if (!isReasonableMapBBox(bbox)) {
-      showSnapFeedback('⚠ Detected outline is too large for a single PB. Try clicking deeper inside the PB outline.', 'warn');
+    if (!placementBbox) {
+      showSnapFeedback('⚠ Could not place this PB at that position. Try again.', 'warn');
       if (container) container.style.cursor = 'crosshair';
       return;
     }
 
     // Store polygon and bbox
-    pbPolygons[String(pbId)] = polygon;
+    if (polygonToSave && polygonToSave.length >= 3) {
+      pbPolygons[String(pbId)] = polygonToSave;
+    } else {
+      delete pbPolygons[String(pbId)];
+    }
     localStorage.setItem('pb_polygons', JSON.stringify(pbPolygons));
 
     const bboxes = JSON.parse(localStorage.getItem('pb_bboxes') || '{}');
     bboxes[String(pbId)] = {
-      x: bbox.x_pct,
-      y: bbox.y_pct,
-      w: bbox.w_pct,
-      h: bbox.h_pct
+      x: placementBbox.x,
+      y: placementBbox.y,
+      w: placementBbox.w,
+      h: placementBbox.h
     };
     localStorage.setItem('pb_bboxes', JSON.stringify(bboxes));
+    clearPBHiddenState(pbId);
 
     // Save to DB
-    api.createSiteArea({
+    const areaResult = await api.createSiteArea({
       site_map_id: snapPlaceMapId,
       power_block_id: pbId,
       name: pb.name,
-      bbox_x: bbox.x_pct, bbox_y: bbox.y_pct,
-      bbox_w: bbox.w_pct, bbox_h: bbox.h_pct,
-      polygon: polygon,
+      bbox_x: placementBbox.x, bbox_y: placementBbox.y,
+      bbox_w: placementBbox.w, bbox_h: placementBbox.h,
+      polygon: polygonToSave,
       label_font_size: adminSettings.pb_label_font_size || 14
-    }).catch(err => console.warn('area save:', err));
+    });
+    if (areaResult?.data) {
+      loadedMapAreas = loadedMapAreas.filter((area) => String(area.power_block_id) !== String(pbId));
+      loadedMapAreas.push(areaResult.data);
+    }
 
     // Advance queue
     snapPlaceQueue.shift();
 
-    const msg = result.fallback
-      ? `📍 ${pb.name} placed (no outline detected — default box used)`
-      : `✅ ${pb.name} placed!`;
-    showSnapFeedback(msg, result.fallback ? 'warn' : 'ok');
+    const msg = oversizedSnap
+      ? `📍 ${pb.name} placed using nearby PB size`
+      : result.fallback
+        ? `📍 ${pb.name} placed (no outline detected — default box used)`
+        : `✅ ${pb.name} placed!`;
+    showSnapFeedback(msg, oversizedSnap || result.fallback ? 'warn' : 'ok');
 
     // Re-render
     renderPBMarkers();
@@ -7096,6 +7177,7 @@ async function instantDeleteArea(pb) {
         pbLabelColors[saved.pbKey] = saved.labelColor;
         localStorage.setItem('pb_label_colors', JSON.stringify(pbLabelColors));
       }
+      clearPBHiddenState(saved.pb.id);
       if (newArea.data) loadedMapAreas.push(newArea.data);
       renderPBMarkers();
     } catch(e) { console.error('Undo failed:', e); }

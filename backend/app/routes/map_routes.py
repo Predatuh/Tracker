@@ -468,10 +468,13 @@ def snap_outline(map_id):
 
         if not _snap_bbox_is_reasonable(bbox):
             return jsonify({
-                'success': False,
-                'error': 'Detected outline is too large for a single power block. Try clicking deeper inside the PB outline.',
+                'success': True,
+                'oversized': True,
+                'warning': 'Detected outline is too large for a single power block. A nearby PB-sized placement will be used.',
+                'polygon': polygon,
                 'bbox': bbox,
-            }), 422
+                'point_count': len(polygon),
+            }), 200
 
         return jsonify({
             'success': True,
