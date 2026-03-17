@@ -253,7 +253,8 @@ function syncActiveTracker(forceSelection = false) {
   }
 
   const activePage = document.querySelector('.page.active');
-  const allowNoTrackerState = activePage && activePage.id === 'page-sitemap';
+  const isAdmin = !!(currentUser && currentUser.is_admin);
+  const allowNoTrackerState = isAdmin && activePage && activePage.id === 'page-sitemap';
   if (!forceSelection && allowNoTrackerState) {
     currentTracker = null;
     return null;
@@ -270,7 +271,8 @@ function renderHeaderTrackerSwitcher() {
 
   const activePage = document.querySelector('.page.active');
   const hideOnDashboard = !activePage || activePage.id === 'page-dashboard';
-  const allowNoTrackerState = activePage && activePage.id === 'page-sitemap';
+  const isAdmin = !!(currentUser && currentUser.is_admin);
+  const allowNoTrackerState = isAdmin && activePage && activePage.id === 'page-sitemap';
   if (allTrackers.length <= 0 || hideOnDashboard || (!allowNoTrackerState && !currentTracker)) {
     shell.style.display = 'none';
     return;
@@ -364,10 +366,15 @@ function showPage(pageName) {
 }
 
 function openSiteMap(resetTracker = false) {
-  if (resetTracker) {
+  const isAdmin = !!(currentUser && currentUser.is_admin);
+  if (resetTracker && isAdmin) {
     currentTracker = null;
     updateTrackerCrumb();
     renderHeaderTrackerSwitcher();
+  }
+  // Non-admins: always ensure a tracker is selected
+  if (!isAdmin && !currentTracker && allTrackers.length) {
+    currentTracker = allTrackers[0];
   }
   showPage('sitemap');
 }
