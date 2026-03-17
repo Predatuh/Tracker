@@ -65,7 +65,8 @@ def _block_is_accessible(block):
     if not allowed_ids:
         return False
     block_tracker_ids = {lbd.tracker_id for lbd in block.lbds if lbd.tracker_id}
-    return bool(block_tracker_ids & allowed_ids)
+    has_unassigned = any(lbd.tracker_id is None for lbd in block.lbds)
+    return bool(block_tracker_ids & allowed_ids) or has_unassigned
 
 
 def _serialize_accessible_block(block):
@@ -74,7 +75,7 @@ def _serialize_accessible_block(block):
         return block.to_dict()
     allowed_ids = _allowed_tracker_id_set()
     payload = block.to_dict()
-    visible_lbds = [lbd for lbd in payload.get('lbds', []) if lbd.get('tracker_id') in allowed_ids]
+    visible_lbds = [lbd for lbd in payload.get('lbds', []) if lbd.get('tracker_id') in allowed_ids or lbd.get('tracker_id') is None]
     payload['lbds'] = visible_lbds
     payload['lbd_count'] = len(visible_lbds)
 
@@ -268,9 +269,9 @@ def get_power_blocks():
         if is_admin:
             pass
         elif tracker_id:
-            lbd_q = lbd_q.filter(LBD.tracker_id == tracker_id)
+            lbd_q = lbd_q.filter(db.or_(LBD.tracker_id == tracker_id, LBD.tracker_id.is_(None)))
         else:
-            lbd_q = lbd_q.filter(LBD.tracker_id.in_(allowed_ids))
+            lbd_q = lbd_q.filter(db.or_(LBD.tracker_id.in_(allowed_ids), LBD.tracker_id.is_(None)))
         lbd_rows = lbd_q.order_by(LBD.id).all()
 
         lbd_ids = [l.id for l in lbd_rows]

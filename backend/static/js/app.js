@@ -2306,8 +2306,15 @@ function getRenderableMapPBs() {
   if (!Array.isArray(loadedMapAreas) || loadedMapAreas.length === 0) {
     return [];
   }
+  const seen = new Set();
   return loadedMapAreas
-    .filter((area) => area && area.bbox_x != null)
+    .filter((area) => {
+      if (!area || area.bbox_x == null) return false;
+      const pid = area.power_block_id || area.id;
+      if (seen.has(pid)) return false;
+      seen.add(pid);
+      return true;
+    })
     .map((area) => ({
       id: area.power_block_id || area.id,
       name: area.name,
@@ -3302,9 +3309,6 @@ function renderPBMarkers() {
       // View mode: click fetches fresh data and opens panel
       m.style.cursor = mapDeleteMode ? 'crosshair' : (zoneAssignMode ? 'cell' : 'pointer');
       m.addEventListener('click', async () => {
-        if (pb.__baseline_only) {
-          return;
-        }
         // Intercept click in delete mode
         if (mapDeleteMode) {
           instantDeleteArea(pb);
