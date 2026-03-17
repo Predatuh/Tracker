@@ -586,6 +586,8 @@ def get_map_status(map_id):
                     'is_completed': block.is_completed,
                     'completion_color': '#2ecc71' if block.is_completed else '#95a5a6',
                     'lbd_summary': summary,
+                    'has_ifc': bool(block.ifc_pdf_data),
+                    'ifc_url': f'/api/tracker/power-blocks/{block.id}/ifc' if block.ifc_pdf_data else None,
                 })
 
         return jsonify({'success': True, 'data': status_data}), 200
