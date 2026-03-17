@@ -5070,6 +5070,70 @@ function switchAdminTab(tabKey) {
   if (tabKey === 'audit') loadAuditLogsTab();
 }
 
+function formatAdminAuditTimestamp(value) {
+  if (!value) return 'Unknown time';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return 'Unknown time';
+  return parsed.toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+function summarizeAdminAuditItem(item) {
+  const details = item.details || {};
+  const targetId = item.target_id ? ` #${item.target_id}` : '';
+
+  if (item.action === 'user.pin.reset') {
+    const resetBy = details.reset_by || item.actor_name || 'Admin';
+    return {
+      title: 'PIN reset',
+      meta: `${resetBy} reset the sign-in PIN for user${targetId}`,
+      detail: 'The user can sign in with the new 4-digit PIN on the next attempt.',
+    };
+  }
+
+  if (item.action === 'user.create') {
+    return {
+      title: 'User created',
+      meta: `${item.actor_name} created user${targetId}`,
+      detail: details.job_site_name ? `Site access: ${details.job_site_name}` : '',
+    };
+  }
+
+  if (item.action === 'user.role.update') {
+    const roleLabel = details.role === 'assistant_admin' ? 'Assistant Admin' : 'User';
+    const perms = Array.isArray(details.permissions) && details.permissions.length
+      ? `Permissions: ${details.permissions.join(', ')}`
+      : '';
+    return {
+      title: 'Role updated',
+      meta: `${item.actor_name} changed user${targetId} to ${roleLabel}`,
+      detail: perms,
+    };
+  }
+
+  return {
+    title: item.action,
+    meta: `${item.actor_name}${item.target_type ? ` • ${item.target_type}` : ''}${targetId}`,
+    detail: item.details && Object.keys(item.details).length ? JSON.stringify(item.details) : '',
+  };
+}
+
+function buildRecentPinResetMap(items) {
+  const recentResets = new Map();
+  (items || []).forEach(item => {
+    if (item.action !== 'user.pin.reset') return;
+    const key = String(item.target_id || '');
+    if (!key || recentResets.has(key)) return;
+    recentResets.set(key, item);
+  });
+  return recentResets;
+}
+
 async function loadAuditLogsTab() {
   const container = document.getElementById('admin-audit-log-list');
   if (!container) return;
@@ -5082,18 +5146,18 @@ async function loadAuditLogsTab() {
       return;
     }
     container.innerHTML = items.map(item => {
-      const when = item.created_at ? new Date(item.created_at).toLocaleString() : '';
-      const details = item.details && Object.keys(item.details).length ? JSON.stringify(item.details) : '';
+      const when = formatAdminAuditTimestamp(item.created_at);
+      const summary = summarizeAdminAuditItem(item);
       return `
         <div style="padding:14px 16px;border:1px solid rgba(255,255,255,0.08);border-radius:12px;background:rgba(8,12,28,0.72);margin-bottom:10px;">
           <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;">
             <div>
-              <div style="font-weight:700;color:#eef2ff;">${item.action}</div>
-              <div style="font-size:12px;color:#9aa6c7;">${item.actor_name}${item.target_type ? ` • ${item.target_type}` : ''}${item.target_id ? ` #${item.target_id}` : ''}</div>
+              <div style="font-weight:700;color:#eef2ff;">${_escapeHtml(summary.title)}</div>
+              <div style="font-size:12px;color:#9aa6c7;">${_escapeHtml(summary.meta)}</div>
             </div>
             <div style="font-size:12px;color:#7f8cb2;white-space:nowrap;">${when}</div>
           </div>
-          ${details ? `<div style="margin-top:8px;font-size:12px;color:#aeb8d6;font-family:monospace;word-break:break-word;">${details}</div>` : ''}
+          ${summary.detail ? `<div style="margin-top:8px;font-size:12px;color:#aeb8d6;word-break:break-word;">${_escapeHtml(summary.detail)}</div>` : ''}
         </div>`;
     }).join('');
   } catch (e) {
@@ -6169,11 +6233,15 @@ async function loadUsersTab() {
   if (!container) return;
   container.innerHTML = '<p style="color:#777;">Loading users…</p>';
   try {
-    const res = await fetch('/api/auth/users', {credentials:'include'});
+    const [res, auditResponse] = await Promise.all([
+      fetch('/api/auth/users', {credentials:'include'}),
+      api.getAuditLogs(250).catch(() => ({ data: [] })),
+    ]);
     if (!res.ok) { container.innerHTML = '<p style="color:#ff4c6a;">Failed to load users.</p>'; return; }
     const data = await res.json();
     const users = data.users || [];
     const allPrivs = data.all_privileges || Object.keys(PRIVILEGE_LABELS);
+    const recentPinResets = buildRecentPinResetMap(auditResponse.data || []);
 
     if (!users.length) { container.innerHTML = '<p style="color:#777;">No users found.</p>'; return; }
 
@@ -6181,6 +6249,10 @@ async function loadUsersTab() {
       const isMainAdmin = u.username === 'admin';
       const role = u.role || (u.is_admin ? 'admin' : 'user');
       const perms = u.permissions || [];
+      const lastPinReset = recentPinResets.get(String(u.id));
+      const lastPinResetLabel = lastPinReset
+        ? `Last PIN reset ${formatAdminAuditTimestamp(lastPinReset.created_at)} by ${lastPinReset.actor_name || 'Admin'}`
+        : 'No PIN reset recorded yet';
 
       let roleBadge = '';
       if (isMainAdmin) {
@@ -6219,6 +6291,7 @@ async function loadUsersTab() {
           <span style="font-size:11px;color:#555;margin-left:auto;">@${u.username}</span>
         </div>
         <div style="margin-top:8px;font-size:11px;color:#8892b0;">Forgot PIN? Reset it here, then tell the user to sign in with the new PIN.</div>
+        <div style="margin-top:4px;font-size:11px;color:${lastPinReset ? '#aeb8d6' : '#6f7d9b'};">${_escapeHtml(lastPinResetLabel)}</div>
         ${controls}
         ${!isMainAdmin ? `
           <div style="margin-top:10px;display:flex;flex-wrap:wrap;align-items:center;gap:8px;">
@@ -6288,6 +6361,7 @@ async function resetUserPin(userId, userName) {
       return;
     }
     if (input) input.value = '';
+    loadUsersTab();
     alert(data.message || `PIN updated for ${userName}`);
   } catch (e) {
     alert('Network error: ' + e.message);
