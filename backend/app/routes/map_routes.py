@@ -18,6 +18,94 @@ def _current_site_map_query():
     return SiteMap.query.order_by(SiteMap.updated_at.desc(), SiteMap.id.desc())
 
 
+def _pb_positions_path():
+    return os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+        'pb_positions.json',
+    )
+
+
+def _load_pb_position_cache():
+    path = _pb_positions_path()
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, 'r', encoding='utf-8') as handle:
+            payload = json.load(handle)
+        return payload if isinstance(payload, dict) else {}
+    except Exception:
+        return {}
+
+
+def _ensure_site_map_area_cache(site_map):
+    if not site_map:
+        return False
+
+    cached_positions = _load_pb_position_cache()
+    if not cached_positions:
+        return False
+
+    blocks = PowerBlock.query.order_by(PowerBlock.power_block_number, PowerBlock.id).all()
+    if not blocks:
+        return False
+
+    block_by_number = {}
+    for block in blocks:
+        if block.power_block_number is not None:
+            block_by_number[int(block.power_block_number)] = block
+
+    existing_areas = SiteArea.query.filter_by(site_map_id=site_map.id).all()
+    existing_by_pb = {area.power_block_id: area for area in existing_areas if area.power_block_id}
+    changed = False
+
+    for pb_number_raw, pos in cached_positions.items():
+        try:
+            pb_number = int(pb_number_raw)
+        except (TypeError, ValueError):
+            continue
+
+        block = block_by_number.get(pb_number)
+        if not block:
+            continue
+
+        area = existing_by_pb.get(block.id)
+        if area is None:
+            area = SiteArea(
+                site_map_id=site_map.id,
+                power_block_id=block.id,
+                name=str(block.power_block_number or block.name),
+                bbox_x=pos.get('x_pct'),
+                bbox_y=pos.get('y_pct'),
+                bbox_w=pos.get('w_pct'),
+                bbox_h=pos.get('h_pct'),
+                label_font_size=14,
+            )
+            db.session.add(area)
+            existing_by_pb[block.id] = area
+            changed = True
+            continue
+
+        if area.bbox_x is None and pos.get('x_pct') is not None:
+            area.bbox_x = pos.get('x_pct')
+            changed = True
+        if area.bbox_y is None and pos.get('y_pct') is not None:
+            area.bbox_y = pos.get('y_pct')
+            changed = True
+        if area.bbox_w is None and pos.get('w_pct') is not None:
+            area.bbox_w = pos.get('w_pct')
+            changed = True
+        if area.bbox_h is None and pos.get('h_pct') is not None:
+            area.bbox_h = pos.get('h_pct')
+            changed = True
+        if not area.name:
+            area.name = str(block.power_block_number or block.name)
+            changed = True
+
+    if changed:
+        db.session.commit()
+    return changed
+
+
 @bp.route('/register-existing', methods=['POST'])
 def register_existing_map():
     """
@@ -171,6 +259,8 @@ def get_all_sitemaps():
     """Get all site maps with eager-loaded areas"""
     try:
         from sqlalchemy.orm import subqueryload
+        for site_map in _current_site_map_query().all():
+            _ensure_site_map_area_cache(site_map)
         maps = _current_site_map_query().options(subqueryload(SiteMap.areas)).all()
         return jsonify({
             'success': True,
