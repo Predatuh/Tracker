@@ -332,10 +332,15 @@ function SiteMapView() {
   }, [currentTrackerId, navigate, placementMode, resolveBlockForArea]);
 
   useEffect(() => {
-    setShowLabels(false);
-    setShowOutlines(false);
+    setShowLabels(true);
+    setShowOutlines(true);
     setShowAllAreas(false);
   }, [selectedMap?.id]);
+
+  const renderSavedOutlines = manageableMaps ? showOutlines : true;
+  const renderSavedLabels = manageableMaps ? showLabels : true;
+  const renderDetectedRegions = manageableMaps && detectedRegions.length > 0;
+  const renderPendingSnap = manageableMaps && pendingSnap;
 
   // ---- Calculate font-size to fit label inside a box ----
   const calcFontSize = (label, boxWpx, boxHpx, basePx) => {
@@ -583,23 +588,27 @@ function SiteMapView() {
                       View IFC
                     </button>
                   )}
-                  <button
-                    className={`btn ${placementMode ? 'btn-warning' : 'btn-primary'}`}
-                    onClick={() => {
-                      setPlacementMode(!placementMode);
-                      setPendingSnap(null);
-                      setError('');
-                    }}
-                  >
-                    {placementMode ? '\u270B Stop Placing' : '\uD83D\uDCCC Place PB on Map'}
-                  </button>
-                  <button
-                    className="btn btn-secondary"
-                    onClick={handleScan}
-                    disabled={scanning}
-                  >
-                    {scanning ? '\uD83D\uDD0D Scanning\u2026' : '\uD83D\uDD0D Auto-detect Regions'}
-                  </button>
+                  {manageableMaps && (
+                    <>
+                      <button
+                        className={`btn ${placementMode ? 'btn-warning' : 'btn-primary'}`}
+                        onClick={() => {
+                          setPlacementMode(!placementMode);
+                          setPendingSnap(null);
+                          setError('');
+                        }}
+                      >
+                        {placementMode ? '\u270B Stop Placing' : '\uD83D\uDCCC Place PB on Map'}
+                      </button>
+                      <button
+                        className="btn btn-secondary"
+                        onClick={handleScan}
+                        disabled={scanning}
+                      >
+                        {scanning ? '\uD83D\uDD0D Scanning\u2026' : '\uD83D\uDD0D Auto-detect Regions'}
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -620,7 +629,7 @@ function SiteMapView() {
               )}
 
               {/* ── Snap result name input ── */}
-              {pendingSnap && (
+              {renderPendingSnap && (
                 <div className="snap-save-bar">
                   <select
                     className="snap-name-input"
@@ -700,7 +709,7 @@ function SiteMapView() {
                     )}
 
                     {/* ── Saved areas with polygons ── */}
-                    {showOutlines && visibleMapAreas.filter(a => a.polygon).map(area => {
+                    {renderSavedOutlines && visibleMapAreas.filter(a => a.polygon).map(area => {
                       const centroid = polygonCentroid(area.polygon);
                       const bounds = polygonBounds(area.polygon);
                       const overrideSz = fontSizeOverrides[area.id] ?? area.label_font_size;
@@ -715,7 +724,7 @@ function SiteMapView() {
                             style={{ pointerEvents: placementMode ? 'none' : 'auto', cursor: placementMode ? 'default' : 'pointer' }}
                             onClick={() => handleAreaOpen(area)}
                           />
-                          {showLabels && bounds.w >= 30 && bounds.h >= 18 && (
+                          {renderSavedLabels && bounds.w >= 30 && bounds.h >= 18 && (
                           <text
                             x={centroid.x}
                             y={centroid.y}
@@ -734,7 +743,7 @@ function SiteMapView() {
                 )}
 
                 {/* ── Overlay: detected (unsaved) rectangular regions ── */}
-                {imgSize.w > 0 && detectedRegions.map((r, i) => {
+                {imgSize.w > 0 && renderDetectedRegions && detectedRegions.map((r, i) => {
                   const x  = pctToPx(r.x_pct, imgSize.w);
                   const y  = pctToPx(r.y_pct, imgSize.h);
                   const bw = pctToPx(r.w_pct, imgSize.w);
@@ -755,7 +764,7 @@ function SiteMapView() {
                 })}
 
                 {/* ── Overlay: saved areas WITHOUT polygon (rectangle fallback) ── */}
-                {imgSize.w > 0 && showOutlines && visibleMapAreas.filter(a => !a.polygon && a.bbox_x != null).map(area => {
+                {imgSize.w > 0 && renderSavedOutlines && visibleMapAreas.filter(a => !a.polygon && a.bbox_x != null).map(area => {
                   const x  = pctToPx(area.bbox_x, imgSize.w);
                   const y  = pctToPx(area.bbox_y, imgSize.h);
                   const bw = pctToPx(area.bbox_w, imgSize.w);
@@ -772,7 +781,7 @@ function SiteMapView() {
                       title={area.name}
                       onClick={() => handleAreaOpen(area)}
                     >
-                      <span className="region-label" style={{ fontSize: fs, opacity: showLabels && bw >= 30 && bh >= 18 ? 1 : 0 }}>
+                      <span className="region-label" style={{ fontSize: fs, opacity: renderSavedLabels && bw >= 30 && bh >= 18 ? 1 : 0 }}>
                         {area.name}
                       </span>
                     </div>
@@ -781,7 +790,7 @@ function SiteMapView() {
               </div>
 
               {/* ── Detected regions assignment panel ── */}
-              {detectedRegions.length > 0 && (
+              {renderDetectedRegions && (
                 <div className="assign-panel">
                   <h3>Assign {currentTracker?.dashboard_blocks_label || 'Power Block'} Names to Detected Regions</h3>
                   <p className="admin-hint">
