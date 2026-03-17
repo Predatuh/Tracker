@@ -1800,13 +1800,21 @@ async function loadSiteMap() {
         for (const area of currentMap.areas) {
           if (area.power_block_id && area.bbox_x != null) {
             const pk = String(area.power_block_id);
-            if (!bboxes[pk]) {
-              bboxes[pk] = {
-                x: area.bbox_x,
-                y: area.bbox_y,
-                w: area.bbox_w,
-                h: area.bbox_h
-              };
+            const dbBbox = normalizeMapBBox({
+              x: area.bbox_x,
+              y: area.bbox_y,
+              w: area.bbox_w,
+              h: area.bbox_h
+            });
+            const cachedBbox = normalizeMapBBox(bboxes[pk]);
+            const shouldUseDbBbox = isReasonableMapBBox(dbBbox)
+              && (!isReasonableMapBBox(cachedBbox)
+                || cachedBbox.x !== dbBbox.x
+                || cachedBbox.y !== dbBbox.y
+                || cachedBbox.w !== dbBbox.w
+                || cachedBbox.h !== dbBbox.h);
+            if (shouldUseDbBbox) {
+              bboxes[pk] = dbBbox;
               bboxChanged = true;
             }
             // Always load polygon data from DB
@@ -2319,6 +2327,18 @@ function isReasonableMapBBox(bbox) {
   return width <= MAX_SNAP_BBOX_W_PCT
     && height <= MAX_SNAP_BBOX_H_PCT
     && (width * height) <= MAX_SNAP_BBOX_AREA_PCT;
+}
+
+function normalizeMapBBox(bbox) {
+  if (!bbox) return null;
+  const x = Number(bbox.x ?? bbox.x_pct);
+  const y = Number(bbox.y ?? bbox.y_pct);
+  const w = Number(bbox.w ?? bbox.w_pct);
+  const h = Number(bbox.h ?? bbox.h_pct);
+  if (![x, y, w, h].every(Number.isFinite)) {
+    return null;
+  }
+  return { x, y, w, h };
 }
 
 function getPBLabelOffset(pbKey) {
@@ -3121,15 +3141,18 @@ function renderPBMarkers() {
   renderablePBs.forEach((pb, i) => {
     if (hiddenPBs.includes(pb.id)) return;
     const key = String(pb.id);
-    const savedBbox = savedBboxes[key];
+    const savedBbox = normalizeMapBBox(savedBboxes[key]);
 
     // Look up area position from loadedMapAreas as fallback
     let areaBbox = null;
-    if (!savedBbox) {
-      const matchArea = loadedMapAreas.find(a => a && String(a.power_block_id) === key);
-      if (matchArea && matchArea.bbox_x != null) {
-        areaBbox = { x: matchArea.bbox_x, y: matchArea.bbox_y, w: matchArea.bbox_w, h: matchArea.bbox_h };
-      }
+    const matchArea = loadedMapAreas.find(a => a && String(a.power_block_id) === key);
+    if (matchArea && matchArea.bbox_x != null) {
+      areaBbox = normalizeMapBBox({
+        x: matchArea.bbox_x,
+        y: matchArea.bbox_y,
+        w: matchArea.bbox_w,
+        h: matchArea.bbox_h
+      });
     }
 
     const usableSavedBbox = isReasonableMapBBox(savedBbox) ? savedBbox : null;
@@ -3150,7 +3173,7 @@ function renderPBMarkers() {
       h: DEFAULT_PB_H
     };
     const areaBboxBaseline = pb.__baseline_only && pb.bbox_x != null
-      ? { x: pb.bbox_x, y: pb.bbox_y, w: pb.bbox_w, h: pb.bbox_h }
+      ? normalizeMapBBox({ x: pb.bbox_x, y: pb.bbox_y, w: pb.bbox_w, h: pb.bbox_h })
       : null;
     const usableBaselineBbox = isReasonableMapBBox(areaBboxBaseline) ? areaBboxBaseline : null;
     const bbox = usableSavedBbox || usableAreaBbox || usableBaselineBbox || defaultBbox;
