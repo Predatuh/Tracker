@@ -2264,6 +2264,31 @@ function getPBLabelOffset(pbKey) {
 }
 const SNAP_THRESHOLD = 1.2;
 
+function getRenderableMapPBs() {
+  if (Array.isArray(mapPBs) && mapPBs.length > 0) {
+    return mapPBs;
+  }
+  if (!Array.isArray(loadedMapAreas) || loadedMapAreas.length === 0) {
+    return [];
+  }
+  return loadedMapAreas
+    .filter((area) => area && area.bbox_x != null)
+    .map((area) => ({
+      id: area.power_block_id || area.id,
+      name: area.name,
+      power_block_number: area.name,
+      bbox_x: area.bbox_x,
+      bbox_y: area.bbox_y,
+      bbox_w: area.bbox_w,
+      bbox_h: area.bbox_h,
+      polygon: area.polygon,
+      lbd_count: 0,
+      lbd_summary: {},
+      lbds: [],
+      __baseline_only: true,
+    }));
+}
+
 function getMapPBVisualState(pb) {
   const lbds = pb?.lbds || [];
   const total = Number(pb?.lbd_count || lbds.length || 0);
@@ -2292,6 +2317,7 @@ function updateSiteMapOverlayButtons() {
 function renderSiteMapSummary() {
   const subtitle = document.getElementById('sitemap-viewer-subtitle');
   const summary = document.getElementById('sitemap-summary-strip');
+  const renderablePBs = getRenderableMapPBs();
   const trackerName = currentTracker?.name || 'No Active Tracker - Choose One';
   const completed = mapPBs.filter((pb) => getMapPBVisualState(pb).allDone).length;
   const inProgress = mapPBs.filter((pb) => getMapPBVisualState(pb).inProgress && !getMapPBVisualState(pb).allDone).length;
@@ -2311,7 +2337,7 @@ function renderSiteMapSummary() {
       </div>
       <div class="sitemap-summary-card">
         <span class="sitemap-summary-label">Power Blocks</span>
-        <strong>${mapPBs.length}</strong>
+        <strong>${renderablePBs.length}</strong>
       </div>
       <div class="sitemap-summary-card">
         <span class="sitemap-summary-label">Completed</span>
@@ -3006,11 +3032,12 @@ function renderPBMarkers() {
   if (!container) return;
   container.innerHTML = '';
 
+  const renderablePBs = getRenderableMapPBs();
   const savedBboxes = JSON.parse(localStorage.getItem('pb_bboxes') || '{}');
   const hiddenPBs   = JSON.parse(localStorage.getItem('pb_hidden') || '[]');
-  const hasPlacedLayout = Object.keys(savedBboxes).length > 0 || Object.keys(pbPolygons).length > 0;
+  const hasPlacedLayout = Object.keys(savedBboxes).length > 0 || Object.keys(pbPolygons).length > 0 || loadedMapAreas.some((area) => area && area.bbox_x != null);
 
-  mapPBs.forEach((pb, i) => {
+  renderablePBs.forEach((pb, i) => {
     if (hiddenPBs.includes(pb.id)) return;
     const key = String(pb.id);
     const savedBbox = savedBboxes[key];
@@ -3029,7 +3056,10 @@ function renderPBMarkers() {
       w: DEFAULT_PB_W,
       h: DEFAULT_PB_H
     };
-    const bbox = savedBbox || defaultBbox;
+    const areaBbox = pb.__baseline_only && pb.bbox_x != null
+      ? { x: pb.bbox_x, y: pb.bbox_y, w: pb.bbox_w, h: pb.bbox_h }
+      : null;
+    const bbox = savedBbox || areaBbox || defaultBbox;
 
     const { total, summary, completedTypes, partialTypes, allDone, inProgress } = getMapPBVisualState(pb);
     const isActive = false; // markers always render the same regardless of selection
@@ -3099,7 +3129,7 @@ function renderPBMarkers() {
     ].join(';');
 
     // Apply polygon clip-path if this PB has been snap-placed (only in view mode)
-    const polyData = pbPolygons[key];
+    const polyData = pbPolygons[key] || pb.polygon;
     if (polyData && polyData.length >= 3 && !mapEditMode) {
       // Convert polygon points from map-% coords to element-relative %
       const clipPoints = polyData.map(pt => {
@@ -3237,6 +3267,9 @@ function renderPBMarkers() {
       // View mode: click fetches fresh data and opens panel
       m.style.cursor = mapDeleteMode ? 'crosshair' : (zoneAssignMode ? 'cell' : 'pointer');
       m.addEventListener('click', async () => {
+        if (pb.__baseline_only) {
+          return;
+        }
         // Intercept click in delete mode
         if (mapDeleteMode) {
           instantDeleteArea(pb);
