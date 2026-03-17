@@ -1,4 +1,6 @@
 // API helper functions
+const APP_VERSION = '2.1.0';
+console.log('%c[Princess Trackers] v' + APP_VERSION, 'color:#00d4ff;font-weight:bold');
 const DEBUG_API = ['localhost', '127.0.0.1'].includes(window.location.hostname);
 const SESSION_CROWN_KEY = 'site_random_crown_asset';
 const CROWN_ASSET_PATHS = [
@@ -277,7 +279,7 @@ function renderHeaderTrackerSwitcher() {
   }
 
   select.innerHTML = [
-    allowNoTrackerState ? '<option value="">No Active Tracker - Choose One</option>' : '',
+    allowNoTrackerState ? '<option value="">Overview (No Tracker)</option>' : '',
     ...allTrackers.map((tracker) => {
     const selected = currentTracker && Number(currentTracker.id) === Number(tracker.id) ? ' selected' : '';
     return `<option value="${tracker.id}"${selected}>${_escapeHtml(tracker.name)}</option>`;
@@ -303,6 +305,7 @@ function updateTrackerCrumb() {
 async function switchTracker(trackerId) {
   if (trackerId === '' || trackerId == null) {
     currentTracker = null;
+    await loadAdminSettings().catch(() => {});
     updateTrackerCrumb();
     renderHeaderTrackerSwitcher();
     const activePage = document.querySelector('.page.active');
@@ -366,9 +369,14 @@ function showPage(pageName) {
 function openSiteMap(resetTracker = false) {
   if (resetTracker) {
     currentTracker = null;
-    updateTrackerCrumb();
-    renderHeaderTrackerSwitcher();
   }
+  // Auto-select first tracker if none is active
+  if (!currentTracker && allTrackers.length > 0) {
+    currentTracker = allTrackers[0];
+    loadAdminSettings().catch(() => {});
+  }
+  updateTrackerCrumb();
+  renderHeaderTrackerSwitcher();
   showPage('sitemap');
 }
 
@@ -1848,10 +1856,12 @@ async function loadSiteMap() {
 // ============================================================
 let LBD_STATUS_TYPES = ['ground_brackets', 'stuff', 'term'];
 
-// An LBD counts as complete when term is checked
+// An LBD counts as complete when ALL current tracker columns are checked
 function isLBDComplete(lbd) {
   const statuses = lbd.statuses || [];
-  return statuses.some(s => s.status_type === 'term' && s.is_completed);
+  return LBD_STATUS_TYPES.every(st =>
+    statuses.some(s => s.status_type === st && s.is_completed)
+  );
 }
 let STATUS_COLORS = {
   ground_brackets: '#95E1D3',
@@ -2363,7 +2373,7 @@ function renderSiteMapSummary() {
   const subtitle = document.getElementById('sitemap-viewer-subtitle');
   const summary = document.getElementById('sitemap-summary-strip');
   const renderablePBs = getRenderableMapPBs();
-  const trackerName = currentTracker?.name || 'No Active Tracker - Choose One';
+  const trackerName = currentTracker?.name || 'Overview';
   const completed = mapPBs.filter((pb) => getMapPBVisualState(pb).allDone).length;
   const inProgress = mapPBs.filter((pb) => getMapPBVisualState(pb).inProgress && !getMapPBVisualState(pb).allDone).length;
   const claimed = mapPBs.filter((pb) => pb.claimed_by).length;
@@ -2371,7 +2381,7 @@ function renderSiteMapSummary() {
   if (subtitle) {
     subtitle.textContent = currentTracker
       ? `${trackerName} is active on the map.`
-      : 'No tracker is active. The map is showing the neutral baseline until you choose one.';
+      : 'No tracker is active. Select one from the dropdown above.';
   }
 
   if (summary) {
