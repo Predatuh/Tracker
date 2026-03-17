@@ -1,12 +1,11 @@
 import re
 
-from flask import Blueprint, current_app, jsonify, request, session
+from flask import Blueprint, jsonify, request, session
 
 from app import db
 from app.models.user import User
 from app.utils.audit import log_action
 from app.utils.job_sites import resolve_job_site
-from app.utils.mailers import can_send_email, send_verification_email
 
 bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 
@@ -21,20 +20,6 @@ def _normalized_email(value: str) -> str:
     return str(value or '').strip().lower()
 
 
-def _serialize_verification_response(user, *, status_code=202, preview_code=None, message=None):
-    payload = {
-        'ok': True,
-        'verification_required': True,
-        'email': user.email,
-        'job_site_name': user.job_site_name,
-        'message': message or 'Enter the verification code sent to your email to finish setting up your account.',
-    }
-    if preview_code:
-        payload['preview_code'] = preview_code
-        payload['message'] = 'Email delivery is not configured locally, so a preview code is included for testing.'
-    return jsonify(payload), status_code
-
-
 def _validate_registration_payload(data):
     name = (data.get('name') or '').strip()
     pin = str(data.get('pin') or '').strip()
@@ -47,15 +32,15 @@ def _validate_registration_payload(data):
         return None, jsonify({'error': 'Name is required'}), 400
     if len(pin) != 4 or not pin.isdigit():
         return None, jsonify({'error': 'PIN must be exactly 4 digits (0-9)'}), 400
-    if not email or not EMAIL_RE.match(email):
-        return None, jsonify({'error': 'A valid recovery email is required'}), 400
     if not job_site:
         return None, jsonify({'error': 'That job token is not valid'}), 400
     if username == 'admin':
         return None, jsonify({'error': 'That name is reserved — please choose another'}), 400
     if User.query.filter_by(username=username).first():
         return None, jsonify({'error': 'An account with that name already exists. Try signing in.'}), 409
-    if User.query.filter_by(email=email).first():
+    if email and not EMAIL_RE.match(email):
+        return None, jsonify({'error': 'If provided, recovery email must be valid'}), 400
+    if email and User.query.filter_by(email=email).first():
         return None, jsonify({'error': 'That email is already attached to an account'}), 409
 
     return {
@@ -68,42 +53,25 @@ def _validate_registration_payload(data):
     }, None, None
 
 
-def _can_deliver_verification():
-    if can_send_email():
-        return True, None
-    if current_app.config.get('IS_CLOUD_MODE'):
-        return False, (jsonify({'error': 'Email verification is not configured on the server yet'}), 503)
-    return True, None
-
-
-def _queue_verification(user):
-    code = User.generate_verification_code()
-    user.set_email_verification_code(code)
-    preview_code = None
-    if can_send_email():
-        send_verification_email(user, code)
-    else:
-        current_app.logger.warning('SMTP not configured. Verification preview code for %s: %s', user.email, code)
-        preview_code = code
-    return preview_code
-
-
-def _create_pending_user(payload):
+def _create_user(payload):
     user = User(
         name=payload['name'],
         username=payload['username'],
-        email=payload['email'],
+        email=payload['email'] or None,
         is_admin=False,
         role='user',
         job_site_name=payload['job_site_name'],
         job_site_slug=payload['job_site_slug'],
-        email_verified=False,
+        email_verified=True,
     )
     user.set_pin(payload['pin'])
-    preview_code = _queue_verification(user)
+    user.verification_code_hash = None
+    user.verification_sent_at = None
+    user.verification_expires_at = None
+    user.verified_at = None
     db.session.add(user)
     db.session.commit()
-    return user, preview_code
+    return user
 
 
 @bp.route('/me', methods=['GET'])
@@ -131,13 +99,6 @@ def login():
     user = User.query.filter_by(username=username).first()
     if not user or not user.check_pin(pin):
         return jsonify({'error': 'Incorrect name or PIN'}), 401
-    if not user.email_verified and not user.is_admin:
-        return jsonify({
-            'error': 'Verify your email before signing in',
-            'verification_required': True,
-            'email': user.email,
-            'job_site_name': user.job_site_name,
-        }), 403
 
     session.clear()
     session['user_id'] = user.id
@@ -152,65 +113,25 @@ def register():
     if err:
         return err, status
 
-    can_deliver, failure = _can_deliver_verification()
-    if not can_deliver:
-        return failure
-
-    user, preview_code = _create_pending_user(payload)
+    user = _create_user(payload)
+    session.clear()
+    session['user_id'] = user.id
+    session.permanent = True
     log_action('user.register', 'user', user.id, {'job_site_name': user.job_site_name, 'email': user.email})
-    return _serialize_verification_response(user, status_code=201, preview_code=preview_code)
+    return jsonify({
+        'user': user.to_dict(),
+        'message': 'Account created. Contact Princess if you ever need your PIN reset.',
+    }), 201
 
 
 @bp.route('/verify-email', methods=['POST'])
 def verify_email():
-    data = request.get_json() or {}
-    email = _normalized_email(data.get('email'))
-    code = str(data.get('code') or '').strip()
-
-    if not email or not code:
-        return jsonify({'error': 'Email and verification code are required'}), 400
-
-    user = User.query.filter_by(email=email).first()
-    if not user:
-        return jsonify({'error': 'Account not found for that email'}), 404
-    if user.email_verified:
-        session.clear()
-        session['user_id'] = user.id
-        session.permanent = True
-        return jsonify({'user': user.to_dict(), 'message': 'Email already verified'}), 200
-    if not user.verify_email_code(code):
-        return jsonify({'error': 'That verification code is invalid or expired'}), 400
-
-    user.mark_email_verified()
-    db.session.commit()
-
-    session.clear()
-    session['user_id'] = user.id
-    session.permanent = True
-    log_action('user.verify_email', 'user', user.id, {'email': user.email})
-    return jsonify({'user': user.to_dict(), 'message': 'Email verified'}), 200
+    return jsonify({'error': 'Email verification is currently disabled. Contact Princess for PIN resets.'}), 410
 
 
 @bp.route('/resend-verification', methods=['POST'])
 def resend_verification():
-    data = request.get_json() or {}
-    email = _normalized_email(data.get('email'))
-    if not email:
-        return jsonify({'error': 'Email is required'}), 400
-
-    user = User.query.filter_by(email=email).first()
-    if not user:
-        return jsonify({'error': 'Account not found for that email'}), 404
-    if user.email_verified:
-        return jsonify({'error': 'That account is already verified'}), 400
-
-    can_deliver, failure = _can_deliver_verification()
-    if not can_deliver:
-        return failure
-
-    preview_code = _queue_verification(user)
-    db.session.commit()
-    return _serialize_verification_response(user, preview_code=preview_code, message='A new verification code has been sent.')
+    return jsonify({'error': 'Email verification is currently disabled. Contact Princess for PIN resets.'}), 410
 
 
 @bp.route('/logout', methods=['POST'])
@@ -253,18 +174,33 @@ def admin_create_user():
     if failure:
         return failure, status
 
-    can_deliver, delivery_failure = _can_deliver_verification()
-    if not can_deliver:
-        return delivery_failure
-
-    user, preview_code = _create_pending_user(payload)
+    user = _create_user(payload)
     log_action('user.create', 'user', user.id, {'job_site_name': user.job_site_name, 'email': user.email}, actor=caller)
-    return _serialize_verification_response(
-        user,
-        status_code=201,
-        preview_code=preview_code,
-        message='User created. They must verify their email before they can sign in.',
-    )
+    return jsonify({
+        'created_user': user.to_dict(),
+        'message': 'User created. Contact Princess if the PIN ever needs to be reset.',
+    }), 201
+
+
+@bp.route('/users/<int:user_id>/pin', methods=['PUT'])
+def reset_user_pin(user_id):
+    caller, *err = _require_admin()
+    if not caller:
+        return err[0], err[1]
+
+    target = User.query.get(user_id)
+    if not target:
+        return jsonify({'error': 'User not found'}), 404
+
+    data = request.get_json() or {}
+    new_pin = str(data.get('pin') or '').strip()
+    if len(new_pin) != 4 or not new_pin.isdigit():
+        return jsonify({'error': 'PIN must be exactly 4 digits (0-9)'}), 400
+
+    target.set_pin(new_pin)
+    db.session.commit()
+    log_action('user.pin.reset', 'user', target.id, {'reset_by': caller.name}, actor=caller)
+    return jsonify({'user': target.to_dict(), 'message': f'PIN updated for {target.name}'}), 200
 
 
 @bp.route('/users/<int:user_id>/role', methods=['PUT'])

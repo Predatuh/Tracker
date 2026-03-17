@@ -48,13 +48,6 @@
         onblur="this.style.borderColor='rgba(0,212,255,0.1)';this.style.boxShadow='none'"
         onkeydown="if(event.key==='Enter')document.getElementById('login-pin').focus()" />
     </div>
-    <div id="login-register-email-wrap" style="margin-bottom:13px;display:none;">
-      <label style="font-size:10px;font-weight:700;color:rgba(238,242,255,0.4);letter-spacing:1.2px;text-transform:uppercase;display:block;margin-bottom:6px;font-family:'Space Grotesk',sans-serif;">Recovery Email</label>
-      <input id="login-email" type="email" placeholder="name@example.com" autocomplete="email"
-        style="width:100%;box-sizing:border-box;background:rgba(255,255,255,0.04);border:1.5px solid rgba(0,212,255,0.1);border-radius:8px;padding:11px 14px;font-size:14px;outline:none;color:#eef2ff;font-family:'Space Grotesk',sans-serif;transition:all 0.25s;"
-        onfocus="this.style.borderColor='#00d4ff';this.style.boxShadow='0 0 0 3px rgba(0,212,255,0.1),0 0 20px rgba(0,212,255,0.05)'"
-        onblur="this.style.borderColor='rgba(0,212,255,0.1)';this.style.boxShadow='none'" />
-    </div>
     <div id="login-register-token-wrap" style="margin-bottom:13px;display:none;">
       <label style="font-size:10px;font-weight:700;color:rgba(238,242,255,0.4);letter-spacing:1.2px;text-transform:uppercase;display:block;margin-bottom:6px;font-family:'Space Grotesk',sans-serif;">Job Token</label>
       <input id="login-job-token" type="text" placeholder="Enter your site token"
@@ -73,25 +66,12 @@
         onblur="this.style.borderColor='rgba(0,212,255,0.1)';this.style.boxShadow='none'"
         onkeydown="if(event.key==='Enter')submitLogin()" />
     </div>
-    <div id="login-verify-code-wrap" style="margin-bottom:24px;display:none;">
-      <label style="font-size:10px;font-weight:700;color:rgba(238,242,255,0.4);letter-spacing:1.2px;text-transform:uppercase;display:block;margin-bottom:6px;font-family:'Space Grotesk',sans-serif;">Verification Code</label>
-      <input id="login-verification-code" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="123456"
-        autocomplete="one-time-code"
-        style="width:100%;box-sizing:border-box;background:rgba(255,255,255,0.04);border:1.5px solid rgba(0,212,255,0.1);border-radius:8px;padding:12px 14px;font-size:22px;letter-spacing:10px;text-align:center;outline:none;color:#eef2ff;font-family:'JetBrains Mono',monospace;transition:all 0.25s;"
-        onfocus="this.style.borderColor='#00d4ff';this.style.boxShadow='0 0 0 3px rgba(0,212,255,0.1),0 0 20px rgba(0,212,255,0.05)'"
-        onblur="this.style.borderColor='rgba(0,212,255,0.1)';this.style.boxShadow='none'"
-        onkeydown="if(event.key==='Enter')submitLogin()" />
-    </div>
     <!-- Button -->
     <button id="login-submit-btn" onclick="submitLogin()"
       style="width:100%;background:linear-gradient(135deg,#00d4ff,#009abc);color:#000;border:none;border-radius:8px;padding:14px;font-size:14px;font-weight:800;cursor:pointer;margin-bottom:10px;font-family:'Space Grotesk',sans-serif;letter-spacing:0.5px;transition:all 0.25s;position:relative;overflow:hidden;"
       onmouseover="this.style.boxShadow='0 0 30px rgba(0,212,255,0.45)';this.style.transform='translateY(-1px)'"
       onmouseout="this.style.boxShadow='none';this.style.transform='none'">
       <span id="login-btn-text">Sign In</span>
-    </button>
-    <button id="login-resend-btn" onclick="resendVerificationCode()"
-      style="display:none;width:100%;background:rgba(255,255,255,0.03);color:#8eeeff;border:1px solid rgba(0,212,255,0.14);border-radius:8px;padding:10px;font-size:12px;cursor:pointer;margin-bottom:10px;font-family:'Space Grotesk',sans-serif;transition:all 0.25s;">
-      Resend Verification Code
     </button>
     <button onclick="document.getElementById('login-overlay').style.display='none';stopLoginAnimation()"
       style="width:100%;background:transparent;color:rgba(238,242,255,0.3);border:1px solid rgba(0,212,255,0.08);border-radius:8px;padding:10px;font-size:13px;cursor:pointer;font-family:'Space Grotesk',sans-serif;transition:all 0.25s;"
@@ -100,6 +80,7 @@
       Continue as Guest — view only
     </button>
     <div style="font-size:11px;color:rgba(238,242,255,0.25);text-align:center;margin-top:16px;line-height:1.7;font-family:'Space Grotesk',sans-serif;">
+      Forgot your PIN? Contact Princess for a manual reset.<br>
       Admin? Use name <strong style="color:rgba(238,242,255,0.5);">Admin</strong> with the admin PIN.</div>
   </div>
 </div>
@@ -552,16 +533,12 @@
                 <!-- Users Tab (Main Admin Only) -->
                 <div id="admin-tab-users" class="admin-tab-content" style="display:none;">
                   <h2 class="section-subtitle">User Management</h2>
-                  <p style="color:var(--text-muted);font-size:13px;margin-bottom:18px;">Assign assistant admin roles and manage permissions for each user.</p>
+                  <p style="color:var(--text-muted);font-size:13px;margin-bottom:18px;">Assign assistant admin roles, create accounts, and manually reset user PINs when needed.</p>
                   <button class="btn btn-primary" onclick="showCreateUserForm()" style="margin-bottom:16px;">➕ Create User</button>
                   <div id="create-user-form" class="form-section hidden" style="margin-bottom:18px;">
                     <div class="form-group">
                       <label>Name</label>
                       <input type="text" id="new-user-name" placeholder="User name">
-                    </div>
-                    <div class="form-group">
-                      <label>Recovery Email</label>
-                      <input type="email" id="new-user-email" placeholder="name@example.com">
                     </div>
                     <div class="form-group">
                       <label>PIN (4 digits)</label>
