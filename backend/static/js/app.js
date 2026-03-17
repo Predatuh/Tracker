@@ -1,5 +1,5 @@
 // API helper functions
-const APP_VERSION = '2.1.0';
+const APP_VERSION = '2.1.1';
 console.log('%c[Princess Trackers] v' + APP_VERSION, 'color:#00d4ff;font-weight:bold');
 const DEBUG_API = ['localhost', '127.0.0.1'].includes(window.location.hostname);
 const SESSION_CROWN_KEY = 'site_random_crown_asset';
@@ -369,10 +369,6 @@ function showPage(pageName) {
 function openSiteMap(resetTracker = false) {
   if (resetTracker) {
     currentTracker = null;
-  }
-  // Auto-select first tracker if none is active
-  if (!currentTracker && allTrackers.length > 0) {
-    currentTracker = allTrackers[0];
     loadAdminSettings().catch(() => {});
   }
   updateTrackerCrumb();
