@@ -194,6 +194,7 @@ const api = {
 // ============================================================
 let allTrackers = [];
 let currentTracker = null;   // active Tracker object {id, name, slug, ...}
+let trackerWasExplicitlyChosen = false;
 
 function pickRandomCrownAsset() {
   return CROWN_ASSET_PATHS[Math.floor(Math.random() * CROWN_ASSET_PATHS.length)];
@@ -243,6 +244,7 @@ async function loadTrackers() {
 function syncActiveTracker(forceSelection = false) {
   if (!Array.isArray(allTrackers) || !allTrackers.length) {
     currentTracker = null;
+    trackerWasExplicitlyChosen = false;
     return null;
   }
 
@@ -258,10 +260,12 @@ function syncActiveTracker(forceSelection = false) {
   const allowNoTrackerState = activePage && activePage.id === 'page-sitemap';
   if (!forceSelection && allowNoTrackerState) {
     currentTracker = null;
+    trackerWasExplicitlyChosen = false;
     return null;
   }
 
   currentTracker = allTrackers[0] || null;
+  trackerWasExplicitlyChosen = false;
   return currentTracker;
 }
 
@@ -305,6 +309,7 @@ function updateTrackerCrumb() {
 async function switchTracker(trackerId) {
   if (trackerId === '' || trackerId == null) {
     currentTracker = null;
+    trackerWasExplicitlyChosen = false;
     await loadAdminSettings().catch(() => {});
     updateTrackerCrumb();
     renderHeaderTrackerSwitcher();
@@ -318,6 +323,7 @@ async function switchTracker(trackerId) {
   const t = allTrackers.find(t => t.id == trackerId);
   if (!t) return;
   currentTracker = t;
+  trackerWasExplicitlyChosen = true;
   await loadAdminSettings();
   updateTrackerCrumb();
   renderHeaderTrackerSwitcher();
@@ -367,8 +373,9 @@ function showPage(pageName) {
 }
 
 function openSiteMap(resetTracker = false) {
-  if (resetTracker) {
+  if (resetTracker || !trackerWasExplicitlyChosen) {
     currentTracker = null;
+    trackerWasExplicitlyChosen = false;
     loadAdminSettings().catch(() => {});
   }
   updateTrackerCrumb();
@@ -1223,6 +1230,7 @@ async function openTracker(trackerId) {
   const t = allTrackers.find(t => t.id == trackerId);
   if (!t) return;
   currentTracker = t;
+  trackerWasExplicitlyChosen = true;
   try {
     await loadAdminSettings();
   } catch (e) {
@@ -2068,6 +2076,7 @@ async function logout() {
   currentUser = null;
   allTrackers = [];
   currentTracker = null;
+  trackerWasExplicitlyChosen = false;
   renderHeaderTrackerSwitcher();
   try { sessionStorage.removeItem(SESSION_CROWN_KEY); } catch (e) {}
   _applyRoleUI();
@@ -2369,7 +2378,7 @@ function renderSiteMapSummary() {
   const subtitle = document.getElementById('sitemap-viewer-subtitle');
   const summary = document.getElementById('sitemap-summary-strip');
   const renderablePBs = getRenderableMapPBs();
-  const trackerName = currentTracker?.name || 'Overview';
+  const trackerName = currentTracker?.name || 'Overview (No Tracker)';
   const completed = mapPBs.filter((pb) => getMapPBVisualState(pb).allDone).length;
   const inProgress = mapPBs.filter((pb) => getMapPBVisualState(pb).inProgress && !getMapPBVisualState(pb).allDone).length;
   const claimed = mapPBs.filter((pb) => pb.claimed_by).length;
@@ -2377,7 +2386,7 @@ function renderSiteMapSummary() {
   if (subtitle) {
     subtitle.textContent = currentTracker
       ? `${trackerName} is active on the map.`
-      : 'No tracker is active. Select one from the dropdown above.';
+      : 'No tracker is active. The map is showing the neutral overview until you choose one.';
   }
 
   if (summary) {
@@ -3839,6 +3848,10 @@ function renderTextLabels() {
 
 function showPBPanel(pb) {
   activePBId = pb.id;
+  if (!currentTracker) {
+    renderOverviewPBPanel(pb);
+    return;
+  }
   // Don't re-render markers — keep them locked in place
 
   const lbds  = pb.lbds || [];
@@ -3852,6 +3865,8 @@ function showPBPanel(pb) {
     `<span style="font-weight:600;color:#333;">${total}</span> total  · ` +
     `<span style="font-weight:700;color:#28a745;">${done} complete</span>  · ` +
     `<span style="font-weight:600;color:#dc3545;">${remaining} remaining</span>`;
+  const progressBar = document.getElementById('lbd-panel-bar');
+  if (progressBar) progressBar.style.display = 'block';
   document.getElementById('lbd-panel-bar-fill').style.width = pct + '%';
   document.getElementById('lbd-panel-bar-fill').style.background =
     pct >= 100 ? '#28a745' : pct > 0 ? '#ffc107' : '#dc3545';
@@ -3863,6 +3878,7 @@ function showPBPanel(pb) {
   // Header row + bulk row
   const headerEl = document.getElementById('lbd-grid-header');
   headerEl.innerHTML = `
+    ${buildPBIfcActionMarkup(pb, true)}
     <div style="display:grid;grid-template-columns:${gridCols};gap:3px;align-items:end;margin-bottom:4px;">
       <div style="font-size:10px;color:#4a5568;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">LBD</div>
       ${LBD_STATUS_TYPES.map(st =>
@@ -3937,6 +3953,92 @@ function showPBPanel(pb) {
 function closePBPanel() {
   activePBId = null;
   document.getElementById('lbd-panel').style.display = 'none';
+}
+
+function getPowerBlockIfcState(blockId) {
+  return mapPBs.find((pb) => Number(pb.id) === Number(blockId))
+    || _blocksCache[blockId]
+    || null;
+}
+
+function viewPowerBlockIfc(blockId) {
+  const pb = getPowerBlockIfcState(blockId);
+  if (!pb || !pb.ifc_url || !pb.has_ifc) {
+    alert(currentUser ? 'No IFC drawing is assigned to this power block.' : 'Sign in with a created user to view IFC drawings.');
+    return;
+  }
+  window.open(pb.ifc_url, '_blank', 'noopener');
+}
+
+function downloadPowerBlockIfc(blockId) {
+  const pb = getPowerBlockIfcState(blockId);
+  if (!pb || !pb.ifc_url || !pb.has_ifc) {
+    alert(currentUser ? 'No IFC drawing is assigned to this power block.' : 'Sign in with a created user to view IFC drawings.');
+    return;
+  }
+  const link = document.createElement('a');
+  link.href = pb.ifc_url;
+  link.download = pb.ifc_filename || `${pb.name || 'power-block'}-IFC.pdf`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
+function buildPBIfcActionMarkup(pb, compact = false) {
+  if (!pb) return '';
+
+  const containerStyle = compact
+    ? 'margin-bottom:8px;padding:10px 12px;border:1px solid rgba(0,212,255,0.16);border-radius:10px;background:rgba(0,212,255,0.05);'
+    : 'padding:14px 16px;border:1px solid rgba(0,212,255,0.16);border-radius:12px;background:rgba(0,212,255,0.05);';
+  const metaBits = [];
+  if (pb.ifc_filename) metaBits.push(_escapeHtml(pb.ifc_filename));
+  if (pb.ifc_page_number != null) metaBits.push(`Page ${_escapeHtml(pb.ifc_page_number)}`);
+
+  if (pb.has_ifc && pb.ifc_url) {
+    return `
+      <div style="${containerStyle}">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+          <div>
+            <div style="font-size:11px;font-weight:700;color:#8adfff;letter-spacing:0.7px;text-transform:uppercase;">IFC Drawing</div>
+            <div style="font-size:12px;color:#cbd5e1;margin-top:4px;">${metaBits.length ? metaBits.join(' • ') : 'Open the IFC PDF for this power block.'}</div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button type="button" class="btn btn-secondary" onclick="viewPowerBlockIfc(${pb.id})" style="padding:6px 12px;font-size:11px;">View IFC</button>
+            <button type="button" class="btn btn-primary" onclick="downloadPowerBlockIfc(${pb.id})" style="padding:6px 12px;font-size:11px;">Download IFC</button>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  const noIfcMessage = currentUser
+    ? 'No IFC drawing is assigned to this power block yet.'
+    : 'Sign in with a created user to view IFC drawings from the map.';
+  return `
+    <div style="${containerStyle}">
+      <div style="font-size:11px;font-weight:700;color:#8adfff;letter-spacing:0.7px;text-transform:uppercase;">IFC Drawing</div>
+      <div style="font-size:12px;color:#94a3b8;margin-top:4px;">${noIfcMessage}</div>
+    </div>`;
+}
+
+function renderOverviewPBPanel(pb) {
+  const panel = document.getElementById('lbd-panel');
+  const headerEl = document.getElementById('lbd-grid-header');
+  const listEl = document.getElementById('lbd-panel-list');
+  const progressBar = document.getElementById('lbd-panel-bar');
+
+  document.getElementById('lbd-panel-title').textContent = pb.name;
+  document.getElementById('lbd-panel-stats').textContent = pb.ifc_page_number != null
+    ? `Neutral overview • IFC page ${pb.ifc_page_number}`
+    : 'Neutral overview • tracker details hidden';
+  if (progressBar) progressBar.style.display = 'none';
+
+  headerEl.innerHTML = buildPBIfcActionMarkup(pb, false);
+  listEl.innerHTML = `
+    <div style="padding:12px 4px 4px;color:#94a3b8;font-size:12px;line-height:1.7;">
+      Overview mode stays neutral. LBD statuses, completion progress, and claim details are hidden until you choose a tracker.
+    </div>`;
+
+  panel.style.display = 'flex';
 }
 
 async function bulkMapColumn(pbId, statusType, complete) {
