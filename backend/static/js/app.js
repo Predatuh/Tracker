@@ -233,8 +233,34 @@ async function loadTrackers() {
   try {
     const r = await api.call('/admin/trackers');
     allTrackers = r.data || [];
+    syncActiveTracker();
     renderHeaderTrackerSwitcher();
   } catch(e) { console.warn('Failed to load trackers:', e); }
+}
+
+function syncActiveTracker(forceSelection = false) {
+  if (!Array.isArray(allTrackers) || !allTrackers.length) {
+    currentTracker = null;
+    return null;
+  }
+
+  if (currentTracker) {
+    const matchingTracker = allTrackers.find(t => Number(t.id) === Number(currentTracker.id));
+    if (matchingTracker) {
+      currentTracker = matchingTracker;
+      return currentTracker;
+    }
+  }
+
+  const activePage = document.querySelector('.page.active');
+  const allowNoTrackerState = activePage && activePage.id === 'page-sitemap';
+  if (!forceSelection && allowNoTrackerState) {
+    currentTracker = null;
+    return null;
+  }
+
+  currentTracker = allTrackers[0] || null;
+  return currentTracker;
 }
 
 function renderHeaderTrackerSwitcher() {
@@ -1852,6 +1878,14 @@ async function checkAuth() {
     const d = await r.json();
     currentUser = d.user || null;
   } catch(e) { currentUser = null; }
+  if (currentUser) {
+    try {
+      await loadTrackers();
+      syncActiveTracker(true);
+    } catch (e) {
+      console.warn('Failed to refresh trackers after auth check:', e);
+    }
+  }
   _applyRoleUI();
   _initSocket();
 }
@@ -1952,6 +1986,7 @@ async function _finalizeAuthenticatedSession(user) {
   assignSessionCrown(true);
   try {
     await loadTrackers();
+    syncActiveTracker(true);
     await loadAdminSettings();
     await loadDashboard();
   } catch (e) {
@@ -5056,11 +5091,13 @@ document.addEventListener('DOMContentLoaded', () => {
   if (submitBtn) submitBtn._mode = 'signin';
   assignSessionCrown();
 
-  // Load trackers first, then settings + dashboard
-  loadTrackers().then(() => loadAdminSettings()).then(() => loadDashboard());
   checkAuth().then(() => {
     // If nobody logged in, show the login overlay automatically
-    if (!currentUser) showLoginModal();
+    if (!currentUser) {
+      showLoginModal();
+      return;
+    }
+    loadAdminSettings().then(() => loadDashboard());
   });
 });
 
