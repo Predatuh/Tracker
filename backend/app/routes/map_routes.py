@@ -5,6 +5,7 @@ from io import BytesIO
 from sqlalchemy import func
 from app import db
 from app.models import SiteMap, SiteArea, PowerBlock
+from app.utils.map_storage import list_uploaded_map_files, resolve_site_map_file
 
 bp = Blueprint('map', __name__, url_prefix='/api/map')
 
@@ -130,21 +131,15 @@ def register_existing_map():
             file_path = dest
             name = fname
         else:
-            # Look for map_* files in upload folder (from pdf_routes)
-            # Sort by modification time newest-first so the most recently uploaded map wins
-            candidates = []
-            for fname in os.listdir(upload_folder):
-                if fname.startswith('map_') and fname.lower().endswith(('.png', '.jpg', '.jpeg', '.gif')):
-                    fp = os.path.join(upload_folder, fname)
-                    candidates.append((os.path.getmtime(fp), fname, fp))
+            candidates = list_uploaded_map_files(upload_folder)
             if not candidates:
                 return jsonify({'error': 'No map file found in uploads. Upload a map first.'}), 404
-            candidates.sort(reverse=True)  # newest first
-            _, name, src = candidates[0]
+            src = candidates[0]
+            name = os.path.basename(src)
             dest = os.path.join(maps_folder, name)
-            if not os.path.exists(dest):
+            if os.path.abspath(src) != os.path.abspath(dest) and not os.path.exists(dest):
                 shutil.copy2(src, dest)
-            file_path = dest
+            file_path = dest if os.path.exists(dest) else src
 
         # Update existing record if present, otherwise create new
         existing = _current_site_map_query().first()
@@ -247,8 +242,9 @@ def get_sitemap_image(map_id):
         if site_map.svg_content:
             return current_app.response_class(site_map.svg_content, mimetype='image/svg+xml')
 
-        if site_map.file_path and os.path.exists(site_map.file_path):
-            return send_file(site_map.file_path, max_age=0)
+        resolved_path = resolve_site_map_file(site_map)
+        if resolved_path and os.path.exists(resolved_path):
+            return send_file(resolved_path, max_age=0)
 
         return jsonify({'error': 'Map image not found'}), 404
     except Exception as e:
@@ -353,8 +349,8 @@ def snap_outline(map_id):
     """
     try:
         site_map = SiteMap.query.get_or_404(map_id)
-        file_path = site_map.file_path
-        if not os.path.exists(file_path):
+        file_path = resolve_site_map_file(site_map)
+        if not file_path or not os.path.exists(file_path):
             return jsonify({'error': f'Map file not found: {file_path}'}), 404
 
         data = request.get_json()
@@ -578,9 +574,9 @@ def scan_map(map_id):
     """
     try:
         site_map = SiteMap.query.get_or_404(map_id)
-        file_path = site_map.file_path
+        file_path = resolve_site_map_file(site_map)
 
-        if not os.path.exists(file_path):
+        if not file_path or not os.path.exists(file_path):
             return jsonify({'error': f'Map file not found: {file_path}'}), 404
 
         expected_count = request.args.get('expected_count', 119, type=int)

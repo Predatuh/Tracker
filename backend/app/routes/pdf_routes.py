@@ -8,6 +8,7 @@ from app import db
 from app.models import PowerBlock, LBD
 from app.utils import PDFProcessor
 from app.utils.pdf_lbd_extractor import LBDExtractor
+from app.utils.map_storage import resolve_site_map_file
 
 logger = logging.getLogger(__name__)
 bp = Blueprint('pdf', __name__, url_prefix='/api/pdf')
@@ -32,11 +33,11 @@ def _store_map_blob(file_path, filename):
         sm = _current_site_map()
         if sm:
             sm.name = filename
-            sm.file_path = file_path
+            sm.file_path = os.path.abspath(file_path)
             sm.image_data = data
             sm.image_mime = mime
         else:
-            sm = SiteMap(name=filename, file_path=file_path, image_data=data, image_mime=mime)
+            sm = SiteMap(name=filename, file_path=os.path.abspath(file_path), image_data=data, image_mime=mime)
             db.session.add(sm)
         db.session.commit()
         return sm
@@ -170,9 +171,11 @@ def serve_map(filename):
         if site_map and site_map.image_data:
             # Also restore to disk for future requests
             os.makedirs(maps_folder, exist_ok=True)
-            restore_path = os.path.join(maps_folder, site_map.name)
-            with open(restore_path, 'wb') as f:
-                f.write(site_map.image_data)
+            restore_path = resolve_site_map_file(site_map)
+            if not restore_path:
+                restore_path = os.path.join(maps_folder, site_map.name)
+                with open(restore_path, 'wb') as f:
+                    f.write(site_map.image_data)
             return Response(site_map.image_data, mimetype=site_map.image_mime or 'image/png')
     except Exception as e:
         logger.error(f"Error serving map blob: {e}")
