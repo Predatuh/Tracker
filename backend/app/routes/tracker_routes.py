@@ -28,6 +28,11 @@ def _current_user_name():
     return user.name if user else None
 
 
+def _is_admin_user(user=None):
+    user = user or current_session_user()
+    return bool(user and (user.is_admin or user.role == 'admin'))
+
+
 def _pb_sort_key(name):
     """Extract numeric part from PB name for natural sorting (INV-1, INV-2, ..., INV-96)."""
     m = re.search(r'(\d+)', name or '')
@@ -50,7 +55,7 @@ def _lbd_is_accessible(lbd):
 
 def _block_is_accessible(block):
     user = current_session_user()
-    if user and (user.is_admin or user.role == 'admin'):
+    if _is_admin_user(user):
         return True
     allowed_ids = _allowed_tracker_id_set()
     if not allowed_ids:
@@ -61,7 +66,7 @@ def _block_is_accessible(block):
 
 def _serialize_accessible_block(block):
     user = current_session_user()
-    if user and (user.is_admin or user.role == 'admin'):
+    if _is_admin_user(user):
         return block.to_dict()
     allowed_ids = _allowed_tracker_id_set()
     payload = block.to_dict()
@@ -235,9 +240,11 @@ def get_claim_people():
 def get_power_blocks():
     """Get all power blocks with LBD dot data (3 bulk queries, no lazy loading)."""
     try:
+        user = current_session_user()
+        is_admin = _is_admin_user(user)
         tracker = _resolve_tracker()
         allowed_ids = _allowed_tracker_id_set()
-        if not allowed_ids:
+        if not is_admin and not allowed_ids:
             return jsonify({'success': True, 'data': []}), 200
         tracker_id = tracker.id if tracker else None
 
@@ -248,7 +255,9 @@ def get_power_blocks():
         lbd_q = db.session.query(
             LBD.id, LBD.power_block_id, LBD.name, LBD.identifier, LBD.inventory_number
         )
-        if tracker_id:
+        if is_admin:
+            pass
+        elif tracker_id:
             lbd_q = lbd_q.filter(LBD.tracker_id == tracker_id)
         else:
             lbd_q = lbd_q.filter(LBD.tracker_id.in_(allowed_ids))
@@ -282,7 +291,7 @@ def get_power_blocks():
                 'statuses': status_by_lbd.get(l.id, [])
             })
 
-        all_cols = tracker.all_column_keys() if tracker else []
+        all_cols = tracker.all_column_keys() if tracker else AdminSettings.all_column_keys()
 
         # Query 4: Zone per power block from site_areas
         zone_rows = db.session.query(SiteArea.power_block_id, SiteArea.zone).filter(
@@ -294,7 +303,7 @@ def get_power_blocks():
         result = []
         for b in blocks:
             pb_lbds = lbds_by_pb.get(b.id, [])
-            if tracker_id and not pb_lbds:
+            if not is_admin and tracker_id and not pb_lbds:
                 continue
             lbd_count = len(pb_lbds)
             # Build summary counts from pre-fetched data
@@ -309,6 +318,12 @@ def get_power_blocks():
                 'name': b.name,
                 'power_block_number': b.power_block_number,
                 'description': b.description,
+                'page_number': b.page_number,
+                'image_path': b.image_path,
+                'has_ifc': bool(b.ifc_pdf_data),
+                'ifc_page_number': b.ifc_page_number,
+                'ifc_filename': b.ifc_pdf_filename,
+                'ifc_url': f'/api/tracker/power-blocks/{b.id}/ifc' if b.ifc_pdf_data else None,
                 'is_completed': b.is_completed,
                 'claimed_by': b.claimed_by,
                 'claimed_people': b.get_claimed_people(),
