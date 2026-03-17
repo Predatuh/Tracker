@@ -3837,11 +3837,22 @@ function renderTextLabels() {
       'white-space:nowrap',
       'user-select:none',
       'z-index:40',
-      `cursor:${mapEditMode ? 'grab' : 'default'}`,
+      `cursor:${mapEditMode ? 'grab' : (mapDeleteMode ? 'crosshair' : 'default')}`,
       'text-shadow:0 1px 3px rgba(255,255,255,0.8)'
     ].join(';');
     el.textContent = lbl.text;
-    el.title = mapEditMode ? 'Drag to move • Right-click to edit/delete' : lbl.text;
+    el.title = mapEditMode ? 'Drag to move • Right-click to edit/delete' : (mapDeleteMode ? 'Click to delete this label' : lbl.text);
+
+    if (mapDeleteMode) {
+      // Delete mode: click to instantly delete the label
+      el.addEventListener('click', () => {
+        if (confirm('Delete label "' + lbl.text + '"?')) {
+          const ls = getTextLabels().filter(l => l.id !== lbl.id);
+          saveTextLabels(ls);
+          renderTextLabels();
+        }
+      });
+    }
 
     if (mapEditMode) {
       // Font-size resize handle (bottom-right corner)
@@ -7107,6 +7118,7 @@ function toggleDeleteMode() {
     indicator.style.display = 'none';
   }
   renderPBMarkers();
+  renderTextLabels();
 }
 
 async function instantDeleteArea(pb) {
