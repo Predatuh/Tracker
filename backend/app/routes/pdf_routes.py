@@ -6,6 +6,7 @@ import threading
 from datetime import datetime
 from app import db
 from app.models import PowerBlock, LBD
+from app.models.site_area import SiteArea
 from app.utils import PDFProcessor
 from app.utils.pdf_lbd_extractor import LBDExtractor
 from app.utils.map_storage import resolve_site_map_file
@@ -317,6 +318,40 @@ def scan_lbds():
                 scan_progress['save_percentage'] = 0
                 scan_progress['save_current'] = 0
                 scan_progress['save_total'] = 0
+
+                # ── Capture old PB metadata before deletion ──
+                # Preserve: is_completed, claims, IFC data, site_area zones
+                old_pb_meta = {}  # name -> {old_id, is_completed, claimed_*, ...}
+                old_ifc_data = {}  # name -> {ifc_pdf_data, ifc_pdf_mime, ...}
+                try:
+                    for pb in db.session.query(
+                        PowerBlock.id, PowerBlock.name, PowerBlock.is_completed,
+                        PowerBlock.claimed_by, PowerBlock.claimed_people, PowerBlock.claimed_at,
+                        PowerBlock.last_updated_by, PowerBlock.last_updated_at
+                    ).all():
+                        old_pb_meta[pb.name] = {
+                            'old_id': pb.id,
+                            'is_completed': pb.is_completed,
+                            'claimed_by': pb.claimed_by,
+                            'claimed_people': pb.claimed_people,
+                            'claimed_at': pb.claimed_at,
+                            'last_updated_by': pb.last_updated_by,
+                            'last_updated_at': pb.last_updated_at,
+                        }
+                except Exception:
+                    pass
+                try:
+                    for pb in PowerBlock.query.filter(PowerBlock.ifc_pdf_data.isnot(None)).all():
+                        old_ifc_data[pb.name] = {
+                            'ifc_pdf_data': pb.ifc_pdf_data,
+                            'ifc_pdf_mime': pb.ifc_pdf_mime,
+                            'ifc_pdf_filename': pb.ifc_pdf_filename,
+                            'ifc_page_number': pb.ifc_page_number,
+                        }
+                except Exception:
+                    pass
+                logger.info(f"Captured metadata for {len(old_pb_meta)} old PBs, {len(old_ifc_data)} with IFC data")
+
                 # Use raw SQL DELETE to bypass SQLAlchemy cascade (much faster)
                 try:
                     db.session.execute(db.text('DELETE FROM lbd_statuses'))
@@ -349,6 +384,50 @@ def scan_lbds():
                     created_power_blocks.append(power_block)
                 
                 db.session.flush()   # send INSERTs to DB within transaction
+
+                # ── Restore old PB metadata to new PBs with matching names ──
+                old_id_to_new_id = {}  # for site_area remapping
+                for pb in created_power_blocks:
+                    old = old_pb_meta.get(pb.name)
+                    if old:
+                        old_id_to_new_id[old['old_id']] = pb.id
+                        if old['is_completed']:
+                            pb.is_completed = True
+                        if old['claimed_by']:
+                            pb.claimed_by = old['claimed_by']
+                        if old['claimed_people']:
+                            pb.claimed_people = old['claimed_people']
+                        if old['claimed_at']:
+                            pb.claimed_at = old['claimed_at']
+                        if old['last_updated_by']:
+                            pb.last_updated_by = old['last_updated_by']
+                        if old['last_updated_at']:
+                            pb.last_updated_at = old['last_updated_at']
+                    ifc = old_ifc_data.get(pb.name)
+                    if ifc:
+                        pb.ifc_pdf_data = ifc['ifc_pdf_data']
+                        pb.ifc_pdf_mime = ifc['ifc_pdf_mime']
+                        pb.ifc_pdf_filename = ifc['ifc_pdf_filename']
+                        pb.ifc_page_number = ifc['ifc_page_number']
+
+                # ── Remap site_areas from old PB IDs to new PB IDs ──
+                if old_id_to_new_id:
+                    for old_id, new_id in old_id_to_new_id.items():
+                        db.session.execute(
+                            db.text('UPDATE site_areas SET power_block_id = :new_id WHERE power_block_id = :old_id'),
+                            {'new_id': new_id, 'old_id': old_id}
+                        )
+                    logger.info(f"Remapped {len(old_id_to_new_id)} site_areas to new PB IDs")
+
+                # Delete orphaned site_areas pointing to PBs that no longer exist
+                try:
+                    db.session.execute(db.text(
+                        'DELETE FROM site_areas WHERE power_block_id IS NOT NULL '
+                        'AND power_block_id NOT IN (SELECT id FROM power_blocks)'
+                    ))
+                except Exception:
+                    pass
+
                 db.session.commit()  # COMMIT power blocks so they persist even if no LBDs
                 logger.info(f"Created {len(created_power_blocks)} power block records")
                 

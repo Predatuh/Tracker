@@ -1069,10 +1069,20 @@ function renderDashboardOverview(cards) {
   const ranked = rankDashboardCards(cards);
   const featured = ranked[0] || cards[0];
   const activeTrackers = cards.filter(card => card.activeClaims > 0 || card.updatedToday > 0).length;
-  const totalItems = cards.reduce((sum, card) => sum + card.totalItems, 0);
-  const termedItems = cards.reduce((sum, card) => sum + card.termedItems, 0);
-  const updatedToday = cards.reduce((sum, card) => sum + card.updatedToday, 0);
-  const claimedToday = cards.reduce((sum, card) => sum + card.claimedToday, 0);
+
+  // Deduplicate blocks across trackers to avoid double-counting shared/unassigned LBDs
+  const _seenIds = new Set();
+  let totalItems = 0, termedItems = 0, updatedToday = 0, claimedToday = 0;
+  cards.forEach(card => {
+    (card._blocks || []).forEach(b => {
+      if (_seenIds.has(b.id)) return;
+      _seenIds.add(b.id);
+      totalItems += (b.lbd_count || 0);
+      termedItems += ((b.lbd_summary && b.lbd_summary['term']) || 0);
+      if (isDateToday(b.last_updated_at)) updatedToday++;
+      if (isDateToday(b.claimed_at)) claimedToday++;
+    });
+  });
   const overallPct = totalItems > 0 ? Math.round((termedItems / totalItems) * 100) : 0;
   const featuredBlocksLabel = featured?.dashboard_blocks_label || 'Power Blocks';
   const activeTrackerLabel = `${activeTrackers}/${totalTrackers} trackers active sitewide`;
@@ -1177,9 +1187,9 @@ async function loadDashboard() {
         .map(b => b.last_updated_at || b.claimed_at)
         .filter(Boolean)
         .sort((left, right) => (parseServerDate(right)?.getTime() || 0) - (parseServerDate(left)?.getTime() || 0))[0] || null;
-      return { ...t, totalBlocks, completedBlocks, totalItems, termedItems, pct, activeClaims, claimedToday, updatedToday, crewCount, lastActivity };
+      return { ...t, totalBlocks, completedBlocks, totalItems, termedItems, pct, activeClaims, claimedToday, updatedToday, crewCount, lastActivity, _blocks: blocks };
     } catch(e) {
-      return { ...t, totalBlocks: 0, completedBlocks: 0, totalItems: 0, termedItems: 0, pct: 0, activeClaims: 0, claimedToday: 0, updatedToday: 0, crewCount: 0, lastActivity: null };
+      return { ...t, totalBlocks: 0, completedBlocks: 0, totalItems: 0, termedItems: 0, pct: 0, activeClaims: 0, claimedToday: 0, updatedToday: 0, crewCount: 0, lastActivity: null, _blocks: [] };
     }
   }));
 

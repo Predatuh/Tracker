@@ -160,6 +160,7 @@ def create_app():
         _recover_custom_columns(app)
         _seed_admin()
         _seed_trackers(app)
+        _cleanup_orphaned_site_areas(app)
 
     # Start the nightly report scheduler (9 PM CST)
     _start_report_scheduler(app)
@@ -371,6 +372,21 @@ def _recover_custom_columns(app):
 
 
 # -- Nightly report scheduler (9 PM CST) -----------------------------------
+def _cleanup_orphaned_site_areas(app):
+    """Remove site_areas whose power_block_id points to a PB that no longer exists."""
+    try:
+        result = db.session.execute(db.text(
+            'DELETE FROM site_areas WHERE power_block_id IS NOT NULL '
+            'AND power_block_id NOT IN (SELECT id FROM power_blocks)'
+        ))
+        deleted = result.rowcount
+        if deleted:
+            db.session.commit()
+            app.logger.info(f"Cleaned up {deleted} orphaned site_areas")
+    except Exception:
+        db.session.rollback()
+
+
 def _start_report_scheduler(app):
     """Spawn a daemon thread that generates a DailyReport at 9 PM CST each day."""
     import threading
