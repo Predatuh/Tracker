@@ -897,11 +897,23 @@ function _buildClaimedBanner(block) {
   const lastAt    = block.last_updated_at ? _fmtDate(block.last_updated_at) : '';
 
   let claimPart = '';
+  let actionButtons = '';
   if (claimed) {
     claimPart = '<span style="color:#1565c0;font-weight:600;">&#128204; Claimed by ' + _escapeHtml(claimedLabel || claimed) + '</span>'
       + '<span style="color:#666;font-size:11px;"> &mdash; ' + claimedAt + '</span>';
+    if (currentUser) {
+      actionButtons = '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">'
+        + '<button onclick="showClaimPeopleDialogById(' + block.id + ')" style="background:rgba(0,212,255,0.15);color:#00d4ff;border:1px solid rgba(0,212,255,0.3);border-radius:5px;padding:5px 12px;cursor:pointer;font-size:11px;font-weight:600;">Edit Claim / Add Crew</button>'
+        + '<button onclick="claimBlock(' + block.id + ',\'unclaim\')" style="background:rgba(255,76,106,0.1);color:#ff4c6a;border:1px solid rgba(255,76,106,0.3);border-radius:5px;padding:5px 12px;cursor:pointer;font-size:11px;font-weight:600;">Release Claim</button>'
+        + '</div>';
+    }
   } else {
     claimPart = '<span style="color:#999;font-size:12px;">Unclaimed</span>';
+    if (currentUser) {
+      actionButtons = '<div style="margin-top:8px;">'
+        + '<button onclick="showClaimPeopleDialogById(' + block.id + ')" style="background:rgba(0,232,122,0.15);color:#00e87a;border:1px solid rgba(0,232,122,0.3);border-radius:5px;padding:5px 12px;cursor:pointer;font-size:11px;font-weight:700;">Claim Block / Add Crew</button>'
+        + '</div>';
+    }
   }
 
   let lastPart = '';
@@ -910,12 +922,9 @@ function _buildClaimedBanner(block) {
   }
 
   const assignmentSummary = _buildClaimAssignmentSummary(block);
-  const claimHint = currentUser
-    ? '<div style="margin-top:6px;color:#4b5563;font-size:11px;">Use the Claim tab to start, review, or release claims for this power block.</div>'
-    : '';
 
   return '<div id="pb-claimed-banner" style="margin-bottom:12px;padding:9px 14px;background:#e8f5e9;border-radius:6px;border:1px solid #c8e6c9;">'
-    + '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;">' + claimPart + '</div>' + assignmentSummary + claimHint + lastPart + '</div>';
+    + '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;">' + claimPart + '</div>' + assignmentSummary + actionButtons + lastPart + '</div>';
 }
 
 function addLBD(blockId) {
@@ -4025,10 +4034,34 @@ function showPBPanel(pb) {
   const colCount = LBD_STATUS_TYPES.length;
   const gridCols = `70px repeat(${colCount}, 1fr)`;
 
-  // Header row + bulk row
+  // Header row + bulk row + claim banner
+  const claimedPeople = Array.isArray(pb.claimed_people) ? pb.claimed_people : [];
+  const claimedLabel = pb.claimed_label || claimedPeople.join(', ');
+  const pbClaimed = pb.claimed_by;
+  let mapClaimBanner = '';
+  if (currentUser) {
+    if (pbClaimed) {
+      mapClaimBanner = `<div style="margin-bottom:8px;padding:8px 10px;background:rgba(21,101,192,0.1);border:1px solid rgba(21,101,192,0.2);border-radius:6px;">
+        <div style="font-size:12px;color:#8adfff;">&#128204; Claimed by <strong>${_escapeHtml(claimedLabel || pbClaimed)}</strong></div>
+        <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
+          <button onclick="showClaimPeopleDialogById(${pb.id})" style="background:rgba(0,212,255,0.15);color:#00d4ff;border:1px solid rgba(0,212,255,0.3);border-radius:4px;padding:3px 10px;cursor:pointer;font-size:10px;font-weight:600;">Edit Claim / Add Crew</button>
+          <button onclick="claimBlock(${pb.id},'unclaim').then(()=>{const r=mapPBs.find(b=>b.id===${pb.id});if(r){r.claimed_by=null;r.claimed_people=[];showPBPanel(r);}})" style="background:rgba(255,76,106,0.1);color:#ff4c6a;border:1px solid rgba(255,76,106,0.3);border-radius:4px;padding:3px 10px;cursor:pointer;font-size:10px;font-weight:600;">Release</button>
+        </div>
+      </div>`;
+    } else {
+      mapClaimBanner = `<div style="margin-bottom:8px;padding:8px 10px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:6px;">
+        <div style="font-size:11px;color:#94a3b8;">Unclaimed</div>
+        <div style="margin-top:6px;">
+          <button onclick="showClaimPeopleDialogById(${pb.id})" style="background:rgba(0,232,122,0.15);color:#00e87a;border:1px solid rgba(0,232,122,0.3);border-radius:4px;padding:3px 10px;cursor:pointer;font-size:10px;font-weight:700;">Claim Block / Add Crew</button>
+        </div>
+      </div>`;
+    }
+  }
+
   const headerEl = document.getElementById('lbd-grid-header');
   headerEl.innerHTML = `
     ${buildPBIfcActionMarkup(pb, true)}
+    ${mapClaimBanner}
     <div style="display:grid;grid-template-columns:${gridCols};gap:3px;align-items:end;margin-bottom:4px;">
       <div style="font-size:10px;color:#4a5568;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">LBD</div>
       ${LBD_STATUS_TYPES.map(st =>
