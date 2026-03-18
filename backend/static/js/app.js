@@ -697,37 +697,41 @@ async function showClaimPeopleDialog(block) {
 
     const overlay = document.createElement('div');
     overlay.id = 'claim-people-overlay';
-    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(3,8,20,0.7);backdrop-filter:blur(6px);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px;';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(3,8,20,0.7);backdrop-filter:blur(6px);z-index:10000;display:flex;align-items:flex-start;justify-content:center;padding:10px;overflow-y:auto;-webkit-overflow-scrolling:touch;';
 
     const optionsHtml = suggestions.map(name => {
       const escaped = _escapeHtml(name);
       const checked = selected.has(name) ? 'checked' : '';
-      return `<label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid rgba(255,255,255,0.08);border-radius:10px;background:rgba(255,255,255,0.03);cursor:pointer;">
-        <input type="checkbox" class="claim-person-option" value="${escaped}" ${checked} />
-        <span style="color:#eef2ff;font-size:13px;">${escaped}</span>
+      return `<label style="display:flex;align-items:center;gap:10px;padding:12px 14px;border:1px solid rgba(255,255,255,0.1);border-radius:10px;background:rgba(255,255,255,0.04);cursor:pointer;min-height:44px;">
+        <input type="checkbox" class="claim-person-option" value="${escaped}" ${checked} style="width:20px;height:20px;min-width:20px;" />
+        <span style="color:#eef2ff;font-size:14px;">${escaped}</span>
       </label>`;
     }).join('');
 
     overlay.innerHTML = `
-      <div style="width:min(760px,100%);max-height:80vh;overflow:auto;background:#0f172a;border:1px solid rgba(255,255,255,0.12);border-radius:18px;padding:18px;box-shadow:0 30px 80px rgba(0,0,0,0.45);">
+      <div style="width:min(760px,100%);max-height:90vh;overflow:auto;background:#0f172a;border:1px solid rgba(255,255,255,0.12);border-radius:18px;padding:18px;box-shadow:0 30px 80px rgba(0,0,0,0.45);-webkit-overflow-scrolling:touch;">
         <div style="display:flex;align-items:start;justify-content:space-between;gap:12px;">
           <div>
             <div style="color:#eef2ff;font-size:18px;font-weight:700;">Claim ${_escapeHtml(block.name)}</div>
-            <div style="color:#94a3b8;font-size:12px;margin-top:4px;">Build the shared crew, add task-specific crews where needed, then review the full claim before you submit it.</div>
+            <div style="color:#94a3b8;font-size:12px;margin-top:4px;">Select crew members, then review and submit.</div>
+            <button type="button" id="claim-view-lbds-btn" style="margin-top:6px;background:rgba(255,255,255,0.06);color:#8adfff;border:1px solid rgba(0,212,255,0.2);border-radius:4px;padding:4px 10px;cursor:pointer;font-size:11px;">View LBDs →</button>
           </div>
-          <button type="button" id="claim-people-close" style="background:transparent;border:none;color:#94a3b8;font-size:20px;cursor:pointer;">×</button>
+          <button type="button" id="claim-people-close" style="background:transparent;border:none;color:#94a3b8;font-size:24px;cursor:pointer;padding:4px 8px;">×</button>
         </div>
         <div id="claim-editor-panel">
           <div style="margin-top:16px;">
-            <label style="display:block;color:#cbd5e1;font-size:12px;margin-bottom:6px;">Shared crew on this power block</label>
-            <div style="color:#94a3b8;font-size:12px;">Use the shared crew for everyone on the PB, then add task-specific crews below when different crews handled different work types.</div>
+            <label style="display:block;color:#cbd5e1;font-size:13px;font-weight:600;margin-bottom:6px;">Shared crew on this power block</label>
           </div>
-          <div style="margin-top:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;">
-            ${optionsHtml || '<div style="color:#94a3b8;font-size:12px;">No saved people yet.</div>'}
+          <div style="margin-top:8px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;">
+            ${optionsHtml || '<div style="color:#94a3b8;font-size:12px;">No saved people yet — add names below.</div>'}
+          </div>
+          <div style="margin-top:12px;">
+            <label style="display:block;color:#cbd5e1;font-size:13px;font-weight:600;margin-bottom:6px;">Add extra crew names</label>
+            <textarea id="claim-extra-names" class="claim-modal-textarea" rows="2" placeholder="Type names separated by commas or new lines" style="width:100%;resize:vertical;font-size:14px;padding:10px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#eef2ff;"></textarea>
           </div>
           <div style="margin-top:16px;">
             <label style="display:block;color:#cbd5e1;font-size:12px;margin-bottom:6px;">Work types</label>
-            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;">
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;">
               ${LBD_STATUS_TYPES.map(statusType => {
                 const label = _escapeHtml(STATUS_LABELS[statusType] || statusType.replace(/_/g, ' '));
                 const checked = Array.isArray(existingAssignments[statusType]) && existingAssignments[statusType].length ? 'checked' : '';
@@ -742,20 +746,16 @@ async function showClaimPeopleDialog(block) {
             <label style="display:block;color:#cbd5e1;font-size:12px;margin-bottom:6px;">LBD selection by work type</label>
             <div id="claim-assignment-sections"></div>
           </div>
-          <div style="margin-top:16px;">
-            <label style="display:block;color:#cbd5e1;font-size:12px;margin-bottom:6px;">Shared extra crew names</label>
-            <textarea id="claim-extra-names" class="claim-modal-textarea" rows="3" placeholder="Type names separated by commas or new lines" style="width:100%;resize:vertical;"></textarea>
-          </div>
         </div>
         <div id="claim-review-panel" style="display:none;margin-top:16px;padding:16px;border-radius:14px;border:1px solid rgba(0,212,255,0.16);background:rgba(0,212,255,0.05);">
           <div style="font-size:12px;font-weight:700;color:#8adfff;letter-spacing:0.7px;text-transform:uppercase;">Review Claim</div>
           <div id="claim-review-content" style="margin-top:12px;"></div>
         </div>
-        <div style="margin-top:18px;display:flex;justify-content:flex-end;gap:10px;">
-          <button type="button" id="claim-people-cancel" class="btn btn-secondary">Cancel</button>
-          <button type="button" id="claim-people-back" class="btn btn-secondary" style="display:none;">Back</button>
-          <button type="button" id="claim-people-save" class="btn btn-primary">Review Claim</button>
-          <button type="button" id="claim-people-submit" class="btn btn-success" style="display:none;">Submit Claim</button>
+        <div style="margin-top:18px;display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;">
+          <button type="button" id="claim-people-cancel" class="btn btn-secondary" style="min-height:44px;padding:10px 20px;font-size:14px;">Cancel</button>
+          <button type="button" id="claim-people-back" class="btn btn-secondary" style="display:none;min-height:44px;padding:10px 20px;font-size:14px;">Back</button>
+          <button type="button" id="claim-people-save" class="btn btn-primary" style="min-height:44px;padding:10px 20px;font-size:14px;">Review Claim</button>
+          <button type="button" id="claim-people-submit" class="btn btn-success" style="display:none;min-height:44px;padding:10px 20px;font-size:14px;">Submit Claim</button>
         </div>
       </div>`;
 
@@ -771,6 +771,13 @@ async function showClaimPeopleDialog(block) {
     });
     overlay.querySelector('#claim-people-close').addEventListener('click', close);
     overlay.querySelector('#claim-people-cancel').addEventListener('click', close);
+    const viewLbdsBtn = overlay.querySelector('#claim-view-lbds-btn');
+    if (viewLbdsBtn) {
+      viewLbdsBtn.addEventListener('click', () => {
+        close();
+        showPBPanel(block);
+      });
+    }
     const editorPanel = overlay.querySelector('#claim-editor-panel');
     const reviewPanel = overlay.querySelector('#claim-review-panel');
     const reviewContent = overlay.querySelector('#claim-review-content');
@@ -3498,6 +3505,12 @@ function renderPBMarkers() {
         // Intercept click in snap-place clear-one mode
         if (snapClearOneMode && pbPolygons[String(pb.id)]) {
           snapClearOnePB(pb);
+          return;
+        }
+        // On mobile/touch devices: tap goes straight to claim dialog
+        const isMobileView = window.innerWidth <= 768 || ('ontouchstart' in window);
+        if (isMobileView && currentUser) {
+          showClaimPeopleDialogById(pb.id);
           return;
         }
         try {
