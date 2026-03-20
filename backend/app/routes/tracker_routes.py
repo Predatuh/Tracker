@@ -231,6 +231,78 @@ def _apply_claim_assignments_to_statuses(block, assignments, actor=None):
     return changed
 
 
+def _bulk_claim_status_types(data):
+    raw_status_types = data.get('status_types') or []
+    if not isinstance(raw_status_types, list):
+        raw_status_types = [raw_status_types]
+
+    normalized = []
+    seen = set()
+    for status_type in raw_status_types:
+        key = str(status_type or '').strip()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        normalized.append(key)
+    return normalized
+
+
+def _resolve_bulk_claim_assignments(block, data):
+    valid_lbd_ids = [lbd.id for lbd in block.lbds if _lbd_is_accessible(lbd)]
+    assignments_by_block = data.get('assignments_by_block') or {}
+    if isinstance(assignments_by_block, dict):
+        block_assignments = assignments_by_block.get(str(block.id))
+        if block_assignments is None:
+            block_assignments = assignments_by_block.get(block.id)
+        if block_assignments is not None:
+            return _normalize_claim_assignments(block_assignments, valid_lbd_ids)
+
+    status_types = _bulk_claim_status_types(data)
+    return {
+        status_type: list(valid_lbd_ids)
+        for status_type in status_types
+        if valid_lbd_ids
+    }
+
+
+def _apply_block_claim(block, action, actor, requested_people=None, assignments=None):
+    requested_people = requested_people or []
+    if not isinstance(requested_people, list):
+        requested_people = [requested_people]
+
+    if action == 'unclaim':
+        block.claimed_by = None
+        block.set_claim_state([], {})
+        block.claimed_at = None
+        return []
+
+    people = _normalize_people([actor, *requested_people])
+    if not people:
+        raise ValueError('A crew member is required to claim a block')
+
+    valid_lbd_ids = [lbd.id for lbd in block.lbds if _lbd_is_accessible(lbd)]
+    normalized_assignments = _normalize_claim_assignments(assignments or {}, valid_lbd_ids)
+    block.claimed_by = actor or people[0]
+    block.set_claim_state(people, normalized_assignments)
+    block.claimed_at = datetime.utcnow()
+    _ensure_claim_workers(people)
+    return _apply_claim_assignments_to_statuses(block, normalized_assignments, actor)
+
+
+def _emit_claim_updates(block_payloads, status_updates):
+    sio = _get_socketio()
+    if not sio:
+        return
+
+    for block_id, payload in block_payloads:
+        sio.emit('claim_update', {
+            'pb_id': block_id,
+            **payload,
+        })
+    for update in status_updates:
+        sio.emit('status_update', update)
+
+
 bp = Blueprint('tracker', __name__, url_prefix='/api/tracker')
 
 
@@ -579,44 +651,108 @@ def claim_power_block(block_id):
         data  = request.get_json() or {}
         action = data.get('action', 'claim')   # 'claim' or 'unclaim'
         actor  = _current_user_name() or str(data.get('actor_name') or '').strip() or None
-
-        if action == 'unclaim':
-            block.claimed_by = None
-            block.set_claim_state([], {})
-            block.claimed_at = None
-        else:
-            requested_people = data.get('people') or []
-            if not isinstance(requested_people, list):
-                requested_people = [requested_people]
-            people = _normalize_people([actor, *requested_people])
-            if not people:
-                return jsonify({'error': 'A crew member is required to claim a block'}), 400
-            valid_lbd_ids = [lbd.id for lbd in block.lbds if _lbd_is_accessible(lbd)]
-            assignments = _normalize_claim_assignments(data.get('assignments') or {}, valid_lbd_ids)
-            block.claimed_by = actor or people[0]
-            block.set_claim_state(people, assignments)
-            block.claimed_at = datetime.utcnow()
-            _ensure_claim_workers(people)
-            status_updates = _apply_claim_assignments_to_statuses(block, assignments, actor)
-
-        if action == 'unclaim':
-            status_updates = []
+        status_updates = _apply_block_claim(
+            block,
+            action,
+            actor,
+            requested_people=data.get('people') or [],
+            assignments=data.get('assignments') or {},
+        )
 
         db.session.commit()
-
-        sio = _get_socketio()
-        if sio:
-            sio.emit('claim_update', {
-                'pb_id':      block_id,
-                **_claim_payload(block),
-            })
-            for update in status_updates:
-                sio.emit('status_update', update)
+        payload = _claim_payload(block)
+        _emit_claim_updates([(block_id, payload)], status_updates)
 
         return jsonify({
             'success': True,
-            'data': _claim_payload(block)
+            'data': payload
         }), 200
+    except ValueError as exc:
+        db.session.rollback()
+        return jsonify({'error': str(exc)}), 400
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/power-blocks/bulk-claim', methods=['POST'])
+def bulk_claim_power_blocks():
+    """Claim or unclaim multiple power blocks with one request."""
+    try:
+        data = request.get_json() or {}
+        action = str(data.get('action') or 'claim').strip() or 'claim'
+        actor = _current_user_name() or str(data.get('actor_name') or '').strip() or None
+
+        raw_block_ids = data.get('block_ids') or []
+        if not isinstance(raw_block_ids, list):
+            raw_block_ids = [raw_block_ids]
+        block_ids = []
+        seen_ids = set()
+        for value in raw_block_ids:
+            try:
+                block_id = int(value)
+            except (TypeError, ValueError):
+                continue
+            if block_id <= 0 or block_id in seen_ids:
+                continue
+            seen_ids.add(block_id)
+            block_ids.append(block_id)
+
+        if not block_ids:
+            return jsonify({'error': 'At least one power block is required'}), 400
+
+        blocks = PowerBlock.query.options(
+            subqueryload(PowerBlock.lbds).subqueryload(LBD.statuses)
+        ).filter(PowerBlock.id.in_(block_ids)).all()
+        blocks_by_id = {block.id: block for block in blocks}
+
+        missing_ids = [block_id for block_id in block_ids if block_id not in blocks_by_id]
+        inaccessible_ids = [
+            block_id for block_id in block_ids
+            if block_id in blocks_by_id and not _block_is_accessible(blocks_by_id[block_id])
+        ]
+        if missing_ids:
+            return jsonify({'error': f'Power block not found: {missing_ids[0]}'}), 404
+        if inaccessible_ids:
+            return jsonify({'error': 'One or more selected power blocks are not accessible for your job site'}), 403
+
+        requested_people = data.get('people') or []
+        claimed_blocks = []
+        claim_payloads = []
+        all_status_updates = []
+
+        for block_id in block_ids:
+            block = blocks_by_id[block_id]
+            assignments = _resolve_bulk_claim_assignments(block, data)
+            status_updates = _apply_block_claim(
+                block,
+                action,
+                actor,
+                requested_people=requested_people,
+                assignments=assignments,
+            )
+            payload = _claim_payload(block)
+            claim_payloads.append((block.id, payload))
+            claimed_blocks.append({
+                'id': block.id,
+                'name': block.name,
+                **payload,
+            })
+            all_status_updates.extend(status_updates)
+
+        db.session.commit()
+        _emit_claim_updates(claim_payloads, all_status_updates)
+
+        return jsonify({
+            'success': True,
+            'data': {
+                'count': len(claimed_blocks),
+                'blocks': claimed_blocks,
+            }
+        }), 200
+    except ValueError as exc:
+        db.session.rollback()
+        return jsonify({'error': str(exc)}), 400
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500

@@ -144,6 +144,12 @@ const api = {
       body: JSON.stringify({ action, people, assignments })
     });
   },
+  bulkClaimBlocks(blockIds, action, people = [], assignmentsByBlock = {}, statusTypes = []) {
+    return this.call('/tracker/power-blocks/bulk-claim', {
+      method:'POST',
+      body: JSON.stringify({ block_ids: blockIds, action, people, assignments_by_block: assignmentsByBlock, status_types: statusTypes })
+    });
+  },
   draftClaimScan(payload) {
     return this.call('/reports/claim-scan/draft', {
       method:'POST',
@@ -4668,10 +4674,13 @@ function showStatus(elementId, message, type) {
 let claimPageState = {
   blocks: [],
   selectedBlockId: null,
+  selectedBlockIds: [],
   search: '',
   zoneFilter: '',
   sort: 'number_asc',
   statusFilter: 'all',
+  rangeStart: '',
+  rangeEnd: '',
   peopleSuggestions: [],
   scanDraft: null,
   scanFileName: '',
@@ -4683,6 +4692,28 @@ let claimPageState = {
 
 function claimSelectedBlock() {
   return claimPageState.blocks.find(block => Number(block.id) === Number(claimPageState.selectedBlockId)) || null;
+}
+
+function claimNormalizeSelectedBlockIds(blockIds) {
+  const validIds = new Set(claimPageState.blocks.map((block) => Number(block.id)));
+  const normalized = [];
+  const seen = new Set();
+  (blockIds || []).forEach((value) => {
+    const blockId = Number(value);
+    if (!Number.isFinite(blockId) || !validIds.has(blockId) || seen.has(blockId)) return;
+    seen.add(blockId);
+    normalized.push(blockId);
+  });
+  return normalized;
+}
+
+function claimSetSelectedBlockIds(blockIds) {
+  claimPageState.selectedBlockIds = claimNormalizeSelectedBlockIds(blockIds);
+}
+
+function claimSelectedBlocks() {
+  const selectedIds = new Set(claimPageState.selectedBlockIds.map((value) => Number(value)));
+  return claimPageState.blocks.filter((block) => selectedIds.has(Number(block.id)));
 }
 
 function canReleaseClaim(block) {
@@ -4778,6 +4809,18 @@ function claimSelectBlock(blockId) {
   renderClaimPage();
 }
 
+function claimToggleBlockSelection(blockId, shouldSelect) {
+  const next = new Set(claimPageState.selectedBlockIds.map((value) => Number(value)));
+  const normalizedId = Number(blockId);
+  if (shouldSelect) next.add(normalizedId);
+  else next.delete(normalizedId);
+  claimSetSelectedBlockIds(Array.from(next));
+  if (shouldSelect) {
+    claimPageState.selectedBlockId = normalizedId;
+  }
+  renderClaimPage();
+}
+
 function claimUpdateSearch(value) {
   claimPageState.search = String(value || '');
   renderClaimPage();
@@ -4798,10 +4841,319 @@ function claimUpdateStatusFilter(value) {
   renderClaimPage();
 }
 
+function claimUpdateRangeStart(value) {
+  claimPageState.rangeStart = String(value || '');
+}
+
+function claimUpdateRangeEnd(value) {
+  claimPageState.rangeEnd = String(value || '');
+}
+
+function claimSelectVisibleBlocks() {
+  const filtered = claimFilteredBlocks();
+  claimSetSelectedBlockIds(filtered.map((block) => block.id));
+  if (filtered.length) {
+    claimPageState.selectedBlockId = Number(filtered[0].id);
+  }
+  renderClaimPage();
+}
+
+function claimClearSelectedBlocks() {
+  claimPageState.selectedBlockIds = [];
+  renderClaimPage();
+}
+
+function claimSelectRange() {
+  const start = Number.parseInt(claimPageState.rangeStart, 10);
+  const end = Number.parseInt(claimPageState.rangeEnd, 10);
+  if (!Number.isFinite(start) || !Number.isFinite(end)) {
+    alert('Enter both a start and end PB number first.');
+    return;
+  }
+
+  const lower = Math.min(start, end);
+  const upper = Math.max(start, end);
+  const matchingBlocks = claimFilteredBlocks().filter((block) => {
+    const blockNumber = claimBlockNumber(block);
+    return Number.isFinite(blockNumber) && blockNumber >= lower && blockNumber <= upper;
+  });
+
+  if (!matchingBlocks.length) {
+    alert(`No visible power blocks matched the range ${lower}-${upper}.`);
+    return;
+  }
+
+  claimSetSelectedBlockIds(matchingBlocks.map((block) => block.id));
+  claimPageState.selectedBlockId = Number(matchingBlocks[0].id);
+  renderClaimPage();
+}
+
 async function claimReleaseSelectedBlock() {
   const block = claimSelectedBlock();
   if (!block) return;
   await claimBlock(block.id, 'unclaim');
+}
+
+async function showBulkClaimDialog() {
+  const blocks = claimSelectedBlocks();
+  if (blocks.length === 1) {
+    await showClaimPeopleDialog(blocks[0]);
+    return;
+  }
+  if (!blocks.length) {
+    alert('Select at least one power block first.');
+    return;
+  }
+
+  let suggestions = Array.isArray(claimPageState.peopleSuggestions) ? claimPageState.peopleSuggestions.slice() : [];
+  if (!suggestions.length) {
+    try {
+      const response = await api.getClaimPeople();
+      suggestions = Array.isArray(response.data) ? response.data : [];
+      claimPageState.peopleSuggestions = suggestions;
+    } catch (e) {
+      suggestions = [];
+    }
+  }
+
+  const blockNames = blocks.map((block) => String(block.name || '').trim()).filter(Boolean);
+  const totalItems = blocks.reduce((sum, block) => sum + Number(block.lbd_count || 0), 0);
+  const defaultPeople = currentUser?.name ? [currentUser.name] : [];
+  const statusHeaderButtons = LBD_STATUS_TYPES.map((statusType) => {
+    const label = _escapeHtml(STATUS_LABELS[statusType] || statusType.replace(/_/g, ' '));
+    return `<button type="button" class="btn btn-secondary bulk-claim-apply-status" data-status-type="${_escapeHtml(statusType)}" style="padding:6px 10px;font-size:11px;">Apply ${label} To All</button>`;
+  }).join('');
+  const blockRowsHtml = blocks.map((block) => {
+    const labels = LBD_STATUS_TYPES.map((statusType) => {
+      const label = _escapeHtml(STATUS_LABELS[statusType] || statusType.replace(/_/g, ' '));
+      return `<label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid rgba(255,255,255,0.08);border-radius:10px;background:rgba(255,255,255,0.03);cursor:pointer;">
+        <input type="checkbox" class="bulk-claim-block-status" data-block-id="${block.id}" value="${_escapeHtml(statusType)}" />
+        <span style="color:#eef2ff;font-size:12px;">${label}</span>
+      </label>`;
+    }).join('');
+    return `<div class="bulk-claim-block-row" data-block-id="${block.id}" style="padding:12px;border:1px solid rgba(255,255,255,0.08);border-radius:14px;background:rgba(255,255,255,0.03);">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+        <div>
+          <div style="color:#eef2ff;font-size:13px;font-weight:700;">${_escapeHtml(block.name)}</div>
+          <div style="color:#94a3b8;font-size:11px;margin-top:4px;">${block.lbd_count || 0} ${(currentTracker && currentTracker.item_name_plural) || 'items'} in this block</div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button type="button" class="btn btn-secondary bulk-claim-block-select-all" data-block-id="${block.id}" style="padding:5px 9px;font-size:11px;">All Tasks</button>
+          <button type="button" class="btn btn-secondary bulk-claim-block-clear" data-block-id="${block.id}" style="padding:5px 9px;font-size:11px;">Clear</button>
+        </div>
+      </div>
+      <div style="margin-top:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;">
+        ${labels}
+      </div>
+    </div>`;
+  }).join('');
+
+  const overlay = document.createElement('div');
+  overlay.id = 'claim-people-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(3,8,20,0.7);backdrop-filter:blur(6px);z-index:10000;display:flex;align-items:flex-start;justify-content:center;padding:10px;overflow-y:auto;-webkit-overflow-scrolling:touch;';
+
+  const optionsHtml = suggestions.map((name) => {
+    const escaped = _escapeHtml(name);
+    const checked = defaultPeople.includes(name) ? 'checked' : '';
+    return `<label style="display:flex;align-items:center;gap:10px;padding:12px 14px;border:1px solid rgba(255,255,255,0.1);border-radius:10px;background:rgba(255,255,255,0.04);cursor:pointer;min-height:44px;">
+      <input type="checkbox" class="claim-person-option" value="${escaped}" ${checked} style="width:20px;height:20px;min-width:20px;" />
+      <span style="color:#eef2ff;font-size:14px;">${escaped}</span>
+    </label>`;
+  }).join('');
+
+  overlay.innerHTML = `
+    <div style="width:min(760px,100%);max-height:90vh;overflow:auto;background:#0f172a;border:1px solid rgba(255,255,255,0.12);border-radius:18px;padding:18px;box-shadow:0 30px 80px rgba(0,0,0,0.45);-webkit-overflow-scrolling:touch;">
+      <div style="display:flex;align-items:start;justify-content:space-between;gap:12px;">
+        <div>
+          <div style="color:#eef2ff;font-size:18px;font-weight:700;">Bulk Claim ${blocks.length} Power Blocks</div>
+          <div style="color:#94a3b8;font-size:12px;margin-top:4px;">One submission will claim ${blocks.length} blocks and ${totalItems} ${(currentTracker && currentTracker.item_name_plural) || 'items'} with the same crew setup.</div>
+        </div>
+        <button type="button" id="bulk-claim-close" style="background:transparent;border:none;color:#94a3b8;font-size:24px;cursor:pointer;padding:4px 8px;">×</button>
+      </div>
+      <div id="bulk-claim-editor">
+        <div style="margin-top:16px;">
+          <label style="display:block;color:#cbd5e1;font-size:13px;font-weight:600;margin-bottom:6px;">Selected power blocks</label>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;">${blockNames.slice(0, 20).map((name) => `<span style="padding:6px 10px;border-radius:999px;background:rgba(0,212,255,0.08);border:1px solid rgba(0,212,255,0.18);color:#d7f7ff;font-size:12px;">${_escapeHtml(name)}</span>`).join('')}${blockNames.length > 20 ? `<span style="padding:6px 10px;border-radius:999px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);color:#94a3b8;font-size:12px;">+${blockNames.length - 20} more</span>` : ''}</div>
+        </div>
+        <div style="margin-top:18px;">
+          <label style="display:block;color:#cbd5e1;font-size:13px;font-weight:600;margin-bottom:6px;">Crew on these blocks</label>
+          <div style="margin-top:8px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;">
+            ${optionsHtml || '<div style="color:#94a3b8;font-size:12px;">No saved people yet — add names below.</div>'}
+          </div>
+          <div style="margin-top:12px;">
+            <label style="display:block;color:#cbd5e1;font-size:13px;font-weight:600;margin-bottom:6px;">Add extra crew names</label>
+            <textarea id="bulk-claim-extra-names" class="claim-modal-textarea" rows="2" placeholder="Type names separated by commas or new lines" style="width:100%;resize:vertical;font-size:14px;padding:10px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#eef2ff;">${_escapeHtml(defaultPeople.join(', '))}</textarea>
+          </div>
+        </div>
+        <div style="margin-top:18px;">
+          <label style="display:block;color:#cbd5e1;font-size:13px;font-weight:600;margin-bottom:6px;">Work types by power block</label>
+          <div style="color:#94a3b8;font-size:12px;margin-bottom:10px;">Choose different task sets for each selected PB. Any task you check will claim every visible LBD in that PB for that task.</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+            <button type="button" class="btn btn-secondary" id="bulk-claim-select-all-tasks" style="padding:6px 10px;font-size:11px;">Select Every Task For Every Block</button>
+            <button type="button" class="btn btn-secondary" id="bulk-claim-clear-all-tasks" style="padding:6px 10px;font-size:11px;">Clear All Tasks</button>
+            ${statusHeaderButtons}
+          </div>
+          <div style="display:grid;gap:10px;max-height:320px;overflow:auto;padding-right:4px;">
+            ${blockRowsHtml}
+          </div>
+        </div>
+      </div>
+      <div id="bulk-claim-review" style="display:none;margin-top:16px;padding:16px;border-radius:14px;border:1px solid rgba(0,212,255,0.16);background:rgba(0,212,255,0.05);">
+        <div style="font-size:12px;font-weight:700;color:#8adfff;letter-spacing:0.7px;text-transform:uppercase;">Review Bulk Claim</div>
+        <div id="bulk-claim-review-content" style="margin-top:12px;"></div>
+      </div>
+      <div style="margin-top:18px;display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;">
+        <button type="button" id="bulk-claim-cancel" class="btn btn-secondary" style="min-height:44px;padding:10px 20px;font-size:14px;">Cancel</button>
+        <button type="button" id="bulk-claim-back" class="btn btn-secondary" style="display:none;min-height:44px;padding:10px 20px;font-size:14px;">Back</button>
+        <button type="button" id="bulk-claim-review-btn" class="btn btn-primary" style="min-height:44px;padding:10px 20px;font-size:14px;">Review Bulk Claim</button>
+        <button type="button" id="bulk-claim-submit" class="btn btn-success" style="display:none;min-height:44px;padding:10px 20px;font-size:14px;">Submit Bulk Claim</button>
+      </div>
+    </div>`;
+
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  const editorPanel = overlay.querySelector('#bulk-claim-editor');
+  const reviewPanel = overlay.querySelector('#bulk-claim-review');
+  const reviewContent = overlay.querySelector('#bulk-claim-review-content');
+  const reviewBtn = overlay.querySelector('#bulk-claim-review-btn');
+  const backBtn = overlay.querySelector('#bulk-claim-back');
+  const submitBtn = overlay.querySelector('#bulk-claim-submit');
+
+  const setBlockStatuses = (blockId, statusTypes) => {
+    const selected = new Set((statusTypes || []).map((statusType) => String(statusType || '').trim()).filter(Boolean));
+    overlay.querySelectorAll(`.bulk-claim-block-status[data-block-id="${blockId}"]`).forEach((input) => {
+      input.checked = selected.has(String(input.value || '').trim());
+    });
+  };
+
+  const setAllBlocksStatus = (statusType, shouldCheck) => {
+    overlay.querySelectorAll(`.bulk-claim-block-status[value="${statusType}"]`).forEach((input) => {
+      input.checked = Boolean(shouldCheck);
+    });
+  };
+
+  const buildDraft = () => {
+    const checkedPeople = Array.from(overlay.querySelectorAll('.claim-person-option:checked'))
+      .map((input) => String(input.value || '').trim())
+      .filter(Boolean);
+    const extraPeople = claimParseCrewNames(overlay.querySelector('#bulk-claim-extra-names')?.value || '');
+    const assignmentsByBlock = {};
+    const statusTypeSet = new Set();
+    blocks.forEach((block) => {
+      const checkedStatusTypes = Array.from(overlay.querySelectorAll(`.bulk-claim-block-status[data-block-id="${block.id}"]:checked`))
+        .map((input) => String(input.value || '').trim())
+        .filter(Boolean);
+      const lbdIds = Array.isArray(block.lbds) ? block.lbds.map((lbd) => Number(lbd.id)).filter(Number.isFinite) : [];
+      if (!checkedStatusTypes.length || !lbdIds.length) return;
+      assignmentsByBlock[block.id] = {};
+      checkedStatusTypes.forEach((statusType) => {
+        assignmentsByBlock[block.id][statusType] = [...lbdIds];
+        statusTypeSet.add(statusType);
+      });
+    });
+    return {
+      people: _dedupeClaimNames([...checkedPeople, ...extraPeople]),
+      assignmentsByBlock,
+      statusTypes: Array.from(statusTypeSet),
+    };
+  };
+
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) close();
+  });
+  overlay.querySelector('#bulk-claim-close').addEventListener('click', close);
+  overlay.querySelector('#bulk-claim-cancel').addEventListener('click', close);
+  overlay.querySelector('#bulk-claim-select-all-tasks').addEventListener('click', () => {
+    blocks.forEach((block) => setBlockStatuses(block.id, LBD_STATUS_TYPES));
+  });
+  overlay.querySelector('#bulk-claim-clear-all-tasks').addEventListener('click', () => {
+    blocks.forEach((block) => setBlockStatuses(block.id, []));
+  });
+  overlay.querySelectorAll('.bulk-claim-apply-status').forEach((button) => {
+    button.addEventListener('click', () => {
+      const statusType = String(button.dataset.statusType || '').trim();
+      if (!statusType) return;
+      const inputs = Array.from(overlay.querySelectorAll(`.bulk-claim-block-status[value="${statusType}"]`));
+      const shouldCheck = inputs.some((input) => !input.checked);
+      setAllBlocksStatus(statusType, shouldCheck);
+    });
+  });
+  overlay.querySelectorAll('.bulk-claim-block-select-all').forEach((button) => {
+    button.addEventListener('click', () => {
+      const blockId = button.dataset.blockId;
+      setBlockStatuses(blockId, LBD_STATUS_TYPES);
+    });
+  });
+  overlay.querySelectorAll('.bulk-claim-block-clear').forEach((button) => {
+    button.addEventListener('click', () => {
+      const blockId = button.dataset.blockId;
+      setBlockStatuses(blockId, []);
+    });
+  });
+
+  reviewBtn.addEventListener('click', () => {
+    const draft = buildDraft();
+    if (!draft.people.length) {
+      alert('Choose at least one crew member before reviewing the bulk claim.');
+      return;
+    }
+    const perBlockRows = blocks.map((block) => {
+      const assignments = draft.assignmentsByBlock[block.id] || {};
+      const labels = Object.keys(assignments).map((statusType) => _escapeHtml(STATUS_LABELS[statusType] || statusType.replace(/_/g, ' ')));
+      return `<div style="padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);">
+        <div style="font-weight:700;color:#eef2ff;">${_escapeHtml(block.name)}</div>
+        <div style="margin-top:4px;color:#94a3b8;font-size:12px;">${labels.length ? labels.join(', ') : 'Crew only, no task assignments'}</div>
+      </div>`;
+    }).join('');
+    reviewContent.innerHTML = `
+      <div style="display:grid;gap:12px;">
+        <div>
+          <div style="font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:0.7px;text-transform:uppercase;">Crew</div>
+          <div style="margin-top:6px;color:#eef2ff;font-size:14px;">${draft.people.map(_escapeHtml).join(', ')}</div>
+        </div>
+        <div>
+          <div style="font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:0.7px;text-transform:uppercase;">Work Types By Block</div>
+          <div style="margin-top:8px;display:grid;gap:8px;">${perBlockRows}</div>
+        </div>
+        <div>
+          <div style="font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:0.7px;text-transform:uppercase;">Selected Blocks</div>
+          <div style="margin-top:6px;color:#eef2ff;font-size:14px;">${blockNames.map(_escapeHtml).join(', ')}</div>
+        </div>
+      </div>`;
+    editorPanel.style.display = 'none';
+    reviewPanel.style.display = 'block';
+    reviewBtn.style.display = 'none';
+    backBtn.style.display = 'inline-flex';
+    submitBtn.style.display = 'inline-flex';
+    submitBtn._draft = draft;
+  });
+
+  backBtn.addEventListener('click', () => {
+    editorPanel.style.display = 'block';
+    reviewPanel.style.display = 'none';
+    reviewBtn.style.display = 'inline-flex';
+    backBtn.style.display = 'none';
+    submitBtn.style.display = 'none';
+  });
+
+  submitBtn.addEventListener('click', async () => {
+    const draft = submitBtn._draft || buildDraft();
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Submitting...';
+    try {
+      await api.bulkClaimBlocks(blocks.map((block) => block.id), 'claim', draft.people, draft.assignmentsByBlock, draft.statusTypes);
+      close();
+      await loadClaimPage();
+      if (document.getElementById('blocks-list')) {
+        loadBlocks();
+      }
+    } catch (e) {
+      alert('Bulk claim failed: ' + e.message);
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Submit Bulk Claim';
+    }
+  });
 }
 
 function claimSetScanCrewText(value) {
@@ -4928,6 +5280,7 @@ async function loadClaimPage() {
     claimPageState.blocks = blocks;
     claimPageState.peopleSuggestions = Array.isArray(peopleResponse.data) ? peopleResponse.data : [];
     blocks.forEach((block) => { _blocksCache[block.id] = block; });
+    claimSetSelectedBlockIds(claimPageState.selectedBlockIds);
     if (!claimPageState.selectedBlockId || !blocks.some(block => Number(block.id) === Number(claimPageState.selectedBlockId))) {
       claimPageState.selectedBlockId = blocks.length ? blocks[0].id : null;
       claimPageState.scanDraft = null;
@@ -4949,6 +5302,8 @@ function renderClaimPage() {
 
   const filtered = claimFilteredBlocks();
   const selectedBlock = claimSelectedBlock();
+  const selectedBlocks = claimSelectedBlocks();
+  const selectedBlockIds = new Set(selectedBlocks.map((block) => Number(block.id)));
   const claimedBlocks = claimPageState.blocks.filter(block => block.claimed_by);
   const crewCount = new Set(claimedBlocks.flatMap(block => {
     if (Array.isArray(block.claimed_people) && block.claimed_people.length > 0) return block.claimed_people;
@@ -4966,15 +5321,22 @@ function renderClaimPage() {
 
   const blockTiles = filtered.map((block) => {
     const selected = selectedBlock && Number(selectedBlock.id) === Number(block.id);
+    const checked = selectedBlockIds.has(Number(block.id));
     const claimLabel = block.claimed_by ? `Claimed by ${_escapeHtml(block.claimed_label || block.claimed_by)}` : 'Ready to claim';
     const zoneText = block.zone ? _escapeHtml(block.zone) : 'Unzoned';
     const progressSteps = Number(block.lbd_count || 0) * LBD_STATUS_TYPES.length;
     const completedSteps = claimCompletedSteps(block);
     const progressPct = progressSteps > 0 ? Math.round((completedSteps / progressSteps) * 100) : 0;
-    return `<button type="button" class="claim-block-tile${selected ? ' is-selected' : ''}" onclick="claimSelectBlock(${block.id})">
+    return `<button type="button" class="claim-block-tile${selected ? ' is-selected' : ''}${checked ? ' is-checked' : ''}" onclick="claimSelectBlock(${block.id})">
       <div class="claim-block-tile-top">
         <span class="claim-block-name">${_escapeHtml(block.name)}</span>
         <span class="claim-block-zone">${zoneText}</span>
+      </div>
+      <div class="claim-block-tile-controls">
+        <label class="claim-block-check" onclick="event.stopPropagation()">
+          <input type="checkbox" ${checked ? 'checked' : ''} onchange="claimToggleBlockSelection(${block.id}, this.checked)" />
+          <span>${checked ? 'Included in batch' : 'Add to batch'}</span>
+        </label>
       </div>
       <div class="claim-block-status${block.claimed_by ? ' is-claimed' : ''}">${claimLabel}</div>
       <div class="claim-block-meta-row">
@@ -5006,9 +5368,11 @@ function renderClaimPage() {
     const encodedName = encodeURIComponent(String(name));
     return `<button type="button" class="claim-crew-chip" onclick="claimAppendCrewName(decodeURIComponent('${encodedName}'))">${_escapeHtml(name)}</button>`;
   }).join('');
-  const claimActionButton = selectedBlock
-    ? `<button class="btn btn-primary" onclick="showClaimPeopleDialogById(${selectedBlock.id})">Claim Block</button>`
-    : '<button class="btn btn-primary" disabled>Claim Block</button>';
+  const claimActionButton = selectedBlocks.length > 1
+    ? `<button class="btn btn-primary" onclick="showBulkClaimDialog()">Claim ${selectedBlocks.length} Blocks</button>`
+    : (selectedBlock
+      ? `<button class="btn btn-primary" onclick="showClaimPeopleDialogById(${selectedBlock.id})">Claim Block</button>`
+      : '<button class="btn btn-primary" disabled>Claim Block</button>');
   const releaseButton = selectedBlock && canReleaseClaim(selectedBlock)
     ? `<button class="btn btn-danger" onclick="claimReleaseSelectedBlock()">Release Claim</button>`
     : '';
@@ -5016,6 +5380,16 @@ function renderClaimPage() {
     ? `<button class="btn btn-secondary" onclick="showBlockModal(${selectedBlock.id})">View Details</button>`
     : '';
   const selectedItemLabel = (currentTracker && currentTracker.item_name_plural) || 'items';
+  const selectedRangeCopy = selectedBlocks.length > 1
+    ? `${selectedBlocks.length} blocks selected for bulk claim`
+    : 'Choose a power block to manage its claim workflow.';
+  const bulkSelectionCard = selectedBlocks.length > 1
+    ? `<div class="claim-info-card claim-info-card-accent">
+        <div class="claim-card-label claim-card-label-accent">Bulk Selection</div>
+        <div class="claim-card-value">${selectedBlocks.length} power blocks ready</div>
+        <div class="claim-card-copy">${selectedBlocks.map((block) => _escapeHtml(block.name)).join(', ')}</div>
+      </div>`
+    : '';
   const scanStatusCopy = claimPageState.scanLoading
     ? `Scanning ${_escapeHtml(claimPageState.scanFileName || 'claim image')}...`
     : (claimPageState.scanFileName ? `Loaded: ${_escapeHtml(claimPageState.scanFileName)}` : 'No scan selected yet.');
@@ -5032,6 +5406,7 @@ function renderClaimPage() {
           ${summaryCard('Blocks', claimPageState.blocks.length, 'Power blocks in this tracker', 'claim-tone-neutral')}
           ${summaryCard('Claimed', claimedBlocks.length, 'Blocks currently owned by a crew', 'claim-tone-cyan')}
           ${summaryCard('Crew Active', crewCount, 'Distinct crew members on live claims', 'claim-tone-emerald')}
+          ${summaryCard('Selected', selectedBlocks.length, 'Ready for bulk claim from this page', 'claim-tone-neutral')}
         </div>
       </section>
 
@@ -5073,10 +5448,20 @@ function renderClaimPage() {
         <section class="claim-blocks-panel">
           <div class="claim-panel-head">
             <div>
-              <div class="claim-panel-kicker">Select Power Block</div>
-              <div class="claim-panel-subtitle">Claims can only be started from this page.</div>
+              <div class="claim-panel-kicker">Select Power Blocks</div>
+              <div class="claim-panel-subtitle">Pick one block for detail view or batch-select a range for catch-up claiming.</div>
             </div>
-            <div class="claim-panel-count">${filtered.length} shown</div>
+            <div class="claim-panel-count">${filtered.length} shown • ${selectedBlocks.length} selected</div>
+          </div>
+          <div class="claim-selection-toolbar">
+            <div class="claim-selection-meta">Use range select for runs like PB 18-30, or select every visible block.</div>
+            <div class="claim-range-controls">
+              <input class="claim-range-input" type="number" inputmode="numeric" placeholder="Start PB" value="${_escapeHtml(claimPageState.rangeStart)}" oninput="claimUpdateRangeStart(this.value)" />
+              <input class="claim-range-input" type="number" inputmode="numeric" placeholder="End PB" value="${_escapeHtml(claimPageState.rangeEnd)}" oninput="claimUpdateRangeEnd(this.value)" />
+              <button class="btn btn-secondary" onclick="claimSelectRange()">Select Range</button>
+              <button class="btn btn-secondary" onclick="claimSelectVisibleBlocks()">Select Visible</button>
+              <button class="btn btn-secondary" onclick="claimClearSelectedBlocks()" ${selectedBlocks.length ? '' : 'disabled'}>Clear</button>
+            </div>
           </div>
           <div class="claim-block-list">${blockTiles || '<div class="claim-empty-state"><strong>No power blocks match the current filter.</strong><span>Try a different zone, status, or search term.</span></div>'}</div>
         </section>
@@ -5085,9 +5470,10 @@ function renderClaimPage() {
           <div class="claim-selected-header">
             <div class="claim-panel-kicker">Selected Block</div>
             <div class="claim-selected-name">${selectedBlock ? _escapeHtml(selectedBlock.name) : 'None selected'}</div>
-            <div class="claim-selected-meta">${selectedBlock ? `${selectedBlock.lbd_count || 0} ${selectedItemLabel} in the active tracker` : 'Choose a power block to manage its claim workflow.'}</div>
+            <div class="claim-selected-meta">${selectedBlock ? `${selectedBlock.lbd_count || 0} ${selectedItemLabel} in the active tracker` : selectedRangeCopy}</div>
           </div>
           <div class="claim-action-row">${claimActionButton}${releaseButton}${detailsButton}</div>
+          ${bulkSelectionCard}
           <div class="claim-info-card">
             <div class="claim-card-label">Claim Status</div>
             <div class="claim-card-value">${selectedBlock && selectedBlock.claimed_by ? `Claimed by ${_escapeHtml(selectedBlock.claimed_label || selectedBlock.claimed_by)}` : 'Unclaimed'}</div>
