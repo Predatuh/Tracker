@@ -387,6 +387,7 @@
                   <button class="btn admin-tab" id="atab-trackers" onclick="switchAdminTab('trackers')">📋 Trackers</button>
                   <button class="btn admin-tab" id="atab-maplabels" onclick="switchAdminTab('maplabels')">🗺️ Map Labels</button>
                   <button class="btn admin-tab" id="atab-zones" onclick="switchAdminTab('zones')">🗾 Zones</button>
+                  <button class="btn admin-tab" id="atab-claimcrew" onclick="switchAdminTab('claimcrew')">👷 Claim Crew</button>
                   <button class="btn admin-tab main-admin-only" id="atab-users" onclick="switchAdminTab('users')">👥 Users</button>
                   <button class="btn admin-tab main-admin-only" id="atab-audit" onclick="switchAdminTab('audit')">🧾 Activity</button>
                   <button class="btn admin-tab main-admin-only" id="atab-appearance" onclick="switchAdminTab('appearance')">✨ Appearance</button>
@@ -558,6 +559,27 @@
                   <div id="admin-users-list" style="display:flex;flex-direction:column;gap:12px;"></div>
                 </div>
 
+                <div id="admin-tab-claimcrew" class="admin-tab-content" style="display:none;">
+                  <h2 class="section-subtitle">Claim Crew</h2>
+                  <p style="color:var(--text-muted);font-size:13px;margin-bottom:20px;">Manage the saved crew names that appear as selectable options whenever you claim a power block.</p>
+
+                  <div class="appearance-group" style="margin-bottom:24px;max-width:700px;">
+                    <div class="appearance-group-title">Saved Crew Members</div>
+                    <p style="color:#8892b0;font-size:13px;line-height:1.6;margin:8px 0 14px 0;">Add them once here instead of typing the same names every time.</p>
+                    <div id="admin-claim-crew-list" style="display:flex;flex-wrap:wrap;gap:8px;padding:12px;border:1px solid rgba(255,255,255,0.08);border-radius:12px;background:rgba(255,255,255,0.03);min-height:56px;"></div>
+                    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px;">
+                      <input type="text" id="admin-claim-crew-input" class="appearance-input" placeholder="Add crew member" style="max-width:280px;" onkeydown="if(event.key==='Enter'){event.preventDefault();adminAddClaimCrewMember();}" />
+                      <button class="btn btn-secondary" onclick="adminAddClaimCrewMember()">Add Crew Member</button>
+                    </div>
+                    <label class="appearance-label" style="margin-top:14px;display:block;">Bulk add or edit crew names</label>
+                    <textarea id="admin-claim-people" class="appearance-input" rows="5" placeholder="Jordan&#10;Carlos&#10;Rush" oninput="adminRefreshClaimCrewFromField()"></textarea>
+                    <div style="display:flex;gap:10px;align-items:center;margin-top:12px;">
+                      <button class="btn btn-primary" onclick="saveAdminClaimPeople()">Save Claim Crew</button>
+                      <span id="claim-people-save-status" style="font-size:12px;color:var(--green);"></span>
+                    </div>
+                  </div>
+                </div>
+
                 <div id="admin-tab-audit" class="admin-tab-content" style="display:none;">
                   <h2 class="section-subtitle">Activity Log</h2>
                   <p style="color:var(--text-muted);font-size:13px;margin-bottom:20px;">Recent admin changes across trackers, settings, users, and bulk actions.</p>
@@ -710,22 +732,6 @@
                       <input type="text" id="ul-title-reports" class="appearance-input" placeholder="Daily Reports" />
                       <label class="appearance-label">Admin Controls page</label>
                       <input type="text" id="ul-title-admin" class="appearance-input" placeholder="Admin Controls" />
-                    </div>
-                  </div>
-
-                  <div class="appearance-group" style="margin-bottom:24px;max-width:700px;">
-                    <div class="appearance-group-title">Claim Crew</div>
-                    <p style="color:#8892b0;font-size:13px;line-height:1.6;margin:8px 0 14px 0;">Crew members saved here appear as selectable names whenever you claim a power block. Add them once here instead of typing the same names every time.</p>
-                    <div id="admin-claim-crew-list" style="display:flex;flex-wrap:wrap;gap:8px;padding:12px;border:1px solid rgba(255,255,255,0.08);border-radius:12px;background:rgba(255,255,255,0.03);min-height:56px;"></div>
-                    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px;">
-                      <input type="text" id="admin-claim-crew-input" class="appearance-input" placeholder="Add crew member" style="max-width:280px;" onkeydown="if(event.key==='Enter'){event.preventDefault();adminAddClaimCrewMember();}" />
-                      <button class="btn btn-secondary" onclick="adminAddClaimCrewMember()">Add Crew Member</button>
-                    </div>
-                    <label class="appearance-label" style="margin-top:14px;display:block;">Bulk add or edit crew names</label>
-                    <textarea id="admin-claim-people" class="appearance-input" rows="5" placeholder="Jordan&#10;Carlos&#10;Rush" oninput="adminRefreshClaimCrewFromField()"></textarea>
-                    <div style="display:flex;gap:10px;align-items:center;margin-top:12px;">
-                      <button class="btn btn-primary" onclick="saveAdminClaimPeople()">Save Claim Crew</button>
-                      <span id="claim-people-save-status" style="font-size:12px;color:var(--green);"></span>
                     </div>
                   </div>
 

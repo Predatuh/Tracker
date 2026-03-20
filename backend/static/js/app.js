@@ -5875,9 +5875,15 @@ function switchAdminTab(tabKey) {
   if (tabKey === 'trackers') loadTrackersTab();
   if (tabKey === 'maplabels') loadMapLabelsTab();
   if (tabKey === 'zones') loadZonesTab();
+  if (tabKey === 'claimcrew') loadClaimCrewTab();
   if (tabKey === 'appearance') loadAppearanceTab();
   if (tabKey === 'uilabels') loadUILabelsTab();
   if (tabKey === 'audit') loadAuditLogsTab();
+}
+
+function loadClaimCrewTab() {
+  const claimPeople = Array.isArray(adminSettings?.claim_people) ? adminSettings.claim_people : [];
+  adminSetClaimCrew(claimPeople);
 }
 
 function formatAdminAuditTimestamp(value) {
