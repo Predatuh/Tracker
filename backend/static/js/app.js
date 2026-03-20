@@ -6099,10 +6099,7 @@ function loadUILabelsTab() {
   setVal('ul-title-worklog',   t.title_worklog === 'Work Log' ? 'Claim' : t.title_worklog,   'Claim');
   setVal('ul-title-reports',   t.title_reports,   'Daily Reports');
   setVal('ul-title-admin',     t.title_admin,     'Admin Controls');
-  const claimPeopleField = document.getElementById('admin-claim-people');
-  if (claimPeopleField) {
-    claimPeopleField.value = claimPeople.join('\n');
-  }
+  adminSetClaimCrew(claimPeople);
   document.getElementById('uilabels-save-status').textContent = '';
 }
 
@@ -6140,18 +6137,74 @@ function resetAdminUIText() {
     .forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
 }
 
-async function saveAdminClaimPeople() {
+function adminNormalizeClaimPeople(values) {
+  const seen = new Set();
+  return (values || [])
+    .map((value) => String(value || '').trim())
+    .filter((value) => {
+      if (!value) return false;
+      const key = value.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function adminParseClaimCrewField() {
   const field = document.getElementById('admin-claim-people');
-  if (!field) return;
-  const people = field.value
-    .split(/[\n,]/)
-    .map(name => name.trim())
-    .filter(Boolean);
+  if (!field) return [];
+  return adminNormalizeClaimPeople(field.value.split(/[\n,]/));
+}
+
+function renderAdminClaimCrewList(people) {
+  const container = document.getElementById('admin-claim-crew-list');
+  if (!container) return;
+  const normalized = adminNormalizeClaimPeople(people);
+  if (!normalized.length) {
+    container.innerHTML = '<span style="color:#64748b;font-size:12px;">No crew saved yet.</span>';
+    return;
+  }
+  container.innerHTML = normalized.map((name) => {
+    const encoded = encodeURIComponent(name);
+    return `<span style="display:inline-flex;align-items:center;gap:8px;padding:7px 10px;border-radius:999px;background:rgba(0,212,255,0.08);border:1px solid rgba(0,212,255,0.18);color:#d7f7ff;font-size:12px;">
+      <span>${_escapeHtml(name)}</span>
+      <button type="button" onclick="adminRemoveClaimCrewMember(decodeURIComponent('${encoded}'))" style="background:transparent;border:none;color:#ff8fa3;cursor:pointer;font-size:13px;line-height:1;padding:0;">×</button>
+    </span>`;
+  }).join('');
+}
+
+function adminSetClaimCrew(people) {
+  const normalized = adminNormalizeClaimPeople(people);
+  const field = document.getElementById('admin-claim-people');
+  if (field) field.value = normalized.join('\n');
+  renderAdminClaimCrewList(normalized);
+}
+
+function adminRefreshClaimCrewFromField() {
+  renderAdminClaimCrewList(adminParseClaimCrewField());
+}
+
+function adminAddClaimCrewMember() {
+  const input = document.getElementById('admin-claim-crew-input');
+  if (!input) return;
+  const nextPeople = adminNormalizeClaimPeople([...adminParseClaimCrewField(), input.value]);
+  adminSetClaimCrew(nextPeople);
+  input.value = '';
+  input.focus();
+}
+
+function adminRemoveClaimCrewMember(name) {
+  const nextPeople = adminParseClaimCrewField().filter((person) => person.toLowerCase() !== String(name || '').trim().toLowerCase());
+  adminSetClaimCrew(nextPeople);
+}
+
+async function saveAdminClaimPeople() {
+  const people = adminParseClaimCrewField();
   try {
     const response = await api.saveClaimPeople(people);
     if (adminSettings) adminSettings.claim_people = response.data || people;
     const fieldValue = Array.isArray(response.data) ? response.data : people;
-    field.value = fieldValue.join('\n');
+    adminSetClaimCrew(fieldValue);
     const st = document.getElementById('claim-people-save-status');
     if (st) { st.textContent = '✓ Saved'; setTimeout(() => { st.textContent = ''; }, 2500); }
   } catch(e) {
