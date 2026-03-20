@@ -512,10 +512,34 @@ async function bulkCompleteAll(blockId, complete) {
 }
 
 function _getClaimAssignments(block) {
-  if (!block || typeof block.claim_assignments !== 'object' || block.claim_assignments === null) {
-    return {};
+  const merged = {};
+  const pushIds = (statusType, lbdIds) => {
+    const key = String(statusType || '').trim();
+    if (!key || !Array.isArray(lbdIds)) return;
+    if (!merged[key]) merged[key] = [];
+    const seen = new Set(merged[key]);
+    lbdIds.forEach((lbdId) => {
+      const normalizedId = Number(lbdId);
+      if (!Number.isFinite(normalizedId) || seen.has(normalizedId)) return;
+      seen.add(normalizedId);
+      merged[key].push(normalizedId);
+    });
+  };
+
+  if (block && typeof block.claim_assignments === 'object' && block.claim_assignments !== null) {
+    Object.entries(block.claim_assignments).forEach(([statusType, lbdIds]) => pushIds(statusType, lbdIds));
   }
-  return block.claim_assignments;
+
+  if (block && Array.isArray(block.lbds)) {
+    block.lbds.forEach((lbd) => {
+      (lbd.statuses || []).forEach((status) => {
+        if (!status || !status.is_completed) return;
+        pushIds(status.status_type, [lbd.id]);
+      });
+    });
+  }
+
+  return merged;
 }
 
 function _buildClaimAssignmentSummary(block) {
@@ -594,6 +618,7 @@ function claimToggleTaskLbdSelection(statusType, shouldSelect) {
   const overlay = document.getElementById('claim-people-overlay');
   if (!overlay) return;
   overlay.querySelectorAll(`.claim-lbd-option[data-status-type="${statusType}"]`).forEach((input) => {
+    if (input.disabled) return;
     input.checked = Boolean(shouldSelect);
   });
 }
@@ -633,6 +658,7 @@ function _renderClaimAssignmentSections(overlay, block, suggestions = []) {
 
   container.innerHTML = selectedTypes.map(statusType => {
     const label = _escapeHtml(STATUS_LABELS[statusType] || statusType.replace(/_/g, ' '));
+    const completedIds = new Set(Array.isArray(assignments[statusType]) ? assignments[statusType].map(Number) : []);
     const selectedIds = new Set(
       Array.isArray(draft.assignments[statusType]) && draft.assignments[statusType].length
         ? draft.assignments[statusType].map(Number)
@@ -644,11 +670,18 @@ function _renderClaimAssignmentSections(overlay, block, suggestions = []) {
       return `<button type="button" class="btn btn-secondary" onclick="claimAppendTaskCrew('${_escapeHtml(statusType)}', decodeURIComponent('${encodedName}'))" style="padding:5px 9px;font-size:11px;">${_escapeHtml(name)}</button>`;
     }).join('');
     const options = lbds.map(lbd => {
-      const checked = selectedIds.has(Number(lbd.id)) ? 'checked' : '';
+      const lbdId = Number(lbd.id);
+      const checked = selectedIds.has(lbdId) ? 'checked' : '';
+      const alreadyClaimed = completedIds.has(lbdId);
+      const disabled = alreadyClaimed ? 'disabled' : '';
       const name = _escapeHtml(lbd.identifier || lbd.name || `LBD ${lbd.id}`);
+      const badge = alreadyClaimed
+        ? '<span style="margin-left:auto;color:#8adfff;font-size:11px;">Already claimed</span>'
+        : '';
       return `<label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid rgba(255,255,255,0.08);border-radius:10px;background:rgba(255,255,255,0.03);cursor:pointer;">
-        <input type="checkbox" class="claim-lbd-option" data-status-type="${_escapeHtml(statusType)}" value="${lbd.id}" ${checked} />
+        <input type="checkbox" class="claim-lbd-option" data-status-type="${_escapeHtml(statusType)}" value="${lbd.id}" ${checked} ${disabled} />
         <span style="color:#eef2ff;font-size:12px;">${name}</span>
+        ${badge}
       </label>`;
     }).join('');
 

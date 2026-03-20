@@ -1660,10 +1660,13 @@ def submit_claim_scan():
             ))
             created += 1
 
+    from app.routes.tracker_routes import _apply_claim_assignments_to_statuses, _completed_claim_assignments, _merge_claim_assignments
+
+    completed_assignments = _completed_claim_assignments(block, valid_lbd_ids)
+    merged_assignments = _merge_claim_assignments(completed_assignments, assignments)
     block.claimed_by = actor or (people[0] if people else None)
-    block.set_claim_state(people, assignments)
+    block.set_claim_state(people, merged_assignments)
     block.claimed_at = datetime.utcnow()
-    from app.routes.tracker_routes import _apply_claim_assignments_to_statuses
     status_updates = _apply_claim_assignments_to_statuses(block, assignments, actor or (people[0] if people else None))
 
     report = _get_or_generate_report(target, tracker_id)
@@ -1677,8 +1680,8 @@ def submit_claim_scan():
         'power_block_id': block.id,
         'power_block_name': block.name,
         'people': people,
-        'assignments': assignments,
-        'assignment_summary': {key: len(value) for key, value in assignments.items()},
+        'assignments': merged_assignments,
+        'assignment_summary': {key: len(value) for key, value in merged_assignments.items()},
         'image_url': draft.get('image_url'),
         'image_path': draft.get('image_path'),
         'image_name': draft.get('image_name'),

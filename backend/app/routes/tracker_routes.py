@@ -153,6 +153,49 @@ def _normalize_claim_assignments(assignments, valid_lbd_ids=None):
     return normalized
 
 
+def _merge_claim_assignments(*assignment_maps):
+    merged = {}
+    for assignment_map in assignment_maps:
+        if not isinstance(assignment_map, dict):
+            continue
+        for status_type, lbd_ids in assignment_map.items():
+            key = str(status_type or '').strip()
+            if not key:
+                continue
+            if not isinstance(lbd_ids, list):
+                lbd_ids = [lbd_ids]
+            seen_ids = set(merged.get(key, []))
+            merged.setdefault(key, [])
+            for lbd_id in lbd_ids:
+                try:
+                    normalized_id = int(lbd_id)
+                except (TypeError, ValueError):
+                    continue
+                if normalized_id <= 0 or normalized_id in seen_ids:
+                    continue
+                seen_ids.add(normalized_id)
+                merged[key].append(normalized_id)
+    return merged
+
+
+def _completed_claim_assignments(block, valid_lbd_ids=None):
+    if not block:
+        return {}
+
+    valid_set = set(valid_lbd_ids or [])
+    enforce_valid_ids = bool(valid_set)
+    completed = {}
+    for lbd in block.lbds or []:
+        if enforce_valid_ids and lbd.id not in valid_set:
+            continue
+        for status in lbd.statuses or []:
+            if not getattr(status, 'is_completed', False):
+                continue
+            completed.setdefault(status.status_type, []).append(lbd.id)
+
+    return _normalize_claim_assignments(completed, valid_lbd_ids)
+
+
 def _ensure_claim_workers(names):
     normalized = _normalize_people(names)
     if not normalized:
@@ -282,8 +325,10 @@ def _apply_block_claim(block, action, actor, requested_people=None, assignments=
 
     valid_lbd_ids = [lbd.id for lbd in block.lbds if _lbd_is_accessible(lbd)]
     normalized_assignments = _normalize_claim_assignments(assignments or {}, valid_lbd_ids)
+    completed_assignments = _completed_claim_assignments(block, valid_lbd_ids)
+    merged_assignments = _merge_claim_assignments(completed_assignments, normalized_assignments)
     block.claimed_by = actor or people[0]
-    block.set_claim_state(people, normalized_assignments)
+    block.set_claim_state(people, merged_assignments)
     block.claimed_at = datetime.utcnow()
     _ensure_claim_workers(people)
     return _apply_claim_assignments_to_statuses(block, normalized_assignments, actor)
