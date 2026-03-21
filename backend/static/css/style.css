@@ -1921,6 +1921,12 @@ body::after {
   flex-wrap: wrap;
 }
 
+.reports-toolbar-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .reports-tab-btn {
   padding: 9px 18px;
   border-radius: 999px;
@@ -1947,6 +1953,11 @@ body::after {
   font-size: 12px;
   font-weight: 800;
   cursor: pointer;
+}
+
+.reports-generate-btn-fix {
+  background: linear-gradient(135deg, #ffcf70, #ff9f43);
+  color: #2b1401;
 }
 
 .reports-summary-grid {
@@ -2331,6 +2342,11 @@ body::after {
   .reports-toolbar-tabs {
     display: grid;
     grid-template-columns: 1fr 1fr;
+  }
+
+  .reports-toolbar-actions {
+    display: grid;
+    grid-template-columns: 1fr;
   }
 
   .reports-tab-btn,

@@ -5593,6 +5593,14 @@ function rp_switchFilter(mode) {
   return rp_switchView(rp_viewMode);
 }
 
+function rp_afterGenerate(mode) {
+  rp_renderSummary(rp_filteredReports(rp_reportsCache));
+  if (mode === 'fix') {
+    return rp_switchFilter('fix');
+  }
+  return rp_switchView(rp_viewMode);
+}
+
 function rp_collectFixData(data) {
   const rawEntries = (data.raw_entries || []).filter(entry => entry && entry.task_type === 'fix');
   const byWorker = {};
@@ -5671,7 +5679,10 @@ async function loadReportsPage() {
           <button id="rp-filter-all" class="reports-tab-btn" onclick="rp_switchFilter('all')">All Reports</button>
           <button id="rp-filter-fix" class="reports-tab-btn" onclick="rp_switchFilter('fix')">Fix Reports</button>
         </div>
-        <button class="reports-generate-btn" onclick="rp_generate()">Generate Today's Report</button>
+        <div class="reports-toolbar-actions">
+          <button class="reports-generate-btn" onclick="rp_generate('all')">Generate Today's Report</button>
+          <button class="reports-generate-btn reports-generate-btn-fix" onclick="rp_generate('fix')">Generate Fix Report</button>
+        </div>
       </div>
       <div id="rp-summary" class="reports-summary-grid"></div>
       <div id="rp-body" class="reports-body"></div>
@@ -5694,14 +5705,13 @@ async function rp_switchView(mode) {
   else await rp_loadCalendar();
 }
 
-async function rp_generate() {
+async function rp_generate(mode = 'all') {
   try {
     const body = {};
     if (currentTracker) body.tracker_id = currentTracker.id;
     await api.call('/reports/generate', { method: 'POST', body: JSON.stringify(body) });
-    const reports = await rp_fetchReports(true);
-    rp_renderSummary(reports);
-    await rp_switchView(rp_viewMode);
+    await rp_fetchReports(true);
+    await rp_afterGenerate(mode === 'fix' ? 'fix' : 'all');
   } catch(e) { alert('Error: ' + e.message); }
 }
 
