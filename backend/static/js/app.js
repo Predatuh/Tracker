@@ -15,6 +15,7 @@ const api = {
     const defaultOptions = {
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
+      cache: 'no-store',
       ...options
     };
     
@@ -5986,7 +5987,7 @@ function reviewLatestEntryMap(entries) {
   (entries || []).forEach((entry) => {
     if (!entry) return;
     const lbdId = Number(entry.lbd_id || 0);
-    if (lbdId > 0) {
+    if (lbdId > 0 && !latest.has(lbdId)) {
       latest.set(lbdId, entry);
     }
   });
@@ -6406,7 +6407,7 @@ async function reviewOpenBlockDialog(blockId) {
     applying = true;
     refresh();
     try {
-      await api.submitBulkReviews({
+      const response = await api.submitBulkReviews({
         reviews: Array.from(localResults.entries()).map(([lbdId, reviewResult]) => ({
           lbd_id: Number(lbdId),
           review_result: reviewResult,
@@ -6415,6 +6416,15 @@ async function reviewOpenBlockDialog(blockId) {
         tracker_id: currentTracker ? currentTracker.id : null,
         notes: notesEl ? notesEl.value : '',
       });
+      const savedEntries = Array.isArray(response?.data) ? response.data : [];
+      if (savedEntries.length) {
+        const savedIds = new Set(savedEntries.map((entry) => Number(entry.lbd_id)));
+        reviewPageState.entries = [
+          ...savedEntries,
+          ...reviewPageState.entries.filter((entry) => !savedIds.has(Number(entry.lbd_id))),
+        ];
+        renderReviewPage();
+      }
       localResults.clear();
       await loadReviewPage();
       close();
