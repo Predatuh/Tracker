@@ -9,6 +9,16 @@ const CROWN_ASSET_PATHS = [
   '/static/animations/crown3-alpha.webm'
 ];
 
+function getTrackerDisplayName(trackerOrName) {
+  const rawName = typeof trackerOrName === 'string'
+    ? trackerOrName
+    : (trackerOrName && trackerOrName.name) || '';
+  const trimmed = String(rawName || '').trim();
+  if (!trimmed) return '';
+  const stripped = trimmed.replace(/\s+tracker$/i, '').trim();
+  return stripped || trimmed;
+}
+
 const api = {
   async call(endpoint, options = {}) {
     const url = `/api${endpoint}`;
@@ -321,7 +331,7 @@ function renderHeaderTrackerSwitcher() {
     allowNoTrackerState ? '<option value="">Overview (No Tracker)</option>' : '',
     ...allTrackers.map((tracker) => {
     const selected = currentTracker && Number(currentTracker.id) === Number(tracker.id) ? ' selected' : '';
-    return `<option value="${tracker.id}"${selected}>${_escapeHtml(tracker.name)}</option>`;
+    return `<option value="${tracker.id}"${selected}>${_escapeHtml(getTrackerDisplayName(tracker))}</option>`;
     })
   ].join('');
   select.value = currentTracker ? String(currentTracker.id) : '';
@@ -334,7 +344,7 @@ function updateTrackerCrumb() {
   if (!crumb || !nameEl) return;
   const activePage = document.querySelector('.page.active');
   if (currentTracker && activePage && activePage.id !== 'page-sitemap') {
-    nameEl.textContent = (currentTracker.icon || '') + ' ' + currentTracker.name;
+    nameEl.textContent = (currentTracker.icon || '') + ' ' + getTrackerDisplayName(currentTracker);
     crumb.style.display = 'flex';
   } else {
     crumb.style.display = 'none';
@@ -1299,7 +1309,7 @@ async function loadDashboard() {
       <div class="thc-top">
         <span class="thc-icon">${t.icon || '📋'}</span>
         <div class="thc-title-wrap">
-          <span class="thc-name">${t.name}</span>
+          <span class="thc-name">${getTrackerDisplayName(t)}</span>
           ${featuredBadge}
           <span class="thc-pct-badge" style="color:${barColor}">${t.pct}%</span>
         </div>
@@ -7089,10 +7099,10 @@ function renderTrackersList(trackers) {
     }).join('');
     return `<div id="tracker-card-${t.id}" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:16px;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-        <div style="font-size:15px;font-weight:700;color:#eef2ff;">${t.icon || '📋'} ${t.name} <span style="font-size:11px;color:#8892b0;font-weight:400;">(${t.slug})</span></div>
+        <div style="font-size:15px;font-weight:700;color:#eef2ff;">${t.icon || '📋'} ${getTrackerDisplayName(t)} <span style="font-size:11px;color:#8892b0;font-weight:400;">(${t.slug})</span></div>
         <div style="display:flex;gap:6px;">
           <button class="btn btn-sm" onclick="editTrackerInline(${t.id})" style="font-size:12px;padding:4px 10px;">✏️ Edit</button>
-          <button class="btn btn-sm" onclick="deleteTrackerBtn(${t.id}, '${t.name.replace(/'/g, "\\'")}')" style="font-size:12px;padding:4px 10px;color:#ff4c6a;">🗑️</button>
+          <button class="btn btn-sm" onclick="deleteTrackerBtn(${t.id}, '${getTrackerDisplayName(t).replace(/'/g, "\\'")}')" style="font-size:12px;padding:4px 10px;color:#ff4c6a;">🗑️</button>
         </div>
       </div>
       <div style="font-size:12px;color:#a0aec0;margin-bottom:6px;">
