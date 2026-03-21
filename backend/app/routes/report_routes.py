@@ -156,7 +156,7 @@ def _resolve_block_tracker(block, requested_tracker_id=None, user=None):
 
     if requested_tracker_id:
         tracker = resolve_accessible_tracker(requested_tracker_id, user=user)
-        if tracker and tracker.id in seen:
+        if tracker and (tracker.id in seen or _is_admin_user(user) or not seen):
             return tracker
         return None
 
