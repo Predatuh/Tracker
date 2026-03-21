@@ -6104,9 +6104,13 @@ async function loadReviewPage() {
   }
 }
 
-function reviewSetSearch(value) {
-  reviewPageState.search = String(value || '');
-  renderReviewPage();
+function reviewSetSearch(inputOrValue) {
+  const isInput = inputOrValue && typeof inputOrValue === 'object' && 'value' in inputOrValue;
+  reviewPageState.search = String(isInput ? inputOrValue.value : (inputOrValue || ''));
+  renderReviewPage({
+    preserveSearchFocus: isInput,
+    searchCursor: isInput ? inputOrValue.selectionStart : null,
+  });
 }
 
 function reviewSetZoneFilter(value) {
@@ -6179,13 +6183,8 @@ function reviewDialogStatusCounts(block) {
 
 function reviewFilterDialogItems(block, selectedIds, activeView) {
   const latestMap = reviewLatestEntryMap(reviewPageState.entries);
-  const items = reviewItemsForBlock(block.id).slice().sort((left, right) => {
-    const leftSelected = selectedIds.has(left.lbd_id) ? 0 : 1;
-    const rightSelected = selectedIds.has(right.lbd_id) ? 0 : 1;
-    if (leftSelected !== rightSelected) return leftSelected - rightSelected;
-    return String(left.review_target_label || left.inventory_number || left.lbd_id)
-      .localeCompare(String(right.review_target_label || right.inventory_number || right.lbd_id));
-  });
+  const items = reviewItemsForBlock(block.id).slice().sort((left, right) => String(left.review_target_label || left.inventory_number || left.lbd_id)
+    .localeCompare(String(right.review_target_label || right.inventory_number || right.lbd_id)));
 
   return items.filter((item) => {
     const status = latestMap.get(Number(item.lbd_id))?.review_result || 'pending';
@@ -6197,10 +6196,22 @@ function reviewFilterDialogItems(block, selectedIds, activeView) {
   });
 }
 
-function reviewRenderDialogViewFilters(overlay, block, selectedIds, activeView) {
+function reviewRenderDialogViewFilters(overlay, block, selectedIds, activeView, statusOverrides) {
   const filtersEl = overlay.querySelector('#review-view-filters');
   if (!filtersEl) return;
-  const counts = reviewDialogStatusCounts(block);
+  const baseCounts = reviewDialogStatusCounts(block);
+  const counts = { ...baseCounts };
+  if (statusOverrides instanceof Map) {
+    counts.pending = 0;
+    counts.pass = 0;
+    counts.fail = 0;
+    reviewItemsForBlock(block.id).forEach((item) => {
+      const status = statusOverrides.get(Number(item.lbd_id)) || reviewLatestEntryMap(reviewPageState.entries).get(Number(item.lbd_id))?.review_result || 'pending';
+      if (status === 'pass') counts.pass += 1;
+      else if (status === 'fail') counts.fail += 1;
+      else counts.pending += 1;
+    });
+  }
   const items = [
     { key: 'selected', label: `Selected (${selectedIds.size})` },
     { key: 'pending', label: `Pending (${counts.pending})` },
@@ -6218,11 +6229,20 @@ function reviewRenderDialogViewFilters(overlay, block, selectedIds, activeView) 
   `).join('');
 }
 
-function reviewRenderBlockDialogList(overlay, block, selectedIds, activeView) {
+function reviewRenderBlockDialogList(overlay, block, selectedIds, activeView, statusOverrides) {
   const list = overlay.querySelector('#review-bulk-list');
   if (!list) return;
   const latestMap = reviewLatestEntryMap(reviewPageState.entries);
-  const items = reviewFilterDialogItems(block, selectedIds, activeView);
+  const items = reviewFilterDialogItems(block, selectedIds, activeView).filter((item) => {
+    const status = statusOverrides instanceof Map
+      ? (statusOverrides.get(Number(item.lbd_id)) || latestMap.get(Number(item.lbd_id))?.review_result || 'pending')
+      : (latestMap.get(Number(item.lbd_id))?.review_result || 'pending');
+    if (activeView === 'selected') return selectedIds.has(item.lbd_id);
+    if (activeView === 'pending') return status !== 'pass' && status !== 'fail';
+    if (activeView === 'pass') return status === 'pass';
+    if (activeView === 'fail') return status === 'fail';
+    return true;
+  });
   list.innerHTML = `
     <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:12px;">
       <div style="font-size:13px;font-weight:700;color:#eef2ff;">LBD selection for this power block</div>
@@ -6231,15 +6251,22 @@ function reviewRenderBlockDialogList(overlay, block, selectedIds, activeView) {
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(185px,1fr));gap:10px;align-items:stretch;">
       ${items.map((item) => {
         const latest = latestMap.get(Number(item.lbd_id));
-        const current = latest?.review_result || '';
+        const current = statusOverrides instanceof Map
+          ? (statusOverrides.get(Number(item.lbd_id)) || latest?.review_result || '')
+          : (latest?.review_result || '');
         const statusLabel = current === 'pass' ? 'Passed' : current === 'fail' ? 'Failed' : 'Pending';
         const statusTone = current === 'pass'
-          ? 'color:#7df0b3;background:rgba(52,199,89,0.14);border:1px solid rgba(52,199,89,0.24);'
+          ? 'color:#7df0b3;background:rgba(52,199,89,0.18);border:1px solid rgba(52,199,89,0.34);'
           : current === 'fail'
-            ? 'color:#ffd36a;background:rgba(255,154,74,0.14);border:1px solid rgba(255,154,74,0.24);'
+            ? 'color:#ffd36a;background:rgba(255,154,74,0.18);border:1px solid rgba(255,154,74,0.34);'
             : 'color:#8adfff;background:rgba(0,212,255,0.14);border:1px solid rgba(0,212,255,0.24);';
         const isSelected = selectedIds.has(item.lbd_id);
-        return `<label style="display:flex;gap:10px;align-items:flex-start;min-height:96px;padding:12px;border-radius:16px;border:1px solid ${isSelected ? 'rgba(138,223,255,0.28)' : 'rgba(255,255,255,0.08)'};background:${isSelected ? 'rgba(138,223,255,0.08)' : 'rgba(255,255,255,0.04)'};cursor:pointer;box-sizing:border-box;">
+        const cardTone = current === 'pass'
+          ? 'box-shadow:inset 0 0 0 1px rgba(52,199,89,0.28);'
+          : current === 'fail'
+            ? 'box-shadow:inset 0 0 0 1px rgba(255,154,74,0.28);'
+            : '';
+        return `<label style="display:flex;gap:10px;align-items:flex-start;min-height:96px;padding:12px;border-radius:16px;border:1px solid ${isSelected ? 'rgba(138,223,255,0.28)' : 'rgba(255,255,255,0.08)'};background:${isSelected ? 'rgba(138,223,255,0.08)' : 'rgba(255,255,255,0.04)'};${cardTone}cursor:pointer;box-sizing:border-box;">
           <input type="checkbox" class="review-bulk-check" data-lbd-id="${item.lbd_id}" ${isSelected ? 'checked' : ''} style="margin-top:3px;accent-color:#00d4ff;flex:0 0 auto;">
           <div style="min-width:0;flex:1;display:grid;gap:8px;">
             <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;">
@@ -6297,6 +6324,7 @@ async function reviewOpenBlockDialog(blockId) {
   const selectedIds = new Set();
   const notesEl = overlay.querySelector('#review-bulk-notes');
   const selectionStatus = overlay.querySelector('#review-selection-status');
+  const localResults = new Map();
   let activeView = 'pending';
   let applying = false;
 
@@ -6314,8 +6342,8 @@ async function reviewOpenBlockDialog(blockId) {
   };
 
   const refresh = () => {
-    reviewRenderDialogViewFilters(overlay, block, selectedIds, activeView);
-    reviewRenderBlockDialogList(overlay, block, selectedIds, activeView);
+    reviewRenderDialogViewFilters(overlay, block, selectedIds, activeView, localResults);
+    reviewRenderBlockDialogList(overlay, block, selectedIds, activeView, localResults);
     if (selectionStatus) {
       selectionStatus.textContent = `${selectedIds.size} selected • ${activeView} view`;
     }
@@ -6342,6 +6370,8 @@ async function reviewOpenBlockDialog(blockId) {
   });
   overlay.querySelector('#review-bulk-close')?.addEventListener('click', close);
   overlay.querySelector('#review-bulk-cancel')?.addEventListener('click', close);
+  const doneBtn = overlay.querySelector('#review-bulk-cancel');
+  if (doneBtn) doneBtn.textContent = 'Done';
   overlay.querySelector('#review-select-all')?.addEventListener('click', () => {
     selectedIds.clear();
     reviewItemsForBlock(block.id).forEach((item) => selectedIds.add(item.lbd_id));
@@ -6361,19 +6391,22 @@ async function reviewOpenBlockDialog(blockId) {
     applying = true;
     refresh();
     try {
-      await api.submitBulkReviews({
+      const response = await api.submitBulkReviews({
         reviews: targetIds.map((lbdId) => ({ lbd_id: Number(lbdId), review_result: reviewResult })),
         review_date: reviewPageState.selectedDate,
         tracker_id: currentTracker ? currentTracker.id : null,
         notes: notesEl ? notesEl.value : '',
       });
-      await loadReviewPage();
-      targetIds.forEach((lbdId) => selectedIds.delete(lbdId));
-      if (notesEl) notesEl.value = '';
-      if (activeView === 'selected' && !selectedIds.size) {
-        activeView = 'pending';
+      const savedEntries = Array.isArray(response?.data) ? response.data : [];
+      if (savedEntries.length) {
+        const savedIds = new Set(savedEntries.map((entry) => Number(entry.lbd_id)));
+        reviewPageState.entries = [
+          ...savedEntries,
+          ...reviewPageState.entries.filter((entry) => !savedIds.has(Number(entry.lbd_id))),
+        ];
       }
-      refresh();
+      targetIds.forEach((lbdId) => localResults.set(Number(lbdId), reviewResult));
+      targetIds.forEach((lbdId) => selectedIds.delete(lbdId));
     } catch (error) {
       alert('Review save failed: ' + error.message);
     } finally {
@@ -6386,7 +6419,7 @@ async function reviewOpenBlockDialog(blockId) {
   refresh();
 }
 
-function renderReviewPage() {
+function renderReviewPage(options = {}) {
   const el = document.getElementById('review-content');
   if (!el) return;
 
@@ -6493,6 +6526,7 @@ function renderReviewPage() {
       <section class="claim-filter-shell">
         <div class="claim-search-wrap">
           <input class="claim-search-input" type="text" value="${_escapeHtml(reviewPageState.search)}" oninput="reviewSetSearch(this.value)" placeholder="Search blocks, zones, or claimed crew" />
+                  <input id="review-search-input" class="claim-search-input" type="text" value="${_escapeHtml(reviewPageState.search)}" oninput="reviewSetSearch(this)" placeholder="Search blocks, zones, or claimed crew" />
         </div>
         <div class="claim-filter-group">
           <span class="claim-filter-label">Zone</span>
@@ -6581,6 +6615,17 @@ function renderReviewPage() {
         </div>
       </section>
     </div>`;
+  
+  if (options.preserveSearchFocus) {
+    const searchInput = document.getElementById('review-search-input');
+    if (searchInput) {
+      const cursor = typeof options.searchCursor === 'number' ? options.searchCursor : searchInput.value.length;
+      requestAnimationFrame(() => {
+        searchInput.focus();
+        searchInput.setSelectionRange(cursor, cursor);
+      });
+    }
+  }
 }
 
 
