@@ -262,6 +262,7 @@ def _migrate_generic(app):
         ('trackers', 'dashboard_blocks_label', "VARCHAR(100) DEFAULT 'Power Blocks'"),
         ('trackers', 'dashboard_open_label', "VARCHAR(100) DEFAULT 'Open Tracker'"),
         ('trackers', 'job_site_name', 'VARCHAR(120)'),
+        ('review_entries', 'lbd_id', 'INTEGER'),
     ]
     for table, col, dtype in migrations:
         try:
@@ -322,6 +323,7 @@ def _migrate_sqlite(app, db_uri):
     _add_col(cur, 'trackers', 'dashboard_blocks_label', "VARCHAR(100) DEFAULT 'Power Blocks'")
     _add_col(cur, 'trackers', 'dashboard_open_label', "VARCHAR(100) DEFAULT 'Open Tracker'")
     _add_col(cur, 'trackers', 'job_site_name', 'VARCHAR(120)')
+    _add_col(cur, 'review_entries', 'lbd_id', 'INTEGER')
     conn.commit()
     conn.close()
 

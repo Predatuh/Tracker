@@ -268,46 +268,54 @@ def _get_or_generate_report(target_date, tracker_id=None):
 
 
 def _build_review_report_data(target_date, tracker_id=None):
-    query = ReviewEntry.query.options(subqueryload(ReviewEntry.power_block)).filter_by(review_date=target_date)
+    query = ReviewEntry.query.options(
+        subqueryload(ReviewEntry.power_block),
+        subqueryload(ReviewEntry.lbd).subqueryload(LBD.power_block),
+    ).filter_by(review_date=target_date)
     if tracker_id:
         query = query.filter_by(tracker_id=tracker_id)
     entries = query.order_by(ReviewEntry.created_at.asc(), ReviewEntry.id.asc()).all()
 
     reviewer_names = sorted({entry.reviewed_by for entry in entries if entry.reviewed_by})
     by_power_block = defaultdict(list)
-    latest_by_block = {}
+    latest_by_target = {}
 
     for entry in entries:
         item = entry.to_dict()
         block_name = item.get('power_block_name') or f"Power Block {entry.power_block_id}"
+        target_key = f"lbd:{entry.lbd_id}" if entry.lbd_id else f"block:{entry.power_block_id}"
         by_power_block[block_name].append(item)
-        latest_by_block[entry.power_block_id] = item
+        latest_by_target[target_key] = item
 
     by_reviewer = defaultdict(lambda: {'pass': [], 'fail': []})
     latest_reviews = sorted(
-        latest_by_block.values(),
+        latest_by_target.values(),
         key=lambda item: (
             str(item.get('power_block_name') or '').lower(),
+            str(item.get('review_target_label') or '').lower(),
             str(item.get('created_at') or ''),
         ),
     )
     for item in latest_reviews:
         reviewer = item.get('reviewed_by') or 'Unknown'
         result = 'pass' if item.get('review_result') == 'pass' else 'fail'
-        block_name = item.get('power_block_name') or 'Unknown'
-        by_reviewer[reviewer][result].append(block_name)
+        target_label = item.get('review_target_label') or item.get('power_block_name') or 'Unknown'
+        if item.get('power_block_name') and item.get('lbd_id'):
+            target_label = f"{item.get('power_block_name')} / {target_label}"
+        by_reviewer[reviewer][result].append(target_label)
 
-    failed_blocks = [item for item in latest_reviews if item.get('review_result') == 'fail']
+    failed_lbds = [item for item in latest_reviews if item.get('review_result') == 'fail']
 
     return {
         'report_date': target_date.isoformat(),
         'total_reviews': len(entries),
         'pass_count': sum(1 for item in latest_reviews if item.get('review_result') == 'pass'),
-        'fail_count': len(failed_blocks),
+        'fail_count': len(failed_lbds),
         'reviewer_names': reviewer_names,
         'raw_entries': [entry.to_dict() for entry in entries],
         'latest_reviews': latest_reviews,
-        'failed_blocks': failed_blocks,
+        'failed_lbds': failed_lbds,
+        'failed_blocks': failed_lbds,
         'by_power_block': {name: items for name, items in by_power_block.items()},
         'by_reviewer': {name: groups for name, groups in by_reviewer.items()},
     }
@@ -1879,11 +1887,11 @@ def create_review():
 
     data = request.get_json() or {}
     try:
-        block_id = int(data.get('power_block_id') or 0)
+        lbd_id = int(data.get('lbd_id') or 0)
     except (TypeError, ValueError):
-        block_id = 0
-    if block_id <= 0:
-        return jsonify({'error': 'power_block_id is required'}), 400
+        lbd_id = 0
+    if lbd_id <= 0:
+        return jsonify({'error': 'lbd_id is required'}), 400
 
     result = str(data.get('review_result') or '').strip().lower()
     if result not in {'pass', 'fail'}:
@@ -1894,13 +1902,15 @@ def create_review():
     except ValueError:
         return jsonify({'error': 'Invalid review_date, use YYYY-MM-DD'}), 400
 
-    block = PowerBlock.query.options(subqueryload(PowerBlock.lbds)).get_or_404(block_id)
+    lbd = LBD.query.options(subqueryload(LBD.power_block)).get_or_404(lbd_id)
+    block = lbd.power_block
     tracker = _resolve_block_tracker(block, data.get('tracker_id'), user=user)
     if not tracker and not _is_admin_user(user):
-        return jsonify({'error': 'That power block is not accessible for your job site'}), 403
+        return jsonify({'error': 'That LBD is not accessible for your job site'}), 403
 
     entry = ReviewEntry(
         power_block_id=block.id,
+        lbd_id=lbd.id,
         tracker_id=tracker.id if tracker else None,
         review_result=result,
         review_date=review_date,

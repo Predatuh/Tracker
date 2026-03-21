@@ -5926,10 +5926,11 @@ async function rp_showDetail(dateStr, syncSelection = true) {
 // ============================================================
 const reviewPageState = {
   blocks: [],
+  items: [],
   entries: [],
   reports: [],
   reportDetails: {},
-  selectedBlockId: null,
+  selectedLbdId: null,
   selectedReportDate: null,
   selectedDate: new Date().toISOString().slice(0, 10),
   search: '',
@@ -5940,31 +5941,66 @@ const reviewPageState = {
   submitting: false,
 };
 
+function reviewFormatLbdLabel(lbd) {
+  if (!lbd) return 'LBD';
+  return lbd.identifier || lbd.name || (lbd.id ? `LBD ${lbd.id}` : 'LBD');
+}
+
+function reviewBuildItems(blocks) {
+  const items = [];
+  (blocks || []).forEach((block) => {
+    const lbds = Array.isArray(block.lbds) ? [...block.lbds] : [];
+    lbds.sort((left, right) => reviewFormatLbdLabel(left).localeCompare(reviewFormatLbdLabel(right), undefined, { numeric: true, sensitivity: 'base' }));
+    lbds.forEach((lbd) => {
+      items.push({
+        lbd_id: Number(lbd.id),
+        power_block_id: Number(block.id),
+        power_block_name: block.name || 'Power Block',
+        power_block_number: block.power_block_number,
+        zone: block.zone || '',
+        claimed_label: block.claimed_label || '',
+        claimed_by: block.claimed_by || '',
+        lbd_name: lbd.name || '',
+        lbd_identifier: lbd.identifier || '',
+        inventory_number: lbd.inventory_number || '',
+        review_target_label: reviewFormatLbdLabel(lbd),
+      });
+    });
+  });
+  return items.sort((left, right) => {
+    const blockDiff = Number(left.power_block_number || 0) - Number(right.power_block_number || 0);
+    if (blockDiff !== 0) return blockDiff;
+    return String(left.review_target_label || '').localeCompare(String(right.review_target_label || ''), undefined, { numeric: true, sensitivity: 'base' });
+  });
+}
+
 function reviewLatestEntryMap(entries) {
   const latest = new Map();
   (entries || []).forEach((entry) => {
-    if (!entry || !entry.power_block_id) return;
-    latest.set(Number(entry.power_block_id), entry);
+    if (!entry) return;
+    const lbdId = Number(entry.lbd_id || 0);
+    if (lbdId > 0) {
+      latest.set(lbdId, entry);
+    }
   });
   return latest;
 }
 
-function reviewSelectedBlock() {
-  return reviewPageState.blocks.find(block => Number(block.id) === Number(reviewPageState.selectedBlockId)) || null;
+function reviewSelectedItem() {
+  return reviewPageState.items.find(item => Number(item.lbd_id) === Number(reviewPageState.selectedLbdId)) || null;
 }
 
-function reviewFilteredBlocks() {
+function reviewFilteredItems() {
   const query = reviewPageState.search.trim().toLowerCase();
   const zoneFilter = reviewPageState.zoneFilter;
-  return reviewPageState.blocks
-    .filter((block) => {
-      if (zoneFilter && (block.zone || '') !== zoneFilter) return false;
+  return reviewPageState.items
+    .filter((item) => {
+      if (zoneFilter && (item.zone || '') !== zoneFilter) return false;
       if (!query) return true;
-      return [block.name, block.zone, block.claimed_label, block.claimed_by]
+      return [item.power_block_name, item.zone, item.claimed_label, item.claimed_by, item.review_target_label, item.lbd_name, item.lbd_identifier, item.inventory_number]
         .filter(Boolean)
         .some(value => String(value).toLowerCase().includes(query));
-    })
-    .sort((left, right) => Number(left.power_block_number || 0) - Number(right.power_block_number || 0));
+    });
 }
 
 function reviewZoneOptions() {
@@ -5991,11 +6027,12 @@ async function loadReviewPage() {
       api.getReviewReports(),
     ]);
     reviewPageState.blocks = Array.isArray(blocksResponse.data) ? blocksResponse.data : [];
+    reviewPageState.items = reviewBuildItems(reviewPageState.blocks);
     reviewPageState.entries = Array.isArray(entriesResponse.data) ? entriesResponse.data : [];
     reviewPageState.reports = Array.isArray(reportsResponse.data) ? reportsResponse.data : [];
     reviewPageState.reports.sort((a, b) => b.report_date.localeCompare(a.report_date));
-    if (!reviewPageState.selectedBlockId || !reviewPageState.blocks.some(block => Number(block.id) === Number(reviewPageState.selectedBlockId))) {
-      reviewPageState.selectedBlockId = reviewPageState.blocks[0]?.id || null;
+    if (!reviewPageState.selectedLbdId || !reviewPageState.items.some(item => Number(item.lbd_id) === Number(reviewPageState.selectedLbdId))) {
+      reviewPageState.selectedLbdId = reviewPageState.items[0]?.lbd_id || null;
     }
     if (!reviewPageState.selectedReportDate || !reviewPageState.reports.some(report => report.report_date === reviewPageState.selectedReportDate)) {
       reviewPageState.selectedReportDate = reviewPageState.reports[0]?.report_date || null;
@@ -6021,8 +6058,8 @@ function reviewSetZoneFilter(value) {
   renderReviewPage();
 }
 
-function reviewSelectBlock(blockId) {
-  reviewPageState.selectedBlockId = Number(blockId);
+function reviewSelectLbd(lbdId) {
+  reviewPageState.selectedLbdId = Number(lbdId);
   renderReviewPage();
 }
 
@@ -6047,9 +6084,9 @@ async function reviewSelectReport(dateStr) {
 }
 
 async function reviewSubmitSelected() {
-  const block = reviewSelectedBlock();
-  if (!block) {
-    alert('Select a power block before saving a review.');
+  const item = reviewSelectedItem();
+  if (!item) {
+    alert('Select an LBD before saving a review.');
     return;
   }
 
@@ -6057,7 +6094,7 @@ async function reviewSubmitSelected() {
   renderReviewPage();
   try {
     await api.submitReview({
-      power_block_id: block.id,
+      lbd_id: item.lbd_id,
       tracker_id: currentTracker ? currentTracker.id : null,
       review_result: reviewPageState.result,
       review_date: reviewPageState.selectedDate,
@@ -6093,11 +6130,11 @@ function renderReviewPage() {
   const el = document.getElementById('review-content');
   if (!el) return;
 
-  const filteredBlocks = reviewFilteredBlocks();
-  const selectedBlock = reviewSelectedBlock();
+  const filteredItems = reviewFilteredItems();
+  const selectedItem = reviewSelectedItem();
   const latestMap = reviewLatestEntryMap(reviewPageState.entries);
   const latestEntries = Array.from(latestMap.values());
-  const failingBlocks = latestEntries.filter(entry => entry.review_result === 'fail');
+  const failingItems = latestEntries.filter(entry => entry.review_result === 'fail');
   const reviewReports = reviewPageState.reports;
   const selectedReport = reviewPageState.selectedReportDate ? reviewPageState.reportDetails[reviewPageState.selectedReportDate] : null;
   const zoneOptions = reviewZoneOptions();
@@ -6109,38 +6146,41 @@ function renderReviewPage() {
       <div class="claim-summary-meta">${meta}</div>
     </article>`;
 
-  const blockTiles = filteredBlocks.map((block) => {
-    const latest = latestMap.get(Number(block.id));
-    const isSelected = selectedBlock && Number(selectedBlock.id) === Number(block.id);
+  const itemTiles = filteredItems.map((item) => {
+    const latest = latestMap.get(Number(item.lbd_id));
+    const isSelected = selectedItem && Number(selectedItem.lbd_id) === Number(item.lbd_id);
     const statusTone = latest?.review_result === 'pass' ? 'review-status-pass' : latest?.review_result === 'fail' ? 'review-status-fail' : 'review-status-pending';
     const statusLabel = latest
       ? `${latest.review_result === 'pass' ? 'Passed' : 'Failed'} by ${_escapeHtml(latest.reviewed_by || 'Unknown')}`
       : 'Not reviewed for this date';
-    return `<button type="button" class="claim-block-tile${isSelected ? ' is-selected' : ''}" onclick="reviewSelectBlock(${block.id})">
+    return `<button type="button" class="claim-block-tile${isSelected ? ' is-selected' : ''}" onclick="reviewSelectLbd(${item.lbd_id})">
       <div class="claim-block-tile-top">
-        <span class="claim-block-name">${_escapeHtml(block.name)}</span>
-        <span class="claim-block-zone">${_escapeHtml(block.zone || 'Unzoned')}</span>
+        <span class="claim-block-name">${_escapeHtml(item.review_target_label || 'LBD')}</span>
+        <span class="claim-block-zone">PB ${_escapeHtml(item.power_block_number || item.power_block_name || '')}</span>
       </div>
       <div class="claim-block-status ${statusTone}">${statusLabel}</div>
       <div class="claim-block-meta-row">
-        <span class="claim-block-count">${block.lbd_count || 0} ${(currentTracker && currentTracker.item_name_plural) || 'Items'}</span>
-        <span class="claim-block-progress">PB ${_escapeHtml(block.power_block_number)}</span>
+        <span class="claim-block-count">${_escapeHtml(item.power_block_name || 'Power Block')}</span>
+        <span class="claim-block-progress">${_escapeHtml(item.zone || 'Unzoned')}</span>
       </div>
     </button>`;
   }).join('');
 
-  const selectedLatest = selectedBlock ? latestMap.get(Number(selectedBlock.id)) : null;
+  const selectedLatest = selectedItem ? latestMap.get(Number(selectedItem.lbd_id)) : null;
   const selectedStatus = selectedLatest
     ? `${selectedLatest.review_result === 'pass' ? 'Pass' : 'Fail'} • ${_escapeHtml(selectedLatest.reviewed_by || 'Unknown')} • ${rp_formatDate(selectedLatest.review_date, { month: 'short', day: 'numeric', year: 'numeric' })}`
-    : 'No review saved for this block on the selected date.';
+    : 'No review saved for this LBD on the selected date.';
   const selectedNotes = selectedLatest?.notes ? _escapeHtml(selectedLatest.notes) : 'No notes saved yet.';
   const entryRows = reviewPageState.entries.slice(0, 14).map((entry) => `
     <div class="review-entry-row">
       <div>
-        <strong>${_escapeHtml(entry.power_block_name || 'Power Block')}</strong>
-        <div class="review-entry-meta">${_escapeHtml(entry.reviewed_by || 'Unknown')} • ${_escapeHtml(entry.review_result || 'pending')}</div>
+        <strong>${_escapeHtml(entry.review_target_label || entry.lbd_identifier || entry.lbd_name || 'LBD')}</strong>
+        <div class="review-entry-meta">${_escapeHtml(entry.power_block_name || 'Power Block')}</div>
       </div>
-      <div class="review-entry-notes">${_escapeHtml(entry.notes || 'No notes')}</div>
+      <div>
+        <div class="review-entry-meta">${_escapeHtml(entry.reviewed_by || 'Unknown')} • ${_escapeHtml(entry.review_result || 'pending')}</div>
+        <div class="review-entry-notes">${_escapeHtml(entry.notes || 'No notes')}</div>
+      </div>
     </div>`).join('');
 
   const reportList = reviewReports.map((report) => {
@@ -6148,15 +6188,16 @@ function renderReviewPage() {
     return `<button type="button" class="reports-list-card${isActive ? ' active' : ''}" onclick="reviewSelectReport('${report.report_date}')">
       <div class="reports-list-card-main">
         <div class="reports-list-card-date">${rp_formatDate(report.report_date)}</div>
-        <div class="reports-list-card-meta">${report.total_reviews || 0} reviews • ${report.fail_count || 0} blocks need fixes • ${Array.isArray(report.reviewers) ? report.reviewers.length : 0} reviewers</div>
+        <div class="reports-list-card-meta">${report.total_reviews || 0} reviews • ${report.fail_count || 0} LBDs need fixes • ${Array.isArray(report.reviewers) ? report.reviewers.length : 0} reviewers</div>
       </div>
     </button>`;
   }).join('');
 
   const selectedReportData = selectedReport?.data || {};
-  const failedCards = (selectedReportData.failed_blocks || []).map((entry) => `
+  const failedCards = (selectedReportData.failed_lbds || selectedReportData.failed_blocks || []).map((entry) => `
     <article class="review-fail-card">
-      <div class="review-fail-title">${_escapeHtml(entry.power_block_name || 'Power Block')}</div>
+      <div class="review-fail-title">${_escapeHtml(entry.review_target_label || entry.lbd_identifier || entry.lbd_name || 'LBD')}</div>
+      <div class="review-fail-meta">${_escapeHtml(entry.power_block_name || 'Power Block')}</div>
       <div class="review-fail-meta">Last review: ${_escapeHtml(entry.reviewed_by || 'Unknown')} • ${_escapeHtml(entry.review_result || 'fail')}</div>
       <div class="review-fail-notes">${_escapeHtml(entry.notes || 'No notes captured')}</div>
     </article>`).join('');
@@ -6180,8 +6221,8 @@ function renderReviewPage() {
         </div>
         <div class="claim-summary-grid">
           ${summaryCard('Blocks', reviewPageState.blocks.length, 'Power blocks available for review', 'claim-tone-neutral')}
-          ${summaryCard('Reviewed Today', reviewPageState.entries.length, `Entries logged for ${rp_formatDate(reviewPageState.selectedDate, { month: 'short', day: 'numeric', year: 'numeric' })}`, 'claim-tone-cyan')}
-          ${summaryCard('Need Fixes', failingBlocks.length, 'Blocks currently failing on the selected date', 'claim-tone-amber')}
+          ${summaryCard('Review LBDs', reviewPageState.items.length, 'Individual LBDs available for review', 'claim-tone-cyan')}
+          ${summaryCard('Need Fixes', failingItems.length, 'LBDs currently failing on the selected date', 'claim-tone-amber')}
           ${summaryCard('Review Reports', reviewReports.length, 'Generated review snapshots on record', 'claim-tone-emerald')}
         </div>
       </section>
@@ -6211,25 +6252,30 @@ function renderReviewPage() {
         <section class="claim-blocks-panel">
           <div class="claim-panel-head">
             <div>
-              <div class="claim-panel-kicker">Review Blocks</div>
-              <div class="claim-panel-subtitle">Select a block and record whether it passed or failed quality review.</div>
+              <div class="claim-panel-kicker">Review LBDs</div>
+              <div class="claim-panel-subtitle">Select an LBD and record whether it passed or failed quality review.</div>
             </div>
-            <div class="claim-panel-count">${filteredBlocks.length} shown</div>
+            <div class="claim-panel-count">${filteredItems.length} shown</div>
           </div>
-          <div class="claim-block-list">${blockTiles || '<div class="claim-empty-state"><strong>No power blocks match the current filter.</strong><span>Try a different zone or search term.</span></div>'}</div>
+          <div class="claim-block-list">${itemTiles || '<div class="claim-empty-state"><strong>No LBDs match the current filter.</strong><span>Try a different zone or search term.</span></div>'}</div>
         </section>
 
         <aside class="claim-detail-panel">
           <div class="claim-selected-header">
-            <div class="claim-panel-kicker">Selected Block</div>
-            <div class="claim-selected-name">${selectedBlock ? _escapeHtml(selectedBlock.name) : 'None selected'}</div>
-            <div class="claim-selected-meta">${selectedBlock ? `${selectedBlock.lbd_count || 0} ${(currentTracker && currentTracker.item_name_plural) || 'items'} in this power block` : 'Choose a block to log a review.'}</div>
+            <div class="claim-panel-kicker">Selected LBD</div>
+            <div class="claim-selected-name">${selectedItem ? _escapeHtml(selectedItem.review_target_label || 'LBD') : 'None selected'}</div>
+            <div class="claim-selected-meta">${selectedItem ? `${_escapeHtml(selectedItem.power_block_name || 'Power Block')} • ${_escapeHtml(selectedItem.zone || 'Unzoned')}` : 'Choose an LBD to log a review.'}</div>
           </div>
           <div class="claim-info-card">
             <div class="claim-card-label">Latest Review</div>
             <div class="claim-card-value">${selectedLatest ? (selectedLatest.review_result === 'pass' ? 'Passed' : 'Failed') : 'No review yet'}</div>
             <div class="claim-card-meta">${selectedStatus}</div>
             <div class="claim-card-copy" style="margin-top:8px;">${selectedNotes}</div>
+          </div>
+          <div class="claim-info-card">
+            <div class="claim-card-label">Power Block</div>
+            <div class="claim-card-value">${selectedItem ? _escapeHtml(selectedItem.power_block_name || 'Power Block') : 'No block selected'}</div>
+            <div class="claim-card-meta">${selectedItem ? `PB ${_escapeHtml(selectedItem.power_block_number || '')}${selectedItem.inventory_number ? ` • ${_escapeHtml(selectedItem.inventory_number)}` : ''}` : 'Select an LBD to view its power block.'}</div>
           </div>
           <div class="claim-info-card claim-info-card-accent">
             <div class="claim-card-label claim-card-label-accent">Result</div>
@@ -6239,7 +6285,7 @@ function renderReviewPage() {
             </div>
             <textarea class="claim-modal-textarea claim-scan-textarea" oninput="reviewSetNotes(this.value)" placeholder="Add notes from the quality walk">${_escapeHtml(reviewPageState.notes)}</textarea>
             <div class="claim-submit-row">
-              <button class="btn btn-success" onclick="reviewSubmitSelected()" ${(selectedBlock && !reviewPageState.submitting) ? '' : 'disabled'}>${reviewPageState.submitting ? 'Saving...' : 'Save Review'}</button>
+              <button class="btn btn-success" onclick="reviewSubmitSelected()" ${(selectedItem && !reviewPageState.submitting) ? '' : 'disabled'}>${reviewPageState.submitting ? 'Saving...' : 'Save Review'}</button>
             </div>
           </div>
           <div class="claim-info-card">
@@ -6273,8 +6319,8 @@ function renderReviewPage() {
                   </div>
                 </div>
                 <div class="reports-detail-section">
-                  <div class="reports-detail-section-title">Blocks That Need Fixes</div>
-                  <div class="review-fail-grid">${failedCards || '<div class="reports-empty-copy">No failed blocks in this report.</div>'}</div>
+                  <div class="reports-detail-section-title">LBDs That Need Fixes</div>
+                  <div class="review-fail-grid">${failedCards || '<div class="reports-empty-copy">No failed LBDs in this report.</div>'}</div>
                 </div>
                 <div class="reports-detail-section">
                   <div class="reports-detail-section-title">By Reviewer</div>
