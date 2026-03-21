@@ -25,6 +25,7 @@ from app.models.lbd import LBD
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 from sqlalchemy.orm import subqueryload
+from sqlalchemy import or_
 import pytz
 import base64
 import os
@@ -273,7 +274,7 @@ def _build_review_report_data(target_date, tracker_id=None):
         subqueryload(ReviewEntry.lbd).subqueryload(LBD.power_block),
     ).filter_by(review_date=target_date)
     if tracker_id:
-        query = query.filter_by(tracker_id=tracker_id)
+        query = query.filter(or_(ReviewEntry.tracker_id == tracker_id, ReviewEntry.tracker_id.is_(None)))
     entries = query.order_by(ReviewEntry.created_at.asc(), ReviewEntry.id.asc()).all()
 
     reviewer_names = sorted({entry.reviewed_by for entry in entries if entry.reviewed_by})
@@ -2003,12 +2004,19 @@ def list_review_reports():
         return jsonify({'error': 'Review access is restricted to admin users'}), 403
 
     tracker_id = _resolve_tracker_id()
-    query = _scope_query_to_accessible_trackers(
-        DailyReviewReport.query,
-        DailyReviewReport.tracker_id,
-        tracker_id=tracker_id,
-        user=user,
-    )
+    query = DailyReviewReport.query
+    if tracker_id:
+        if _is_admin_user(user):
+            query = query.filter(or_(DailyReviewReport.tracker_id == tracker_id, DailyReviewReport.tracker_id.is_(None)))
+        else:
+            query = query.filter(DailyReviewReport.tracker_id == tracker_id)
+    else:
+        query = _scope_query_to_accessible_trackers(
+            query,
+            DailyReviewReport.tracker_id,
+            tracker_id=tracker_id,
+            user=user,
+        )
     reports = query.order_by(DailyReviewReport.report_date.desc()).all()
     return jsonify({'success': True, 'data': [report.to_summary() for report in reports]}), 200
 
@@ -2033,12 +2041,19 @@ def get_review_report_by_date(date_str):
         return jsonify({'error': 'Invalid date, use YYYY-MM-DD'}), 400
 
     tracker_id = _resolve_tracker_id()
-    query = _scope_query_to_accessible_trackers(
-        DailyReviewReport.query.filter_by(report_date=target),
-        DailyReviewReport.tracker_id,
-        tracker_id=tracker_id,
-        user=user,
-    )
+    query = DailyReviewReport.query.filter_by(report_date=target)
+    if tracker_id:
+        if _is_admin_user(user):
+            query = query.filter(or_(DailyReviewReport.tracker_id == tracker_id, DailyReviewReport.tracker_id.is_(None)))
+        else:
+            query = query.filter(DailyReviewReport.tracker_id == tracker_id)
+    else:
+        query = _scope_query_to_accessible_trackers(
+            query,
+            DailyReviewReport.tracker_id,
+            tracker_id=tracker_id,
+            user=user,
+        )
     report = query.first()
     if not report:
         return jsonify({'success': True, 'data': None}), 200
