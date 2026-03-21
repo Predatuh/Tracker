@@ -172,6 +172,12 @@ const api = {
       body: JSON.stringify(payload)
     });
   },
+  submitBulkReviews(payload) {
+    return this.call('/reviews/bulk', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  },
   getReviewReports() {
     return this.call(this._tq('/review-reports'));
   },
@@ -6110,11 +6116,7 @@ function reviewSetZoneFilter(value) {
 
 function reviewSelectBlock(blockId) {
   reviewPageState.selectedBlockId = Number(blockId);
-  const items = reviewItemsForBlock(blockId);
-  if (!items.some(item => Number(item.lbd_id) === Number(reviewPageState.selectedLbdId))) {
-    reviewPageState.selectedLbdId = items[0]?.lbd_id || null;
-  }
-  renderReviewPage();
+  reviewOpenBlockDialog(blockId);
 }
 
 function reviewSelectLbd(lbdId) {
@@ -6146,33 +6148,6 @@ async function reviewSelectReport(dateStr) {
   renderReviewPage();
 }
 
-async function reviewSubmitSelected() {
-  const item = reviewSelectedItem();
-  if (!item) {
-    alert('Select an LBD before saving a review.');
-    return;
-  }
-
-  reviewPageState.submitting = true;
-  renderReviewPage();
-  try {
-    await api.submitReview({
-      lbd_id: item.lbd_id,
-      tracker_id: currentTracker ? currentTracker.id : null,
-      review_result: reviewPageState.result,
-      review_date: reviewPageState.selectedDate,
-      notes: reviewPageState.notes,
-    });
-    reviewPageState.notes = '';
-    await loadReviewPage();
-  } catch (e) {
-    alert('Review save failed: ' + e.message);
-  } finally {
-    reviewPageState.submitting = false;
-    renderReviewPage();
-  }
-}
-
 async function reviewGenerateReport() {
   try {
     const payload = { date: reviewPageState.selectedDate };
@@ -6189,14 +6164,166 @@ async function reviewGenerateReport() {
   }
 }
 
+function reviewBuildDraftForBlock(blockId) {
+  const latestMap = reviewLatestEntryMap(reviewPageState.entries);
+  const draft = {};
+  reviewItemsForBlock(blockId).forEach((item) => {
+    const latest = latestMap.get(Number(item.lbd_id));
+    if (latest?.review_result === 'pass' || latest?.review_result === 'fail') {
+      draft[item.lbd_id] = latest.review_result;
+    }
+  });
+  return draft;
+}
+
+function reviewRenderBlockDialogList(overlay, block, draft, selectedIds) {
+  const list = overlay.querySelector('#review-bulk-list');
+  if (!list) return;
+  const latestMap = reviewLatestEntryMap(reviewPageState.entries);
+  const items = reviewItemsForBlock(block.id);
+  list.innerHTML = items.map((item) => {
+    const latest = latestMap.get(Number(item.lbd_id));
+    const drafted = draft[item.lbd_id] || '';
+    const current = drafted || latest?.review_result || '';
+    const statusClass = current === 'pass' ? 'review-status-pass' : current === 'fail' ? 'review-status-fail' : 'review-status-pending';
+    const statusLabel = current === 'pass' ? 'Pass' : current === 'fail' ? 'Fail' : 'Pending';
+    return `<label style="display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border-radius:14px;border:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.04);cursor:pointer;">
+      <input type="checkbox" class="review-bulk-check" data-lbd-id="${item.lbd_id}" ${selectedIds.has(item.lbd_id) ? 'checked' : ''} style="margin-top:4px;accent-color:#00d4ff;">
+      <div style="min-width:0;flex:1;">
+        <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;">
+          <strong style="color:#eef2ff;">${_escapeHtml(item.review_target_label || 'LBD')}</strong>
+          <span class="${statusClass}" style="font-size:12px;font-weight:700;">${statusLabel}</span>
+        </div>
+        <div style="margin-top:4px;font-size:12px;color:rgba(238,242,255,0.6);">${item.inventory_number ? _escapeHtml(item.inventory_number) + ' • ' : ''}${_escapeHtml(item.power_block_name || 'Power Block')}</div>
+      </div>
+    </label>`;
+  }).join('') || '<div class="claim-muted-copy">No LBDs found for this power block.</div>';
+}
+
+async function reviewOpenBlockDialog(blockId) {
+  const block = reviewPageState.blocks.find(item => Number(item.id) === Number(blockId));
+  if (!block) return;
+
+  const existing = document.getElementById('review-bulk-overlay');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'review-bulk-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(3,8,20,0.72);backdrop-filter:blur(6px);z-index:10000;display:flex;align-items:flex-start;justify-content:center;padding:10px;overflow-y:auto;-webkit-overflow-scrolling:touch;';
+  const summary = reviewBlockStatusSummary(block, reviewLatestEntryMap(reviewPageState.entries));
+  overlay.innerHTML = `
+    <div style="width:min(920px,100%);margin:20px auto;background:linear-gradient(180deg,rgba(11,19,34,0.96),rgba(8,14,26,0.98));border:1px solid rgba(255,255,255,0.08);border-radius:22px;box-shadow:0 24px 80px rgba(0,0,0,0.45);overflow:hidden;">
+      <div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start;padding:20px 22px 14px;border-bottom:1px solid rgba(255,255,255,0.08);">
+        <div>
+          <div style="font-size:12px;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;color:#8adfff;">Review Power Block</div>
+          <div style="margin-top:6px;font-size:24px;font-weight:800;color:#eef2ff;">${_escapeHtml(block.name || 'Power Block')}</div>
+          <div style="margin-top:6px;font-size:13px;color:rgba(238,242,255,0.66);">PB ${_escapeHtml(block.power_block_number || '')} • ${_escapeHtml(block.zone || 'Unzoned')} • ${summary.total} ${(currentTracker && currentTracker.item_name_plural) || 'LBDs'}</div>
+        </div>
+        <button id="review-bulk-close" type="button" style="border:none;background:rgba(255,255,255,0.08);color:#eef2ff;width:40px;height:40px;border-radius:999px;font-size:18px;cursor:pointer;">&times;</button>
+      </div>
+      <div style="padding:18px 22px;display:grid;gap:16px;">
+        <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;">
+          <button type="button" id="review-select-all" class="btn btn-secondary">Select All</button>
+          <button type="button" id="review-clear-selection" class="btn btn-secondary">Clear</button>
+          <button type="button" id="review-apply-pass" class="btn btn-success">Pass Selected</button>
+          <button type="button" id="review-apply-fail" class="btn btn-danger">Fail Selected</button>
+          <div id="review-selection-status" style="margin-left:auto;font-size:12px;color:rgba(238,242,255,0.66);"></div>
+        </div>
+        <textarea id="review-bulk-notes" class="claim-modal-textarea" rows="3" placeholder="Optional notes for the drafted review changes" style="width:100%;resize:vertical;">${_escapeHtml(reviewPageState.notes || '')}</textarea>
+        <div id="review-bulk-list" style="display:grid;gap:10px;max-height:min(60vh,560px);overflow:auto;padding-right:4px;"></div>
+        <div style="display:flex;justify-content:flex-end;gap:10px;align-items:center;padding-top:4px;">
+          <button type="button" id="review-bulk-cancel" class="btn btn-secondary">Cancel</button>
+          <button type="button" id="review-bulk-save" class="btn btn-success">Save Drafted Reviews</button>
+        </div>
+      </div>
+    </div>`;
+
+  document.body.appendChild(overlay);
+
+  const draft = reviewBuildDraftForBlock(block.id);
+  const selectedIds = new Set(reviewItemsForBlock(block.id).map(item => item.lbd_id));
+  const notesEl = overlay.querySelector('#review-bulk-notes');
+  const selectionStatus = overlay.querySelector('#review-selection-status');
+
+  const refresh = () => {
+    reviewRenderBlockDialogList(overlay, block, draft, selectedIds);
+    if (selectionStatus) {
+      const draftedCount = Object.keys(draft).length;
+      selectionStatus.textContent = `${selectedIds.size} selected • ${draftedCount} drafted`;
+    }
+    overlay.querySelectorAll('.review-bulk-check').forEach((input) => {
+      input.addEventListener('change', () => {
+        const lbdId = Number(input.getAttribute('data-lbd-id') || 0);
+        if (input.checked) selectedIds.add(lbdId);
+        else selectedIds.delete(lbdId);
+        refresh();
+      });
+    });
+  };
+
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) close();
+  });
+  overlay.querySelector('#review-bulk-close')?.addEventListener('click', close);
+  overlay.querySelector('#review-bulk-cancel')?.addEventListener('click', close);
+  overlay.querySelector('#review-select-all')?.addEventListener('click', () => {
+    selectedIds.clear();
+    reviewItemsForBlock(block.id).forEach((item) => selectedIds.add(item.lbd_id));
+    refresh();
+  });
+  overlay.querySelector('#review-clear-selection')?.addEventListener('click', () => {
+    selectedIds.clear();
+    refresh();
+  });
+  overlay.querySelector('#review-apply-pass')?.addEventListener('click', () => {
+    selectedIds.forEach((lbdId) => { draft[lbdId] = 'pass'; });
+    refresh();
+  });
+  overlay.querySelector('#review-apply-fail')?.addEventListener('click', () => {
+    selectedIds.forEach((lbdId) => { draft[lbdId] = 'fail'; });
+    refresh();
+  });
+  overlay.querySelector('#review-bulk-save')?.addEventListener('click', async () => {
+    const reviews = Object.entries(draft).map(([lbdId, reviewResult]) => ({
+      lbd_id: Number(lbdId),
+      review_result: reviewResult,
+    }));
+    if (!reviews.length) {
+      alert('Apply pass or fail to at least one LBD before saving.');
+      return;
+    }
+    const saveBtn = overlay.querySelector('#review-bulk-save');
+    if (saveBtn) {
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving...';
+    }
+    try {
+      await api.submitBulkReviews({
+        reviews,
+        review_date: reviewPageState.selectedDate,
+        tracker_id: currentTracker ? currentTracker.id : null,
+        notes: notesEl ? notesEl.value : '',
+      });
+      reviewPageState.notes = '';
+      close();
+      await loadReviewPage();
+    } catch (error) {
+      alert('Review save failed: ' + error.message);
+      if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save Drafted Reviews';
+      }
+    }
+  });
+  refresh();
+}
+
 function renderReviewPage() {
   const el = document.getElementById('review-content');
   if (!el) return;
 
   const filteredBlocks = reviewFilteredBlocks();
-  reviewEnsureSelection(filteredBlocks);
-  const selectedBlock = reviewSelectedBlock();
-  const selectedItem = reviewSelectedItem();
   const latestMap = reviewLatestEntryMap(reviewPageState.entries);
   const latestEntries = Array.from(latestMap.values());
   const failingItems = latestEntries.filter(entry => entry.review_result === 'fail');
@@ -6213,7 +6340,6 @@ function renderReviewPage() {
 
   const blockTiles = filteredBlocks.map((block) => {
     const summary = reviewBlockStatusSummary(block, latestMap);
-    const isSelected = selectedBlock && Number(selectedBlock.id) === Number(block.id);
     let statusTone = 'review-status-pending';
     let statusLabel = `${summary.pendingCount} pending`;
     if (summary.failCount > 0) {
@@ -6226,7 +6352,7 @@ function renderReviewPage() {
       statusTone = 'review-status-pass';
       statusLabel = `${summary.passCount} passed • ${summary.pendingCount} pending`;
     }
-    return `<button type="button" class="claim-block-tile${isSelected ? ' is-selected' : ''}" onclick="reviewSelectBlock(${block.id})">
+    return `<button type="button" class="claim-block-tile" onclick="reviewSelectBlock(${block.id})">
       <div class="claim-block-tile-top">
         <span class="claim-block-name">${_escapeHtml(block.name || 'Power Block')}</span>
         <span class="claim-block-zone">PB ${_escapeHtml(block.power_block_number || '')}</span>
@@ -6236,31 +6362,11 @@ function renderReviewPage() {
         <span class="claim-block-count">${summary.total} ${(currentTracker && currentTracker.item_name_plural) || 'LBDs'}</span>
         <span class="claim-block-progress">${_escapeHtml(block.zone || 'Unzoned')}</span>
       </div>
-    </button>`;
-  }).join('');
-
-  const selectedBlockItems = selectedBlock ? reviewItemsForBlock(selectedBlock.id) : [];
-  const lbdTiles = selectedBlockItems.map((item) => {
-    const latest = latestMap.get(Number(item.lbd_id));
-    const isSelected = selectedItem && Number(selectedItem.lbd_id) === Number(item.lbd_id);
-    const statusTone = latest?.review_result === 'pass' ? 'review-status-pass' : latest?.review_result === 'fail' ? 'review-status-fail' : 'review-status-pending';
-    const statusLabel = latest
-      ? `${latest.review_result === 'pass' ? 'Passed' : 'Failed'} by ${_escapeHtml(latest.reviewed_by || 'Unknown')}`
-      : 'Not reviewed for this date';
-    return `<button type="button" class="claim-block-tile${isSelected ? ' is-selected' : ''}" onclick="reviewSelectLbd(${item.lbd_id})">
-      <div class="claim-block-tile-top">
-        <span class="claim-block-name">${_escapeHtml(item.review_target_label || 'LBD')}</span>
-        <span class="claim-block-zone">${item.inventory_number ? _escapeHtml(item.inventory_number) : `LBD ${_escapeHtml(item.lbd_id)}`}</span>
+      <div style="margin-top:10px;display:flex;justify-content:flex-end;">
+        <span style="font-size:11px;font-weight:700;color:#8adfff;">Open Review</span>
       </div>
-      <div class="claim-block-status ${statusTone}">${statusLabel}</div>
     </button>`;
   }).join('');
-
-  const selectedLatest = selectedItem ? latestMap.get(Number(selectedItem.lbd_id)) : null;
-  const selectedStatus = selectedLatest
-    ? `${selectedLatest.review_result === 'pass' ? 'Pass' : 'Fail'} • ${_escapeHtml(selectedLatest.reviewed_by || 'Unknown')} • ${rp_formatDate(selectedLatest.review_date, { month: 'short', day: 'numeric', year: 'numeric' })}`
-    : 'No review saved for this LBD on the selected date.';
-  const selectedNotes = selectedLatest?.notes ? _escapeHtml(selectedLatest.notes) : 'No notes saved yet.';
   const entryRows = reviewPageState.entries.slice(0, 14).map((entry) => `
     <div class="review-entry-row">
       <div>
@@ -6343,7 +6449,7 @@ function renderReviewPage() {
           <div class="claim-panel-head">
             <div>
               <div class="claim-panel-kicker">Review Power Blocks</div>
-              <div class="claim-panel-subtitle">Select a power block to open the full LBD list for review.</div>
+              <div class="claim-panel-subtitle">Open a popup for a power block, select multiple LBDs, then bulk apply pass or fail.</div>
             </div>
             <div class="claim-panel-count">${filteredBlocks.length} shown</div>
           </div>
@@ -6351,36 +6457,19 @@ function renderReviewPage() {
         </section>
 
         <aside class="claim-detail-panel">
-          <div class="claim-selected-header">
-            <div class="claim-panel-kicker">Selected Power Block</div>
-            <div class="claim-selected-name">${selectedBlock ? _escapeHtml(selectedBlock.name || 'Power Block') : 'None selected'}</div>
-            <div class="claim-selected-meta">${selectedBlock ? `PB ${_escapeHtml(selectedBlock.power_block_number || '')} • ${_escapeHtml(selectedBlock.zone || 'Unzoned')} • ${selectedBlockItems.length} ${(currentTracker && currentTracker.item_name_plural) || 'LBDs'}` : 'Choose a power block to load its LBD review list.'}</div>
+          <div class="claim-info-card">
+            <div class="claim-card-label">Bulk Review</div>
+            <div class="claim-card-value">Popup workflow</div>
+            <div class="claim-card-meta">Open a power block to review its full LBD list in one modal instead of scrolling the page.</div>
           </div>
           <div class="claim-info-card">
-            <div class="claim-card-label">LBD Review List</div>
-            <div class="claim-block-list">${lbdTiles || '<div class="claim-muted-copy">No LBDs found for this power block.</div>'}</div>
-          </div>
-          <div class="claim-info-card">
-            <div class="claim-card-label">Latest Review</div>
-            <div class="claim-card-value">${selectedLatest ? (selectedLatest.review_result === 'pass' ? 'Passed' : 'Failed') : 'No review yet'}</div>
-            <div class="claim-card-meta">${selectedStatus}</div>
-            <div class="claim-card-copy" style="margin-top:8px;">${selectedNotes}</div>
-          </div>
-          <div class="claim-info-card">
-            <div class="claim-card-label">Selected LBD</div>
-            <div class="claim-card-value">${selectedItem ? _escapeHtml(selectedItem.review_target_label || 'LBD') : 'No LBD selected'}</div>
-            <div class="claim-card-meta">${selectedItem ? `${_escapeHtml(selectedItem.power_block_name || 'Power Block')}${selectedItem.inventory_number ? ` • ${_escapeHtml(selectedItem.inventory_number)}` : ''}` : 'Select an LBD from the power block list.'}</div>
-          </div>
-          <div class="claim-info-card claim-info-card-accent">
-            <div class="claim-card-label claim-card-label-accent">Result</div>
-            <div class="review-result-row">
-              <button type="button" class="review-result-btn${reviewPageState.result === 'pass' ? ' is-active is-pass' : ''}" onclick="reviewSetResult('pass')">Pass</button>
-              <button type="button" class="review-result-btn${reviewPageState.result === 'fail' ? ' is-active is-fail' : ''}" onclick="reviewSetResult('fail')">Fail</button>
-            </div>
-            <textarea class="claim-modal-textarea claim-scan-textarea" oninput="reviewSetNotes(this.value)" placeholder="Add notes from the quality walk">${_escapeHtml(reviewPageState.notes)}</textarea>
-            <div class="claim-submit-row">
-              <button class="btn btn-success" onclick="reviewSubmitSelected()" ${(selectedItem && !reviewPageState.submitting) ? '' : 'disabled'}>${reviewPageState.submitting ? 'Saving...' : 'Save Review'}</button>
-            </div>
+            <div class="claim-card-label">Fast Actions</div>
+            <div class="claim-card-meta">Inside the popup you can:</div>
+            <div class="claim-card-copy" style="margin-top:8px;">1. Select all LBDs</div>
+            <div class="claim-card-copy">2. Apply pass to the full selection</div>
+            <div class="claim-card-copy">3. Uncheck or reselect one LBD</div>
+            <div class="claim-card-copy">4. Apply fail to just that item</div>
+            <div class="claim-card-copy">5. Save all drafted review changes together</div>
           </div>
           <div class="claim-info-card">
             <div class="claim-card-label">Recent Activity</div>

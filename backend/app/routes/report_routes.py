@@ -1923,6 +1923,74 @@ def create_review():
     return jsonify({'success': True, 'data': entry.to_dict()}), 201
 
 
+@bp.route('/reviews/bulk', methods=['POST'])
+def create_reviews_bulk():
+    user = _current_user()
+    if not _can_manage_reviews(user):
+        return jsonify({'error': 'Review access is restricted to admin users'}), 403
+
+    data = request.get_json() or {}
+    raw_reviews = data.get('reviews') or []
+    if not isinstance(raw_reviews, list) or not raw_reviews:
+        return jsonify({'error': 'reviews must be a non-empty list'}), 400
+
+    try:
+        review_date = date.fromisoformat(str(data.get('review_date') or _cst_today().isoformat()))
+    except ValueError:
+        return jsonify({'error': 'Invalid review_date, use YYYY-MM-DD'}), 400
+
+    shared_notes = str(data.get('notes') or '').strip() or None
+    requested_tracker_id = data.get('tracker_id')
+
+    normalized = {}
+    for item in raw_reviews:
+        if not isinstance(item, dict):
+            continue
+        try:
+            lbd_id = int(item.get('lbd_id') or 0)
+        except (TypeError, ValueError):
+            lbd_id = 0
+        result = str(item.get('review_result') or '').strip().lower()
+        if lbd_id <= 0 or result not in {'pass', 'fail'}:
+            continue
+        normalized[lbd_id] = {
+            'review_result': result,
+            'notes': str(item.get('notes') or '').strip() or shared_notes,
+        }
+
+    if not normalized:
+        return jsonify({'error': 'No valid review items were provided'}), 400
+
+    lbds = LBD.query.options(subqueryload(LBD.power_block)).filter(LBD.id.in_(list(normalized.keys()))).all()
+    found_ids = {lbd.id for lbd in lbds}
+    missing_ids = sorted(set(normalized.keys()) - found_ids)
+    if missing_ids:
+        return jsonify({'error': f'LBDs not found: {", ".join(str(item) for item in missing_ids[:10])}'}), 404
+
+    created_entries = []
+    for lbd in lbds:
+        block = lbd.power_block
+        tracker = _resolve_block_tracker(block, requested_tracker_id, user=user)
+        if not tracker and not _is_admin_user(user):
+            return jsonify({'error': f'LBD {lbd.id} is not accessible for your job site'}), 403
+
+        payload = normalized[lbd.id]
+        entry = ReviewEntry(
+            power_block_id=block.id,
+            lbd_id=lbd.id,
+            tracker_id=tracker.id if tracker else None,
+            review_result=payload['review_result'],
+            review_date=review_date,
+            reviewed_by=_current_user_name(),
+            notes=payload['notes'],
+        )
+        db.session.add(entry)
+        created_entries.append(entry)
+
+    db.session.commit()
+    return jsonify({'success': True, 'data': [entry.to_dict() for entry in created_entries]}), 201
+
+
 @bp.route('/review-reports', methods=['GET'])
 def list_review_reports():
     user = _current_user()
