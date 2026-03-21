@@ -27,7 +27,12 @@
       <div class="login-brand-crown-wrap">
         <video class="site-crown-video login-crown-video js-random-crown" autoplay muted loop playsinline preload="auto"></video>
       </div>
-      <img id="login-logo" src="{{ url_for('static', filename='Logo.png') }}" alt="Logo" style="height:70px;width:auto;object-fit:contain;margin:0 auto 14px;display:block;filter:drop-shadow(0 0 24px rgba(0,212,255,0.35));transition:all 0.3s;" />
+      <div id="login-logo-shell" class="login-logo-shell" aria-hidden="true">
+        <img id="login-logo" src="{{ url_for('static', filename='Logo.png') }}" alt="Logo" class="login-logo-static" />
+        <video id="login-logo-video" class="login-logo-video" muted playsinline preload="auto">
+          <source src="{{ url_for('static', filename='animations/loading.mp4') }}" type="video/mp4" />
+        </video>
+      </div>
       <h2 id="login-title-text" style="margin:0 0 4px;font-size:22px;font-weight:800;color:#eef2ff;font-family:'Orbitron',sans-serif;letter-spacing:1px;text-shadow:0 0 20px rgba(0,212,255,0.2);">Princess Trackers</h2>
       <div id="login-subtitle-text" style="color:rgba(238,242,255,0.4);font-size:13px;font-family:'Space Grotesk',sans-serif;letter-spacing:0.3px;">Sign in to check off your work</div>
     </div>
@@ -73,7 +78,7 @@
       onmouseout="this.style.boxShadow='none';this.style.transform='none'">
       <span id="login-btn-text">Sign In</span>
     </button>
-    <button onclick="document.getElementById('login-overlay').style.display='none';stopLoginAnimation()"
+    <button onclick="document.getElementById('login-overlay').style.display='none';resetLoginLogoAnimation();stopLoginAnimation()"
       style="width:100%;background:transparent;color:rgba(238,242,255,0.3);border:1px solid rgba(0,212,255,0.08);border-radius:8px;padding:10px;font-size:13px;cursor:pointer;font-family:'Space Grotesk',sans-serif;transition:all 0.25s;"
       onmouseover="this.style.borderColor='rgba(0,212,255,0.2)';this.style.color='rgba(238,242,255,0.6)'"
       onmouseout="this.style.borderColor='rgba(0,212,255,0.08)';this.style.color='rgba(238,242,255,0.3)'">

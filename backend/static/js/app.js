@@ -2031,10 +2031,44 @@ function _applyRoleUI() {
 }
 
 // ── Login modal helpers ───────────────────────────────────────
+function resetLoginLogoAnimation() {
+  const shell = document.getElementById('login-logo-shell');
+  const video = document.getElementById('login-logo-video');
+  if (shell) shell.classList.remove('is-animating');
+  if (video) {
+    video.pause();
+    try {
+      video.currentTime = 0;
+    } catch (e) {
+      console.warn('Failed resetting login logo video:', e);
+    }
+  }
+}
+
+function playLoginLogoAnimation() {
+  const shell = document.getElementById('login-logo-shell');
+  const video = document.getElementById('login-logo-video');
+  if (!shell || !video) return;
+  shell.classList.add('is-animating');
+  try {
+    video.currentTime = 0;
+  } catch (e) {
+    console.warn('Failed rewinding login logo video:', e);
+  }
+  const playPromise = video.play();
+  if (playPromise && typeof playPromise.catch === 'function') {
+    playPromise.catch(err => {
+      console.warn('Failed playing login logo video:', err);
+      shell.classList.remove('is-animating');
+    });
+  }
+}
+
 function showLoginModal() {
   const o = document.getElementById('login-overlay');
   assignSessionCrown();
   switchLoginTab('signin');
+  resetLoginLogoAnimation();
   if (o) { o.style.display = 'flex'; startLoginAnimation(); }
 }
 
@@ -2112,6 +2146,7 @@ async function submitLogin() {
 
   btn.disabled = true;
   _setLoginButtonLabel('...');
+  playLoginLogoAnimation();
 
   try {
     let endpoint = '/api/auth/login';
@@ -2128,6 +2163,7 @@ async function submitLogin() {
     });
     const d = await r.json();
     if (!r.ok) {
+      resetLoginLogoAnimation();
       _loginError(d.error || 'Error');
     } else if (d.user) {
       if (mode === 'register' && d.message) {
@@ -2135,7 +2171,10 @@ async function submitLogin() {
       }
       await _finalizeAuthenticatedSession(d.user);
     }
-  } catch(e) { _loginError('Network error — try again'); }
+  } catch(e) {
+    resetLoginLogoAnimation();
+    _loginError('Network error — try again');
+  }
 
   btn.disabled = false;
   _setLoginButtonLabel(mode === 'register' ? 'Create Account' : 'Sign In');
@@ -5904,6 +5943,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const submitBtn = document.getElementById('login-submit-btn');
   if (submitBtn) submitBtn._mode = 'signin';
   assignSessionCrown();
+  resetLoginLogoAnimation();
 
   checkAuth().then(() => {
     // If nobody logged in, show the login overlay automatically
