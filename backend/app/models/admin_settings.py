@@ -48,12 +48,14 @@ class AdminSettings(db.Model):
         'ground_brackets': '#95E1D3',
         'stuff': '#FF6B6B',
         'term': '#4ECDC4',
+        'fix': '#FFB347',
     }
 
     DEFAULT_NAMES = {
         'ground_brackets': 'Bracket/Ground',
         'stuff': 'Stuffed',
         'term': 'Termed',
+        'fix': 'Fix',
     }
 
     @classmethod

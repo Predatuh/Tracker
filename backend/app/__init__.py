@@ -472,12 +472,23 @@ def _seed_trackers(app):
     def _remove_deprecated_statuses(values):
         return [value for value in values if value not in deprecated_statuses]
 
+    def _ensure_fix_status(values):
+        cleaned = list(values or [])
+        if 'fix' not in cleaned:
+            cleaned.append('fix')
+        return cleaned
+
     stored_colors = AdminSettings.get('status_colors') or {}
     if any(key in stored_colors for key in deprecated_statuses):
         AdminSettings.set(
             'status_colors',
             {key: value for key, value in stored_colors.items() if key not in deprecated_statuses}
         )
+        stored_colors = AdminSettings.get('status_colors') or {}
+    if stored_colors.get('fix') != LBDStatus.STATUS_COLORS['fix']:
+        updated_colors = dict(stored_colors)
+        updated_colors['fix'] = LBDStatus.STATUS_COLORS['fix']
+        AdminSettings.set('status_colors', updated_colors)
         stored_colors = AdminSettings.get('status_colors') or {}
 
     stored_names = AdminSettings.get('status_names') or {}
@@ -487,10 +498,15 @@ def _seed_trackers(app):
             {key: value for key, value in stored_names.items() if key not in deprecated_statuses}
         )
         stored_names = AdminSettings.get('status_names') or {}
+    if stored_names.get('fix') != 'Fix':
+        updated_names = dict(stored_names)
+        updated_names['fix'] = 'Fix'
+        AdminSettings.set('status_names', updated_names)
+        stored_names = AdminSettings.get('status_names') or {}
 
     col_order = AdminSettings.get('column_order')
     if col_order:
-        cleaned_order = _remove_deprecated_statuses(col_order)
+        cleaned_order = _ensure_fix_status(_remove_deprecated_statuses(col_order))
         if cleaned_order != col_order:
             AdminSettings.set('column_order', cleaned_order)
         col_order = cleaned_order
@@ -507,6 +523,7 @@ def _seed_trackers(app):
         for c in custom:
             if c not in types:
                 types.append(c)
+        types = _ensure_fix_status(types)
 
         # Merge colors
         colors = dict(LBDStatus.STATUS_COLORS)
@@ -559,7 +576,7 @@ def _seed_trackers(app):
         if lbd_tracker.job_site_name != job_site['name']:
             lbd_tracker.job_site_name = job_site['name']
             tracker_changed = True
-        types = _remove_deprecated_statuses(lbd_tracker.get_status_types())
+        types = _ensure_fix_status(_remove_deprecated_statuses(lbd_tracker.get_status_types()))
         if types != lbd_tracker.get_status_types():
             lbd_tracker.set_status_types(types)
             tracker_changed = True
@@ -569,6 +586,8 @@ def _seed_trackers(app):
             for key, value in lbd_tracker.get_status_colors().items()
             if key not in deprecated_statuses
         }
+        if colors.get('fix') != LBDStatus.STATUS_COLORS['fix']:
+            colors['fix'] = LBDStatus.STATUS_COLORS['fix']
         if colors != lbd_tracker.get_status_colors():
             lbd_tracker.set_status_colors(colors)
             tracker_changed = True
@@ -578,13 +597,15 @@ def _seed_trackers(app):
             for key, value in lbd_tracker.get_status_names().items()
             if key not in deprecated_statuses
         }
+        if names.get('fix') != 'Fix':
+            names['fix'] = 'Fix'
         if names != lbd_tracker.get_status_names():
             lbd_tracker.set_status_names(names)
             tracker_changed = True
 
         tracker_order = lbd_tracker.get_column_order()
         if tracker_order:
-            cleaned_tracker_order = _remove_deprecated_statuses(tracker_order)
+            cleaned_tracker_order = _ensure_fix_status(_remove_deprecated_statuses(tracker_order))
             if cleaned_tracker_order != tracker_order:
                 lbd_tracker.set_column_order(cleaned_tracker_order)
                 tracker_changed = True

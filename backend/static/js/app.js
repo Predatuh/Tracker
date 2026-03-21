@@ -1931,7 +1931,7 @@ async function loadSiteMap() {
 // ============================================================
 // INTERACTIVE MAP
 // ============================================================
-let LBD_STATUS_TYPES = ['ground_brackets', 'stuff', 'term'];
+let LBD_STATUS_TYPES = ['ground_brackets', 'stuff', 'term', 'fix'];
 
 // An LBD counts as complete when ALL current tracker columns are checked
 function isLBDComplete(lbd) {
@@ -1943,12 +1943,14 @@ function isLBDComplete(lbd) {
 let STATUS_COLORS = {
   ground_brackets: '#95E1D3',
   stuff:           '#FF6B6B',
-  term:            '#4ECDC4'
+  term:            '#4ECDC4',
+  fix:             '#FFB347'
 };
 let STATUS_LABELS = {
   ground_brackets: 'Bracket/Ground',
   stuff:           'Stuffed',
-  term:            'Termed'
+  term:            'Termed',
+  fix:             'Fix'
 };
 
 // Admin settings cache
