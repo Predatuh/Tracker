@@ -6233,17 +6233,8 @@ function reviewRenderDialogViewFilters(overlay, block, selectedIds, activeView, 
 function reviewRenderBlockDialogList(overlay, block, selectedIds, activeView, statusOverrides) {
   const list = overlay.querySelector('#review-bulk-list');
   if (!list) return;
+  const items = reviewDialogVisibleItems(block, selectedIds, activeView, statusOverrides);
   const latestMap = reviewLatestEntryMap(reviewPageState.entries);
-  const items = reviewFilterDialogItems(block, selectedIds, activeView).filter((item) => {
-    const status = statusOverrides instanceof Map
-      ? (statusOverrides.get(Number(item.lbd_id)) || latestMap.get(Number(item.lbd_id))?.review_result || 'pending')
-      : (latestMap.get(Number(item.lbd_id))?.review_result || 'pending');
-    if (activeView === 'selected') return selectedIds.has(item.lbd_id);
-    if (activeView === 'pending') return status !== 'pass' && status !== 'fail';
-    if (activeView === 'pass') return status === 'pass';
-    if (activeView === 'fail') return status === 'fail';
-    return true;
-  });
   list.innerHTML = `
     <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:12px;">
       <div style="font-size:13px;font-weight:700;color:#eef2ff;">LBD selection for this power block</div>
@@ -6280,6 +6271,20 @@ function reviewRenderBlockDialogList(overlay, block, selectedIds, activeView, st
         </label>`;
       }).join('') || `<div class="claim-muted-copy" style="grid-column:1 / -1;">No LBDs in the ${_escapeHtml(activeView)} view.</div>`}
     </div>`;
+}
+
+function reviewDialogVisibleItems(block, selectedIds, activeView, statusOverrides) {
+  const latestMap = reviewLatestEntryMap(reviewPageState.entries);
+  return reviewFilterDialogItems(block, selectedIds, activeView).filter((item) => {
+    const status = statusOverrides instanceof Map
+      ? (statusOverrides.get(Number(item.lbd_id)) || latestMap.get(Number(item.lbd_id))?.review_result || 'pending')
+      : (latestMap.get(Number(item.lbd_id))?.review_result || 'pending');
+    if (activeView === 'selected') return selectedIds.has(item.lbd_id);
+    if (activeView === 'pending') return status !== 'pass' && status !== 'fail';
+    if (activeView === 'pass') return status === 'pass';
+    if (activeView === 'fail') return status === 'fail';
+    return true;
+  });
 }
 
 async function reviewOpenBlockDialog(blockId) {
@@ -6379,7 +6384,7 @@ async function reviewOpenBlockDialog(blockId) {
   overlay.querySelector('#review-bulk-cancel')?.addEventListener('click', close);
   overlay.querySelector('#review-select-all')?.addEventListener('click', () => {
     selectedIds.clear();
-    reviewItemsForBlock(block.id).forEach((item) => selectedIds.add(item.lbd_id));
+    reviewDialogVisibleItems(block, selectedIds, activeView, localResults).forEach((item) => selectedIds.add(item.lbd_id));
     refresh();
   });
   overlay.querySelector('#review-clear-selection')?.addEventListener('click', () => {
