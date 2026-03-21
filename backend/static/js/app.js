@@ -6223,23 +6223,35 @@ function reviewRenderBlockDialogList(overlay, block, selectedIds, activeView) {
   if (!list) return;
   const latestMap = reviewLatestEntryMap(reviewPageState.entries);
   const items = reviewFilterDialogItems(block, selectedIds, activeView);
-  list.innerHTML = items.map((item) => {
-    const latest = latestMap.get(Number(item.lbd_id));
-    const current = latest?.review_result || '';
-    const statusClass = current === 'pass' ? 'review-status-pass' : current === 'fail' ? 'review-status-fail' : 'review-status-pending';
-    const statusLabel = current === 'pass' ? 'Pass' : current === 'fail' ? 'Fail' : 'Pending';
-    return `<label style="display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border-radius:14px;border:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.04);cursor:pointer;">
-      <input type="checkbox" class="review-bulk-check" data-lbd-id="${item.lbd_id}" ${selectedIds.has(item.lbd_id) ? 'checked' : ''} style="margin-top:4px;accent-color:#00d4ff;">
-      <div style="min-width:0;flex:1;">
-        <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;">
-          <strong style="color:#eef2ff;">${_escapeHtml(item.review_target_label || 'LBD')}</strong>
-          <span class="${statusClass}" style="font-size:12px;font-weight:700;">${statusLabel}</span>
-        </div>
-        <div style="margin-top:4px;font-size:12px;color:rgba(238,242,255,0.6);">${item.inventory_number ? _escapeHtml(item.inventory_number) + ' • ' : ''}${_escapeHtml(item.power_block_name || 'Power Block')}</div>
-        <div style="margin-top:4px;font-size:11px;color:rgba(238,242,255,0.52);">${latest ? `${_escapeHtml(latest.reviewed_by || 'Unknown')} • ${rp_formatDate(latest.review_date, { month: 'short', day: 'numeric' })}` : 'Not reviewed for this date'}</div>
-      </div>
-    </label>`;
-  }).join('') || `<div class="claim-muted-copy">No LBDs in the ${_escapeHtml(activeView)} view.</div>`;
+  list.innerHTML = `
+    <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:12px;">
+      <div style="font-size:13px;font-weight:700;color:#eef2ff;">LBD selection for this power block</div>
+      <div style="font-size:12px;color:rgba(238,242,255,0.72);">${selectedIds.size} selected</div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(185px,1fr));gap:10px;align-items:stretch;">
+      ${items.map((item) => {
+        const latest = latestMap.get(Number(item.lbd_id));
+        const current = latest?.review_result || '';
+        const statusLabel = current === 'pass' ? 'Passed' : current === 'fail' ? 'Failed' : 'Pending';
+        const statusTone = current === 'pass'
+          ? 'color:#7df0b3;background:rgba(52,199,89,0.14);border:1px solid rgba(52,199,89,0.24);'
+          : current === 'fail'
+            ? 'color:#ffd36a;background:rgba(255,154,74,0.14);border:1px solid rgba(255,154,74,0.24);'
+            : 'color:#8adfff;background:rgba(0,212,255,0.14);border:1px solid rgba(0,212,255,0.24);';
+        const isSelected = selectedIds.has(item.lbd_id);
+        return `<label style="display:flex;gap:10px;align-items:flex-start;min-height:96px;padding:12px;border-radius:16px;border:1px solid ${isSelected ? 'rgba(138,223,255,0.28)' : 'rgba(255,255,255,0.08)'};background:${isSelected ? 'rgba(138,223,255,0.08)' : 'rgba(255,255,255,0.04)'};cursor:pointer;box-sizing:border-box;">
+          <input type="checkbox" class="review-bulk-check" data-lbd-id="${item.lbd_id}" ${isSelected ? 'checked' : ''} style="margin-top:3px;accent-color:#00d4ff;flex:0 0 auto;">
+          <div style="min-width:0;flex:1;display:grid;gap:8px;">
+            <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;">
+              <strong style="color:#eef2ff;font-size:14px;line-height:1.25;">${_escapeHtml(item.review_target_label || 'LBD')}</strong>
+              <span style="${statusTone}font-size:10px;font-weight:800;padding:4px 8px;border-radius:999px;white-space:nowrap;">${statusLabel}</span>
+            </div>
+            <div style="font-size:11px;color:#8adfff;font-weight:700;">${item.inventory_number ? _escapeHtml(item.inventory_number) : `LBD ${_escapeHtml(item.lbd_id)}`}</div>
+            <div style="font-size:11px;color:rgba(238,242,255,0.56);line-height:1.3;">${latest ? `${_escapeHtml(latest.reviewed_by || 'Unknown')} • ${rp_formatDate(latest.review_date, { month: 'short', day: 'numeric' })}` : 'Not reviewed for this date'}</div>
+          </div>
+        </label>`;
+      }).join('') || `<div class="claim-muted-copy" style="grid-column:1 / -1;">No LBDs in the ${_escapeHtml(activeView)} view.</div>`}
+    </div>`;
 }
 
 async function reviewOpenBlockDialog(blockId) {
@@ -6273,7 +6285,7 @@ async function reviewOpenBlockDialog(blockId) {
         </div>
         <div id="review-view-filters" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
         <textarea id="review-bulk-notes" class="claim-modal-textarea" rows="3" placeholder="Optional notes for the drafted review changes" style="width:100%;resize:vertical;">${_escapeHtml(reviewPageState.notes || '')}</textarea>
-        <div id="review-bulk-list" style="display:grid;gap:10px;max-height:min(60vh,560px);overflow:auto;padding-right:4px;"></div>
+        <div id="review-bulk-list" style="max-height:min(62vh,560px);overflow:auto;padding-right:4px;"></div>
         <div style="display:flex;justify-content:flex-end;gap:10px;align-items:center;padding-top:4px;">
           <button type="button" id="review-bulk-cancel" class="btn btn-secondary">Cancel</button>
         </div>
