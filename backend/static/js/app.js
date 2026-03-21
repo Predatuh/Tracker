@@ -6164,27 +6164,68 @@ async function reviewGenerateReport() {
   }
 }
 
-function reviewBuildDraftForBlock(blockId) {
+function reviewDialogStatusCounts(block) {
   const latestMap = reviewLatestEntryMap(reviewPageState.entries);
-  const draft = {};
-  reviewItemsForBlock(blockId).forEach((item) => {
-    const latest = latestMap.get(Number(item.lbd_id));
-    if (latest?.review_result === 'pass' || latest?.review_result === 'fail') {
-      draft[item.lbd_id] = latest.review_result;
-    }
+  const items = reviewItemsForBlock(block.id);
+  const counts = { all: items.length, pending: 0, pass: 0, fail: 0 };
+  items.forEach((item) => {
+    const status = latestMap.get(Number(item.lbd_id))?.review_result || 'pending';
+    if (status === 'pass') counts.pass += 1;
+    else if (status === 'fail') counts.fail += 1;
+    else counts.pending += 1;
   });
-  return draft;
+  return counts;
 }
 
-function reviewRenderBlockDialogList(overlay, block, draft, selectedIds) {
+function reviewFilterDialogItems(block, selectedIds, activeView) {
+  const latestMap = reviewLatestEntryMap(reviewPageState.entries);
+  const items = reviewItemsForBlock(block.id).slice().sort((left, right) => {
+    const leftSelected = selectedIds.has(left.lbd_id) ? 0 : 1;
+    const rightSelected = selectedIds.has(right.lbd_id) ? 0 : 1;
+    if (leftSelected !== rightSelected) return leftSelected - rightSelected;
+    return String(left.review_target_label || left.inventory_number || left.lbd_id)
+      .localeCompare(String(right.review_target_label || right.inventory_number || right.lbd_id));
+  });
+
+  return items.filter((item) => {
+    const status = latestMap.get(Number(item.lbd_id))?.review_result || 'pending';
+    if (activeView === 'selected') return selectedIds.has(item.lbd_id);
+    if (activeView === 'pending') return status !== 'pass' && status !== 'fail';
+    if (activeView === 'pass') return status === 'pass';
+    if (activeView === 'fail') return status === 'fail';
+    return true;
+  });
+}
+
+function reviewRenderDialogViewFilters(overlay, block, selectedIds, activeView) {
+  const filtersEl = overlay.querySelector('#review-view-filters');
+  if (!filtersEl) return;
+  const counts = reviewDialogStatusCounts(block);
+  const items = [
+    { key: 'selected', label: `Selected (${selectedIds.size})` },
+    { key: 'pending', label: `Pending (${counts.pending})` },
+    { key: 'fail', label: `Fail (${counts.fail})` },
+    { key: 'pass', label: `Pass (${counts.pass})` },
+    { key: 'all', label: `All (${counts.all})` },
+  ];
+  filtersEl.innerHTML = items.map((item) => `
+    <button
+      type="button"
+      class="btn ${activeView === item.key ? 'btn-success' : 'btn-secondary'} review-view-filter"
+      data-view="${item.key}"
+      style="min-width:110px;"
+    >${item.label}</button>
+  `).join('');
+}
+
+function reviewRenderBlockDialogList(overlay, block, selectedIds, activeView) {
   const list = overlay.querySelector('#review-bulk-list');
   if (!list) return;
   const latestMap = reviewLatestEntryMap(reviewPageState.entries);
-  const items = reviewItemsForBlock(block.id);
+  const items = reviewFilterDialogItems(block, selectedIds, activeView);
   list.innerHTML = items.map((item) => {
     const latest = latestMap.get(Number(item.lbd_id));
-    const drafted = draft[item.lbd_id] || '';
-    const current = drafted || latest?.review_result || '';
+    const current = latest?.review_result || '';
     const statusClass = current === 'pass' ? 'review-status-pass' : current === 'fail' ? 'review-status-fail' : 'review-status-pending';
     const statusLabel = current === 'pass' ? 'Pass' : current === 'fail' ? 'Fail' : 'Pending';
     return `<label style="display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border-radius:14px;border:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.04);cursor:pointer;">
@@ -6195,9 +6236,10 @@ function reviewRenderBlockDialogList(overlay, block, draft, selectedIds) {
           <span class="${statusClass}" style="font-size:12px;font-weight:700;">${statusLabel}</span>
         </div>
         <div style="margin-top:4px;font-size:12px;color:rgba(238,242,255,0.6);">${item.inventory_number ? _escapeHtml(item.inventory_number) + ' • ' : ''}${_escapeHtml(item.power_block_name || 'Power Block')}</div>
+        <div style="margin-top:4px;font-size:11px;color:rgba(238,242,255,0.52);">${latest ? `${_escapeHtml(latest.reviewed_by || 'Unknown')} • ${rp_formatDate(latest.review_date, { month: 'short', day: 'numeric' })}` : 'Not reviewed for this date'}</div>
       </div>
     </label>`;
-  }).join('') || '<div class="claim-muted-copy">No LBDs found for this power block.</div>';
+  }).join('') || `<div class="claim-muted-copy">No LBDs in the ${_escapeHtml(activeView)} view.</div>`;
 }
 
 async function reviewOpenBlockDialog(blockId) {
@@ -6229,28 +6271,49 @@ async function reviewOpenBlockDialog(blockId) {
           <button type="button" id="review-apply-fail" class="btn btn-danger">Fail Selected</button>
           <div id="review-selection-status" style="margin-left:auto;font-size:12px;color:rgba(238,242,255,0.66);"></div>
         </div>
+        <div id="review-view-filters" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
         <textarea id="review-bulk-notes" class="claim-modal-textarea" rows="3" placeholder="Optional notes for the drafted review changes" style="width:100%;resize:vertical;">${_escapeHtml(reviewPageState.notes || '')}</textarea>
         <div id="review-bulk-list" style="display:grid;gap:10px;max-height:min(60vh,560px);overflow:auto;padding-right:4px;"></div>
         <div style="display:flex;justify-content:flex-end;gap:10px;align-items:center;padding-top:4px;">
           <button type="button" id="review-bulk-cancel" class="btn btn-secondary">Cancel</button>
-          <button type="button" id="review-bulk-save" class="btn btn-success">Save Drafted Reviews</button>
         </div>
       </div>
     </div>`;
 
   document.body.appendChild(overlay);
 
-  const draft = reviewBuildDraftForBlock(block.id);
-  const selectedIds = new Set(reviewItemsForBlock(block.id).map(item => item.lbd_id));
+  const selectedIds = new Set();
   const notesEl = overlay.querySelector('#review-bulk-notes');
   const selectionStatus = overlay.querySelector('#review-selection-status');
+  let activeView = 'pending';
+  let applying = false;
+
+  const setButtonState = () => {
+    const passBtn = overlay.querySelector('#review-apply-pass');
+    const failBtn = overlay.querySelector('#review-apply-fail');
+    if (passBtn) {
+      passBtn.disabled = applying || !selectedIds.size;
+      passBtn.textContent = applying ? 'Applying...' : 'Pass Selected';
+    }
+    if (failBtn) {
+      failBtn.disabled = applying || !selectedIds.size;
+      failBtn.textContent = applying ? 'Applying...' : 'Fail Selected';
+    }
+  };
 
   const refresh = () => {
-    reviewRenderBlockDialogList(overlay, block, draft, selectedIds);
+    reviewRenderDialogViewFilters(overlay, block, selectedIds, activeView);
+    reviewRenderBlockDialogList(overlay, block, selectedIds, activeView);
     if (selectionStatus) {
-      const draftedCount = Object.keys(draft).length;
-      selectionStatus.textContent = `${selectedIds.size} selected • ${draftedCount} drafted`;
+      selectionStatus.textContent = `${selectedIds.size} selected • ${activeView} view`;
     }
+    setButtonState();
+    overlay.querySelectorAll('.review-view-filter').forEach((button) => {
+      button.addEventListener('click', () => {
+        activeView = button.getAttribute('data-view') || 'all';
+        refresh();
+      });
+    });
     overlay.querySelectorAll('.review-bulk-check').forEach((input) => {
       input.addEventListener('change', () => {
         const lbdId = Number(input.getAttribute('data-lbd-id') || 0);
@@ -6276,46 +6339,38 @@ async function reviewOpenBlockDialog(blockId) {
     selectedIds.clear();
     refresh();
   });
-  overlay.querySelector('#review-apply-pass')?.addEventListener('click', () => {
-    selectedIds.forEach((lbdId) => { draft[lbdId] = 'pass'; });
-    refresh();
-  });
-  overlay.querySelector('#review-apply-fail')?.addEventListener('click', () => {
-    selectedIds.forEach((lbdId) => { draft[lbdId] = 'fail'; });
-    refresh();
-  });
-  overlay.querySelector('#review-bulk-save')?.addEventListener('click', async () => {
-    const reviews = Object.entries(draft).map(([lbdId, reviewResult]) => ({
-      lbd_id: Number(lbdId),
-      review_result: reviewResult,
-    }));
-    if (!reviews.length) {
-      alert('Apply pass or fail to at least one LBD before saving.');
+
+  const applySelected = async (reviewResult) => {
+    const targetIds = Array.from(selectedIds);
+    if (!targetIds.length) {
+      alert('Select at least one LBD first.');
       return;
     }
-    const saveBtn = overlay.querySelector('#review-bulk-save');
-    if (saveBtn) {
-      saveBtn.disabled = true;
-      saveBtn.textContent = 'Saving...';
-    }
+    applying = true;
+    refresh();
     try {
       await api.submitBulkReviews({
-        reviews,
+        reviews: targetIds.map((lbdId) => ({ lbd_id: Number(lbdId), review_result: reviewResult })),
         review_date: reviewPageState.selectedDate,
         tracker_id: currentTracker ? currentTracker.id : null,
         notes: notesEl ? notesEl.value : '',
       });
-      reviewPageState.notes = '';
-      close();
       await loadReviewPage();
+      targetIds.forEach((lbdId) => selectedIds.delete(lbdId));
+      if (notesEl) notesEl.value = '';
+      if (activeView === 'selected' && !selectedIds.size) {
+        activeView = 'pending';
+      }
+      refresh();
     } catch (error) {
       alert('Review save failed: ' + error.message);
-      if (saveBtn) {
-        saveBtn.disabled = false;
-        saveBtn.textContent = 'Save Drafted Reviews';
-      }
+    } finally {
+      applying = false;
+      refresh();
     }
-  });
+  };
+  overlay.querySelector('#review-apply-pass')?.addEventListener('click', () => applySelected('pass'));
+  overlay.querySelector('#review-apply-fail')?.addEventListener('click', () => applySelected('fail'));
   refresh();
 }
 
