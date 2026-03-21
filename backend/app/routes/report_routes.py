@@ -324,6 +324,11 @@ def _build_review_report_data(target_date, tracker_id=None):
 def _get_or_generate_review_report(target_date, tracker_id=None):
     user = _current_user()
     tracker = resolve_accessible_tracker(tracker_id, user=user) if tracker_id else None
+    if tracker_id and not tracker and _is_admin_user(user):
+        try:
+            tracker = Tracker.query.get(int(tracker_id))
+        except (TypeError, ValueError):
+            tracker = None
     if tracker_id and not tracker:
         return None
     if not tracker and not tracker_id and not _is_admin_user(user):

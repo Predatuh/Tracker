@@ -6157,13 +6157,28 @@ async function reviewGenerateReport() {
   try {
     const payload = { date: reviewPageState.selectedDate };
     if (currentTracker) payload.tracker_id = currentTracker.id;
-    await api.generateReviewReport(payload);
-    await loadReviewPage();
-    if (reviewPageState.selectedDate) {
-      reviewPageState.selectedReportDate = reviewPageState.selectedDate;
-      await reviewLoadReportDetail(reviewPageState.selectedDate);
+    const response = await api.generateReviewReport(payload);
+    const report = response?.data || null;
+    if (report?.report_date) {
+      reviewPageState.reportDetails[report.report_date] = report;
+      const summary = {
+        id: report.id,
+        report_date: report.report_date,
+        generated_at: report.generated_at,
+        total_reviews: report.data?.total_reviews || 0,
+        pass_count: report.data?.pass_count || 0,
+        fail_count: report.data?.fail_count || 0,
+        reviewers: Array.isArray(report.data?.reviewer_names) ? report.data.reviewer_names : [],
+        failed_blocks: Array.isArray(report.data?.failed_blocks) ? report.data.failed_blocks : [],
+      };
+      reviewPageState.reports = [
+        summary,
+        ...reviewPageState.reports.filter((item) => item.report_date !== report.report_date),
+      ].sort((a, b) => String(b.report_date || '').localeCompare(String(a.report_date || '')));
+      reviewPageState.selectedReportDate = report.report_date;
       renderReviewPage();
     }
+    await loadReviewPage();
   } catch (e) {
     alert('Review report generation failed: ' + e.message);
   }
