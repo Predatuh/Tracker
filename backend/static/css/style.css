@@ -1239,59 +1239,36 @@ body::after {
   filter: drop-shadow(0 0 24px rgba(0,212,255,1)) drop-shadow(0 0 48px rgba(0,212,255,0.6));
 }
 
-.login-brand-crown-wrap {
-  display: flex;
-  justify-content: center;
-  margin: 0 auto 12px;
-  isolation: isolate;
-}
-
-.login-crown-video {
-  width: 54px;
-  height: 54px;
-  animation: crownVideoFloat 2.6s ease-in-out infinite alternate;
-}
-
 .login-logo-shell {
   position: relative;
-  width: min(260px, 100%);
-  height: 86px;
-  margin: 0 auto 14px;
+  width: min(320px, 100%);
+  height: 118px;
+  margin: 0 auto 18px;
   display: flex;
   align-items: center;
   justify-content: center;
-  filter: drop-shadow(0 0 24px rgba(0,212,255,0.35));
+  background: transparent;
+  filter: drop-shadow(0 0 20px rgba(0,212,255,0.28));
 }
 
-.login-logo-static,
 .login-logo-video {
-  position: absolute;
-  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: contain;
-  transition: opacity 260ms ease, transform 320ms ease, filter 320ms ease;
-}
-
-.login-logo-static {
-  opacity: 1;
+  background: transparent;
+  transition: transform 320ms ease, filter 320ms ease, opacity 220ms ease;
 }
 
 .login-logo-video {
-  opacity: 0;
-  transform: scale(0.985);
-  filter: saturate(1.08) brightness(1.02);
+  opacity: 1;
+  transform: scale(1);
+  filter: saturate(1.02) brightness(1.02);
   pointer-events: none;
 }
 
-.login-logo-shell.is-animating .login-logo-static {
-  opacity: 0;
-  transform: scale(0.975);
-}
-
 .login-logo-shell.is-animating .login-logo-video {
-  opacity: 1;
-  transform: scale(1);
+  transform: scale(1.02);
+  filter: saturate(1.08) brightness(1.05) drop-shadow(0 0 24px rgba(0,212,255,0.22));
 }
 .hub-hero-sub {
   font-size: 13px;
@@ -3322,18 +3299,9 @@ code { background: rgba(0,212,255,0.1); color: var(--cyan); padding: 2px 6px; bo
     border-radius: 18px !important;
   }
 
-  .login-brand-crown-wrap {
-    margin-bottom: 10px;
-  }
-
-  .login-crown-video {
-    width: 46px;
-    height: 46px;
-  }
-
   .login-logo-shell {
-    height: 72px;
-    width: min(220px, 100%);
+    height: 96px;
+    width: min(270px, 100%);
   }
 }
 
@@ -3342,14 +3310,9 @@ code { background: rgba(0,212,255,0.1); color: var(--cyan); padding: 2px 6px; bo
     padding: 24px 16px !important;
   }
 
-  .login-crown-video {
-    width: 40px;
-    height: 40px;
-  }
-
   .login-logo-shell {
-    height: 64px;
-    width: min(200px, 100%);
+    height: 82px;
+    width: min(236px, 100%);
   }
 
   .hub-hero-wordmark {

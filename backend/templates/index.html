@@ -24,13 +24,9 @@
   <canvas id="login-canvas"></canvas>
   <div class="login-box" style="position:relative;z-index:1;background:rgba(10,14,31,0.75);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(0,212,255,0.12);border-radius:22px;padding:40px 44px;width:390px;max-width:93vw;box-shadow:0 32px 90px rgba(0,0,0,0.85),0 0 80px rgba(0,212,255,0.06);">
     <div style="text-align:center;margin-bottom:24px;">
-      <div class="login-brand-crown-wrap">
-        <video class="site-crown-video login-crown-video js-random-crown" autoplay muted loop playsinline preload="auto"></video>
-      </div>
       <div id="login-logo-shell" class="login-logo-shell" aria-hidden="true">
-        <img id="login-logo" src="{{ url_for('static', filename='Logo.png') }}" alt="Logo" class="login-logo-static" />
         <video id="login-logo-video" class="login-logo-video" muted playsinline preload="auto">
-          <source src="{{ url_for('static', filename='animations/loading.mp4') }}" type="video/mp4" />
+          <source src="{{ url_for('static', filename='animations/loading_logo.mp4') }}" type="video/mp4" />
         </video>
       </div>
       <h2 id="login-title-text" style="margin:0 0 4px;font-size:22px;font-weight:800;color:#eef2ff;font-family:'Orbitron',sans-serif;letter-spacing:1px;text-shadow:0 0 20px rgba(0,212,255,0.2);">Princess Trackers</h2>

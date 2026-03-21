@@ -2038,7 +2038,7 @@ function resetLoginLogoAnimation() {
   if (video) {
     video.pause();
     try {
-      video.currentTime = 0;
+      video.currentTime = 0.01;
     } catch (e) {
       console.warn('Failed resetting login logo video:', e);
     }
@@ -2051,7 +2051,7 @@ function playLoginLogoAnimation() {
   if (!shell || !video) return;
   shell.classList.add('is-animating');
   try {
-    video.currentTime = 0;
+    video.currentTime = 0.01;
   } catch (e) {
     console.warn('Failed rewinding login logo video:', e);
   }
@@ -2064,10 +2064,34 @@ function playLoginLogoAnimation() {
   }
 }
 
+function primeLoginLogoAnimation() {
+  const video = document.getElementById('login-logo-video');
+  if (!video || video.dataset.primed === 'true') return;
+
+  const applyFirstFrame = () => {
+    try {
+      video.currentTime = 0.01;
+      video.pause();
+      video.dataset.primed = 'true';
+    } catch (e) {
+      console.warn('Failed priming login logo video:', e);
+    }
+  };
+
+  if (video.readyState >= 2) {
+    applyFirstFrame();
+    return;
+  }
+
+  video.addEventListener('loadeddata', applyFirstFrame, { once: true });
+  video.load();
+}
+
 function showLoginModal() {
   const o = document.getElementById('login-overlay');
   assignSessionCrown();
   switchLoginTab('signin');
+  primeLoginLogoAnimation();
   resetLoginLogoAnimation();
   if (o) { o.style.display = 'flex'; startLoginAnimation(); }
 }
@@ -5943,6 +5967,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const submitBtn = document.getElementById('login-submit-btn');
   if (submitBtn) submitBtn._mode = 'signin';
   assignSessionCrown();
+  primeLoginLogoAnimation();
   resetLoginLogoAnimation();
 
   checkAuth().then(() => {
