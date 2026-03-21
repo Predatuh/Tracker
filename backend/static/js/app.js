@@ -6315,6 +6315,7 @@ async function reviewOpenBlockDialog(blockId) {
         <div id="review-bulk-list" style="max-height:min(62vh,560px);overflow:auto;padding-right:4px;"></div>
         <div style="display:flex;justify-content:flex-end;gap:10px;align-items:center;padding-top:4px;">
           <button type="button" id="review-bulk-cancel" class="btn btn-secondary">Cancel</button>
+          <button type="button" id="review-bulk-done" class="btn btn-success">Done</button>
         </div>
       </div>
     </div>`;
@@ -6331,13 +6332,18 @@ async function reviewOpenBlockDialog(blockId) {
   const setButtonState = () => {
     const passBtn = overlay.querySelector('#review-apply-pass');
     const failBtn = overlay.querySelector('#review-apply-fail');
+    const doneBtn = overlay.querySelector('#review-bulk-done');
     if (passBtn) {
       passBtn.disabled = applying || !selectedIds.size;
-      passBtn.textContent = applying ? 'Applying...' : 'Pass Selected';
+      passBtn.textContent = 'Pass Selected';
     }
     if (failBtn) {
       failBtn.disabled = applying || !selectedIds.size;
-      failBtn.textContent = applying ? 'Applying...' : 'Fail Selected';
+      failBtn.textContent = 'Fail Selected';
+    }
+    if (doneBtn) {
+      doneBtn.disabled = applying;
+      doneBtn.textContent = applying ? 'Saving...' : 'Done';
     }
   };
 
@@ -6370,8 +6376,6 @@ async function reviewOpenBlockDialog(blockId) {
   });
   overlay.querySelector('#review-bulk-close')?.addEventListener('click', close);
   overlay.querySelector('#review-bulk-cancel')?.addEventListener('click', close);
-  const doneBtn = overlay.querySelector('#review-bulk-cancel');
-  if (doneBtn) doneBtn.textContent = 'Done';
   overlay.querySelector('#review-select-all')?.addEventListener('click', () => {
     selectedIds.clear();
     reviewItemsForBlock(block.id).forEach((item) => selectedIds.add(item.lbd_id));
@@ -6388,34 +6392,38 @@ async function reviewOpenBlockDialog(blockId) {
       alert('Select at least one LBD first.');
       return;
     }
+    targetIds.forEach((lbdId) => localResults.set(Number(lbdId), reviewResult));
+    targetIds.forEach((lbdId) => selectedIds.delete(lbdId));
+    refresh();
+  };
+  overlay.querySelector('#review-apply-pass')?.addEventListener('click', () => applySelected('pass'));
+  overlay.querySelector('#review-apply-fail')?.addEventListener('click', () => applySelected('fail'));
+  overlay.querySelector('#review-bulk-done')?.addEventListener('click', async () => {
+    if (!localResults.size) {
+      close();
+      return;
+    }
     applying = true;
     refresh();
     try {
-      const response = await api.submitBulkReviews({
-        reviews: targetIds.map((lbdId) => ({ lbd_id: Number(lbdId), review_result: reviewResult })),
+      await api.submitBulkReviews({
+        reviews: Array.from(localResults.entries()).map(([lbdId, reviewResult]) => ({
+          lbd_id: Number(lbdId),
+          review_result: reviewResult,
+        })),
         review_date: reviewPageState.selectedDate,
         tracker_id: currentTracker ? currentTracker.id : null,
         notes: notesEl ? notesEl.value : '',
       });
-      const savedEntries = Array.isArray(response?.data) ? response.data : [];
-      if (savedEntries.length) {
-        const savedIds = new Set(savedEntries.map((entry) => Number(entry.lbd_id)));
-        reviewPageState.entries = [
-          ...savedEntries,
-          ...reviewPageState.entries.filter((entry) => !savedIds.has(Number(entry.lbd_id))),
-        ];
-      }
-      targetIds.forEach((lbdId) => localResults.set(Number(lbdId), reviewResult));
-      targetIds.forEach((lbdId) => selectedIds.delete(lbdId));
+      localResults.clear();
+      await loadReviewPage();
+      close();
     } catch (error) {
       alert('Review save failed: ' + error.message);
-    } finally {
       applying = false;
       refresh();
     }
-  };
-  overlay.querySelector('#review-apply-pass')?.addEventListener('click', () => applySelected('pass'));
-  overlay.querySelector('#review-apply-fail')?.addEventListener('click', () => applySelected('fail'));
+  });
   refresh();
 }
 
@@ -6525,8 +6533,7 @@ function renderReviewPage(options = {}) {
 
       <section class="claim-filter-shell">
         <div class="claim-search-wrap">
-          <input class="claim-search-input" type="text" value="${_escapeHtml(reviewPageState.search)}" oninput="reviewSetSearch(this.value)" placeholder="Search blocks, zones, or claimed crew" />
-                  <input id="review-search-input" class="claim-search-input" type="text" value="${_escapeHtml(reviewPageState.search)}" oninput="reviewSetSearch(this)" placeholder="Search blocks, zones, or claimed crew" />
+          <input id="review-search-input" class="claim-search-input" type="text" value="${_escapeHtml(reviewPageState.search)}" oninput="reviewSetSearch(this)" placeholder="Search blocks, zones, or claimed crew" />
         </div>
         <div class="claim-filter-group">
           <span class="claim-filter-label">Zone</span>
