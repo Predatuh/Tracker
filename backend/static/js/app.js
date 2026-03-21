@@ -5559,6 +5559,7 @@ function renderClaimPage() {
 let rp_viewMode = 'list';  // 'list' | 'calendar'
 let rp_reportsCache = [];
 let rp_selectedDate = null;
+let rp_filterMode = 'all'; // 'all' | 'fix'
 
 async function rp_fetchReports(force = false) {
   if (!force && rp_reportsCache.length) return rp_reportsCache;
@@ -5567,6 +5568,44 @@ async function rp_fetchReports(force = false) {
   reports.sort((a, b) => b.report_date.localeCompare(a.report_date));
   rp_reportsCache = reports;
   return reports;
+}
+
+function rp_reportMatchesFilter(report) {
+  if (rp_filterMode !== 'fix') return true;
+  return Number(report.fix_entry_count || 0) > 0;
+}
+
+function rp_filteredReports(reports) {
+  return (reports || []).filter(rp_reportMatchesFilter);
+}
+
+function rp_switchFilter(mode) {
+  rp_filterMode = mode === 'fix' ? 'fix' : 'all';
+  ['all', 'fix'].forEach(m => {
+    const btn = document.getElementById('rp-filter-' + m);
+    if (btn) btn.classList.toggle('active', m === rp_filterMode);
+  });
+  const filtered = rp_filteredReports(rp_reportsCache);
+  rp_renderSummary(filtered);
+  if (rp_selectedDate && !filtered.some(report => report.report_date === rp_selectedDate)) {
+    rp_selectedDate = filtered[0]?.report_date || null;
+  }
+  return rp_switchView(rp_viewMode);
+}
+
+function rp_collectFixData(data) {
+  const rawEntries = (data.raw_entries || []).filter(entry => entry && entry.task_type === 'fix');
+  const byWorker = {};
+  const byPowerBlock = {};
+  rawEntries.forEach(entry => {
+    const worker = entry.worker_name || 'Unknown';
+    const block = entry.power_block_name || 'Unknown';
+    if (!byWorker[worker]) byWorker[worker] = [];
+    if (!byPowerBlock[block]) byPowerBlock[block] = [];
+    byWorker[worker].push(block);
+    byPowerBlock[block].push(worker);
+  });
+  return { rawEntries, byWorker, byPowerBlock };
 }
 
 function rp_formatDate(dateStr, options = { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) {
@@ -5586,6 +5625,8 @@ function rp_renderSummary(reports) {
   const totalReports = reports.length;
   const totalEntries = reports.reduce((sum, report) => sum + Number(report.total_entries || 0), 0);
   const totalScans = reports.reduce((sum, report) => sum + Number(report.claim_scan_count || 0), 0);
+  const totalFixEntries = reports.reduce((sum, report) => sum + Number(report.fix_entry_count || 0), 0);
+  const totalFixReports = reports.filter(report => Number(report.fix_entry_count || 0) > 0).length;
   const workersTouched = new Set(reports.flatMap(report => report.workers || [])).size;
   const latestReport = reports[0];
 
@@ -5593,7 +5634,8 @@ function rp_renderSummary(reports) {
     { kicker: 'Reports Logged', value: `${totalReports}`, meta: 'Generated day snapshots on record', tone: 'cyan' },
     { kicker: 'Task Entries', value: `${totalEntries}`, meta: 'Logged work entries across this tracker view', tone: 'violet' },
     { kicker: 'Crew In Reports', value: `${workersTouched}`, meta: 'Distinct workers captured in report history', tone: 'emerald' },
-    { kicker: 'Claim Scans', value: `${totalScans}`, meta: latestReport ? `Latest report: ${rp_formatDate(latestReport.report_date, { month: 'short', day: 'numeric', year: 'numeric' })}` : 'No reports yet', tone: 'amber' }
+    { kicker: 'Claim Scans', value: `${totalScans}`, meta: latestReport ? `Latest report: ${rp_formatDate(latestReport.report_date, { month: 'short', day: 'numeric', year: 'numeric' })}` : 'No reports yet', tone: 'amber' },
+    { kicker: 'Fix Entries', value: `${totalFixEntries}`, meta: `${totalFixReports} report${totalFixReports === 1 ? '' : 's'} include fix work`, tone: 'amber' }
   ];
 
   summary.innerHTML = cards.map(card => `
@@ -5625,6 +5667,10 @@ async function loadReportsPage() {
           <button id="rp-tab-list" class="reports-tab-btn" onclick="rp_switchView('list')">List</button>
           <button id="rp-tab-calendar" class="reports-tab-btn" onclick="rp_switchView('calendar')">Calendar</button>
         </div>
+        <div class="reports-toolbar-tabs">
+          <button id="rp-filter-all" class="reports-tab-btn" onclick="rp_switchFilter('all')">All Reports</button>
+          <button id="rp-filter-fix" class="reports-tab-btn" onclick="rp_switchFilter('fix')">Fix Reports</button>
+        </div>
         <button class="reports-generate-btn" onclick="rp_generate()">Generate Today's Report</button>
       </div>
       <div id="rp-summary" class="reports-summary-grid"></div>
@@ -5632,7 +5678,8 @@ async function loadReportsPage() {
     </section>`;
 
   const reports = await rp_fetchReports(true).catch(() => []);
-  rp_renderSummary(reports);
+  rp_renderSummary(rp_filteredReports(reports));
+  rp_switchFilter(rp_filterMode);
   await rp_switchView(rp_viewMode);
 }
 
@@ -5663,9 +5710,12 @@ async function rp_loadList() {
   if (!el) return;
   el.innerHTML = '<div class="reports-empty-copy">Loading reports…</div>';
   try {
-    const reports = await rp_fetchReports();
+    const reports = rp_filteredReports(await rp_fetchReports());
     if (reports.length === 0) {
-      rp_renderEmpty(el, 'No reports generated yet.', 'Use Generate Today\'s Report to create the first daily snapshot.');
+      const emptyCopy = rp_filterMode === 'fix'
+        ? 'Generate reports after fix work is claimed to build the dedicated fix log.'
+        : 'Use Generate Today\'s Report to create the first daily snapshot.';
+      rp_renderEmpty(el, rp_filterMode === 'fix' ? 'No fix reports yet.' : 'No reports generated yet.', emptyCopy);
       return;
     }
     if (!rp_selectedDate) rp_selectedDate = reports[0].report_date;
@@ -5676,12 +5726,13 @@ async function rp_loadList() {
             const workers = Array.isArray(rpt.workers) ? rpt.workers.length : 0;
             const entries = Number(rpt.total_entries || 0);
             const scans = Number(rpt.claim_scan_count || 0);
+            const fixes = Number(rpt.fix_entry_count || 0);
             const isActive = rpt.report_date === rp_selectedDate;
             return `
               <button type="button" class="reports-list-card${isActive ? ' active' : ''}" onclick="rp_showDetail('${rpt.report_date}', true)">
                 <div class="reports-list-card-main">
                   <div class="reports-list-card-date">${rp_formatDate(rpt.report_date)}</div>
-                  <div class="reports-list-card-meta">${workers} worker${workers === 1 ? '' : 's'} • ${entries} entries • ${scans} claim scan${scans === 1 ? '' : 's'}</div>
+                  <div class="reports-list-card-meta">${workers} worker${workers === 1 ? '' : 's'} • ${entries} entries • ${fixes} fix${fixes === 1 ? '' : 'es'} • ${scans} claim scan${scans === 1 ? '' : 's'}</div>
                 </div>
                 ${rpt.latest_claim_scan_image_url ? `<img class="reports-list-thumb" src="${rpt.latest_claim_scan_image_url}" alt="Latest claim scan">` : '<div class="reports-list-thumb reports-list-thumb-empty">No scan</div>'}
               </button>`;
@@ -5698,7 +5749,7 @@ async function rp_loadCalendar() {
   if (!el) return;
   el.innerHTML = '<div class="reports-empty-copy">Loading calendar…</div>';
   try {
-    const reports = await rp_fetchReports();
+    const reports = rp_filteredReports(await rp_fetchReports());
     const reportDates = new Set(reports.map(rp => rp.report_date));
 
     const now = new Date();
@@ -5755,19 +5806,30 @@ async function rp_showDetail(dateStr, syncSelection = true) {
     const dateTitle = rp_formatDate(dateStr, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
     const workers = data.worker_names || [];
     const scans = data.claim_scans || [];
+    const fixData = rp_collectFixData(data);
+    const fixCount = fixData.rawEntries.length;
 
     let html = `<div class="reports-detail-card">
       <div class="reports-detail-head">
         <div>
-          <div class="reports-detail-kicker">Daily Report</div>
+          <div class="reports-detail-kicker">${rp_filterMode === 'fix' ? 'Fix Report' : 'Daily Report'}</div>
           <h3 class="reports-detail-title">${dateTitle}</h3>
         </div>
         <div class="reports-detail-stat-row">
           <div class="reports-detail-stat"><span>${data.total_entries || 0}</span><small>Entries</small></div>
           <div class="reports-detail-stat"><span>${workers.length}</span><small>Workers</small></div>
+          <div class="reports-detail-stat"><span>${fixCount}</span><small>Fixes</small></div>
           <div class="reports-detail-stat"><span>${scans.length}</span><small>Claim Scans</small></div>
         </div>
       </div>`;
+
+    if (fixCount > 0) {
+      html += `<div class="reports-detail-section"><div class="reports-detail-section-title">Fix Activity</div><div class="reports-detail-stack">
+        <div class="reports-line-card"><div class="reports-line-card-title"><span class="reports-line-dot" style="background:${STATUS_COLORS.fix || '#FFB347'}"></span>${STATUS_LABELS.fix || 'Fix'}</div>
+          ${Object.entries(fixData.byWorker).map(([worker, blocks]) => `<div class="reports-line-item"><span class="reports-line-label">${worker}:</span><span class="reports-line-copy">${Array.from(new Set(blocks)).join(', ')}</span></div>`).join('')}
+        </div>
+      </div></div>`;
+    }
 
     if (scans.length > 0) {
       html += `<div class="reports-detail-section"><div class="reports-detail-section-title">Claim Scans</div><div class="reports-scan-grid">${scans.map(scan => `
