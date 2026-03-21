@@ -1974,9 +1974,110 @@ body::after {
   cursor: pointer;
 }
 
-.reports-generate-btn-fix {
-  background: linear-gradient(135deg, #ffcf70, #ff9f43);
-  color: #2b1401;
+.review-report-shell {
+  margin-top: 8px;
+}
+
+.review-result-row {
+  display: flex;
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.review-result-btn {
+  flex: 1;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.04);
+  color: rgba(238,242,255,0.72);
+  padding: 12px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.review-result-btn.is-active.is-pass {
+  border-color: rgba(0,232,122,0.45);
+  background: rgba(0,232,122,0.12);
+  color: #8affc4;
+}
+
+.review-result-btn.is-active.is-fail {
+  border-color: rgba(255,128,128,0.45);
+  background: rgba(255,76,106,0.12);
+  color: #ffadb8;
+}
+
+.review-status-pass {
+  color: #8affc4;
+}
+
+.review-status-fail {
+  color: #ffadb8;
+}
+
+.review-status-pending {
+  color: rgba(238,242,255,0.5);
+}
+
+.review-entry-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.review-entry-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.03);
+}
+
+.review-entry-meta {
+  margin-top: 4px;
+  font-size: 12px;
+  color: rgba(238,242,255,0.5);
+}
+
+.review-entry-notes {
+  font-size: 12px;
+  color: rgba(238,242,255,0.72);
+  line-height: 1.5;
+}
+
+.review-fail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.review-fail-card {
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,76,106,0.18);
+  background: linear-gradient(160deg, rgba(41,11,18,0.84), rgba(21,10,20,0.92));
+}
+
+.review-fail-title {
+  font-weight: 800;
+  color: #fff3f6;
+}
+
+.review-fail-meta {
+  margin-top: 6px;
+  font-size: 12px;
+  color: rgba(255,173,184,0.78);
+}
+
+.review-fail-notes {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(255,255,255,0.72);
 }
 
 .reports-summary-grid {

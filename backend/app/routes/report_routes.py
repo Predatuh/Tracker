@@ -16,6 +16,8 @@ from flask import Blueprint, request, jsonify, session, current_app, send_from_d
 from app import db
 from app.models.worker import Worker, WorkEntry
 from app.models.daily_report import DailyReport
+from app.models.review_entry import ReviewEntry
+from app.models.daily_review_report import DailyReviewReport
 from app.models.admin_settings import AdminSettings
 from app.models.tracker import Tracker
 from app.models.power_block import PowerBlock
@@ -67,6 +69,11 @@ def _is_admin_user(user=None):
     return bool(user and (getattr(user, 'is_admin', False) or getattr(user, 'role', None) == 'admin'))
 
 
+def _can_manage_reviews(user=None):
+    user = user or _current_user()
+    return bool(user and (_is_admin_user(user) or user.has_permission('admin_settings')))
+
+
 def _allowed_tracker_id_set(user=None):
     return set(allowed_tracker_ids(user=user))
 
@@ -109,6 +116,30 @@ def _work_entry_is_accessible(entry, user=None):
     if _is_admin_user(user):
         return True
     tracker_id = getattr(entry, 'tracker_id', None)
+    return bool(tracker_id and tracker_id in _allowed_tracker_id_set(user=user))
+
+
+def _review_entry_is_accessible(entry, user=None):
+    if not entry:
+        return False
+    user = user or _current_user()
+    if not _can_manage_reviews(user):
+        return False
+    if _is_admin_user(user):
+        return True
+    tracker_id = getattr(entry, 'tracker_id', None)
+    return bool(tracker_id and tracker_id in _allowed_tracker_id_set(user=user))
+
+
+def _review_report_is_accessible(report, user=None):
+    if not report:
+        return False
+    user = user or _current_user()
+    if not _can_manage_reviews(user):
+        return False
+    if _is_admin_user(user):
+        return True
+    tracker_id = getattr(report, 'tracker_id', None)
     return bool(tracker_id and tracker_id in _allowed_tracker_id_set(user=user))
 
 
@@ -231,6 +262,76 @@ def _get_or_generate_report(target_date, tracker_id=None):
         report = DailyReport(report_date=target_date, tracker_id=tracker_id)
         db.session.add(report)
     report.set_data(_build_report_data(target_date, tracker_id, existing_data))
+    report.generated_at = datetime.utcnow()
+    db.session.commit()
+    return report
+
+
+def _build_review_report_data(target_date, tracker_id=None):
+    query = ReviewEntry.query.options(subqueryload(ReviewEntry.power_block)).filter_by(review_date=target_date)
+    if tracker_id:
+        query = query.filter_by(tracker_id=tracker_id)
+    entries = query.order_by(ReviewEntry.created_at.asc(), ReviewEntry.id.asc()).all()
+
+    reviewer_names = sorted({entry.reviewed_by for entry in entries if entry.reviewed_by})
+    by_power_block = defaultdict(list)
+    latest_by_block = {}
+
+    for entry in entries:
+        item = entry.to_dict()
+        block_name = item.get('power_block_name') or f"Power Block {entry.power_block_id}"
+        by_power_block[block_name].append(item)
+        latest_by_block[entry.power_block_id] = item
+
+    by_reviewer = defaultdict(lambda: {'pass': [], 'fail': []})
+    latest_reviews = sorted(
+        latest_by_block.values(),
+        key=lambda item: (
+            str(item.get('power_block_name') or '').lower(),
+            str(item.get('created_at') or ''),
+        ),
+    )
+    for item in latest_reviews:
+        reviewer = item.get('reviewed_by') or 'Unknown'
+        result = 'pass' if item.get('review_result') == 'pass' else 'fail'
+        block_name = item.get('power_block_name') or 'Unknown'
+        by_reviewer[reviewer][result].append(block_name)
+
+    failed_blocks = [item for item in latest_reviews if item.get('review_result') == 'fail']
+
+    return {
+        'report_date': target_date.isoformat(),
+        'total_reviews': len(entries),
+        'pass_count': sum(1 for item in latest_reviews if item.get('review_result') == 'pass'),
+        'fail_count': len(failed_blocks),
+        'reviewer_names': reviewer_names,
+        'raw_entries': [entry.to_dict() for entry in entries],
+        'latest_reviews': latest_reviews,
+        'failed_blocks': failed_blocks,
+        'by_power_block': {name: items for name, items in by_power_block.items()},
+        'by_reviewer': {name: groups for name, groups in by_reviewer.items()},
+    }
+
+
+def _get_or_generate_review_report(target_date, tracker_id=None):
+    user = _current_user()
+    tracker = resolve_accessible_tracker(tracker_id, user=user) if tracker_id else None
+    if tracker_id and not tracker:
+        return None
+    if not tracker and not tracker_id and not _is_admin_user(user):
+        tracker = resolve_accessible_tracker(user=user)
+        if not tracker:
+            return None
+        tracker_id = tracker.id
+
+    query = DailyReviewReport.query.filter_by(report_date=target_date)
+    if tracker_id:
+        query = query.filter_by(tracker_id=tracker_id)
+    report = query.first()
+    if report is None:
+        report = DailyReviewReport(report_date=target_date, tracker_id=tracker_id)
+        db.session.add(report)
+    report.set_data(_build_review_report_data(target_date, tracker_id))
     report.generated_at = datetime.utcnow()
     db.session.commit()
     return report
@@ -1749,6 +1850,139 @@ def generate_report():
     if not r:
         return jsonify({'error': 'No accessible tracker is available for this request'}), 403
     return jsonify({'success': True, 'data': r.to_dict()}), 200
+
+
+@bp.route('/reviews', methods=['GET'])
+def list_reviews():
+    user = _current_user()
+    if not _can_manage_reviews(user):
+        return jsonify({'error': 'Review access is restricted to admin users'}), 403
+
+    tracker_id = _resolve_tracker_id()
+    query = _scope_query_to_accessible_trackers(ReviewEntry.query, ReviewEntry.tracker_id, tracker_id=tracker_id, user=user)
+    date_str = str(request.args.get('date') or '').strip()
+    if date_str:
+        try:
+            target_date = date.fromisoformat(date_str)
+        except ValueError:
+            return jsonify({'error': 'Invalid date, use YYYY-MM-DD'}), 400
+        query = query.filter(ReviewEntry.review_date == target_date)
+    entries = query.order_by(ReviewEntry.created_at.desc(), ReviewEntry.id.desc()).all()
+    return jsonify({'success': True, 'data': [entry.to_dict() for entry in entries]}), 200
+
+
+@bp.route('/reviews', methods=['POST'])
+def create_review():
+    user = _current_user()
+    if not _can_manage_reviews(user):
+        return jsonify({'error': 'Review access is restricted to admin users'}), 403
+
+    data = request.get_json() or {}
+    try:
+        block_id = int(data.get('power_block_id') or 0)
+    except (TypeError, ValueError):
+        block_id = 0
+    if block_id <= 0:
+        return jsonify({'error': 'power_block_id is required'}), 400
+
+    result = str(data.get('review_result') or '').strip().lower()
+    if result not in {'pass', 'fail'}:
+        return jsonify({'error': 'review_result must be pass or fail'}), 400
+
+    try:
+        review_date = date.fromisoformat(str(data.get('review_date') or _cst_today().isoformat()))
+    except ValueError:
+        return jsonify({'error': 'Invalid review_date, use YYYY-MM-DD'}), 400
+
+    block = PowerBlock.query.options(subqueryload(PowerBlock.lbds)).get_or_404(block_id)
+    tracker = _resolve_block_tracker(block, data.get('tracker_id'), user=user)
+    if not tracker and not _is_admin_user(user):
+        return jsonify({'error': 'That power block is not accessible for your job site'}), 403
+
+    entry = ReviewEntry(
+        power_block_id=block.id,
+        tracker_id=tracker.id if tracker else None,
+        review_result=result,
+        review_date=review_date,
+        reviewed_by=_current_user_name(),
+        notes=str(data.get('notes') or '').strip() or None,
+    )
+    db.session.add(entry)
+    db.session.commit()
+
+    return jsonify({'success': True, 'data': entry.to_dict()}), 201
+
+
+@bp.route('/review-reports', methods=['GET'])
+def list_review_reports():
+    user = _current_user()
+    if not _can_manage_reviews(user):
+        return jsonify({'error': 'Review access is restricted to admin users'}), 403
+
+    tracker_id = _resolve_tracker_id()
+    query = _scope_query_to_accessible_trackers(
+        DailyReviewReport.query,
+        DailyReviewReport.tracker_id,
+        tracker_id=tracker_id,
+        user=user,
+    )
+    reports = query.order_by(DailyReviewReport.report_date.desc()).all()
+    return jsonify({'success': True, 'data': [report.to_summary() for report in reports]}), 200
+
+
+@bp.route('/review-reports/<int:report_id>', methods=['GET'])
+def get_review_report(report_id):
+    report = DailyReviewReport.query.get_or_404(report_id)
+    if not _review_report_is_accessible(report):
+        return jsonify({'error': 'That review report is not accessible for your job site'}), 403
+    return jsonify({'success': True, 'data': report.to_dict()}), 200
+
+
+@bp.route('/review-reports/date/<date_str>', methods=['GET'])
+def get_review_report_by_date(date_str):
+    user = _current_user()
+    if not _can_manage_reviews(user):
+        return jsonify({'error': 'Review access is restricted to admin users'}), 403
+
+    try:
+        target = date.fromisoformat(date_str)
+    except ValueError:
+        return jsonify({'error': 'Invalid date, use YYYY-MM-DD'}), 400
+
+    tracker_id = _resolve_tracker_id()
+    query = _scope_query_to_accessible_trackers(
+        DailyReviewReport.query.filter_by(report_date=target),
+        DailyReviewReport.tracker_id,
+        tracker_id=tracker_id,
+        user=user,
+    )
+    report = query.first()
+    if not report:
+        return jsonify({'success': True, 'data': None}), 200
+    return jsonify({'success': True, 'data': report.to_dict()}), 200
+
+
+@bp.route('/review-reports/generate', methods=['POST'])
+def generate_review_report():
+    user = _current_user()
+    if not _can_manage_reviews(user):
+        return jsonify({'error': 'Review access is restricted to admin users'}), 403
+
+    data = request.get_json() or {}
+    date_str = str(data.get('date') or '').strip()
+    tracker = resolve_accessible_tracker(data.get('tracker_id'), user=user) if data.get('tracker_id') else _resolve_requested_tracker(allow_admin_none=True)
+    if not tracker and not _is_admin_user(user):
+        return jsonify({'error': 'No accessible tracker is available for this request'}), 403
+
+    try:
+        target = date.fromisoformat(date_str) if date_str else _cst_today()
+    except ValueError:
+        return jsonify({'error': 'Invalid date, use YYYY-MM-DD'}), 400
+
+    report = _get_or_generate_review_report(target, tracker.id if tracker else None)
+    if not report:
+        return jsonify({'error': 'No accessible tracker is available for this request'}), 403
+    return jsonify({'success': True, 'data': report.to_dict()}), 200
 
 
 @bp.route('/reports/range', methods=['GET'])

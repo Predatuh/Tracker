@@ -162,6 +162,28 @@ const api = {
       body: JSON.stringify(payload)
     });
   },
+  getReviews(dateStr = null) {
+    const endpoint = dateStr ? `/reviews?date=${encodeURIComponent(dateStr)}` : '/reviews';
+    return this.call(this._tq(endpoint));
+  },
+  submitReview(payload) {
+    return this.call('/reviews', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  },
+  getReviewReports() {
+    return this.call(this._tq('/review-reports'));
+  },
+  getReviewReportByDate(dateStr) {
+    return this.call(this._tq(`/review-reports/date/${dateStr}`));
+  },
+  generateReviewReport(payload = {}) {
+    return this.call('/review-reports/generate', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  },
 
   // ---- Tracker API ----
   getTrackers() { return this.call('/admin/trackers'); },
@@ -351,7 +373,8 @@ function showPage(pageName) {
   const role = currentUser ? (currentUser.role || 'user') : 'user';
   const perms = currentUser ? (currentUser.permissions || []) : [];
   const isAssistant = role === 'assistant_admin';
-  if (pageName === 'admin' && !isAdmin && !(isAssistant && perms.includes('admin_settings'))) {
+  const canManageAdminPages = isAdmin || (isAssistant && perms.includes('admin_settings'));
+  if ((pageName === 'admin' || pageName === 'review') && !canManageAdminPages) {
     return;
   }
 
@@ -376,6 +399,7 @@ function showPage(pageName) {
   if (pageName === 'admin') loadAdminPage();
   if (pageName === 'claim') loadClaimPage();
   if (pageName === 'reports') loadReportsPage();
+  if (pageName === 'review') loadReviewPage();
 }
 
 function openSiteMap(resetTracker = false) {
@@ -1931,7 +1955,7 @@ async function loadSiteMap() {
 // ============================================================
 // INTERACTIVE MAP
 // ============================================================
-let LBD_STATUS_TYPES = ['ground_brackets', 'stuff', 'term', 'fix'];
+let LBD_STATUS_TYPES = ['ground_brackets', 'stuff', 'term'];
 
 // An LBD counts as complete when ALL current tracker columns are checked
 function isLBDComplete(lbd) {
@@ -1943,14 +1967,12 @@ function isLBDComplete(lbd) {
 let STATUS_COLORS = {
   ground_brackets: '#95E1D3',
   stuff:           '#FF6B6B',
-  term:            '#4ECDC4',
-  fix:             '#FFB347'
+  term:            '#4ECDC4'
 };
 let STATUS_LABELS = {
   ground_brackets: 'Bracket/Ground',
   stuff:           'Stuffed',
-  term:            'Termed',
-  fix:             'Fix'
+  term:            'Termed'
 };
 
 // Admin settings cache
@@ -5622,7 +5644,12 @@ function renderClaimPage() {
 let rp_viewMode = 'list';  // 'list' | 'calendar'
 let rp_reportsCache = [];
 let rp_selectedDate = null;
-let rp_filterMode = 'all'; // 'all' | 'fix'
+
+function rp_formatDate(dateStr, options = { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) {
+  const parsed = new Date(`${dateStr}T12:00:00`);
+  if (Number.isNaN(parsed.getTime())) return dateStr;
+  return parsed.toLocaleDateString('en-US', options);
+}
 
 async function rp_fetchReports(force = false) {
   if (!force && rp_reportsCache.length) return rp_reportsCache;
@@ -5631,58 +5658,6 @@ async function rp_fetchReports(force = false) {
   reports.sort((a, b) => b.report_date.localeCompare(a.report_date));
   rp_reportsCache = reports;
   return reports;
-}
-
-function rp_reportMatchesFilter(report) {
-  if (rp_filterMode !== 'fix') return true;
-  return Number(report.fix_entry_count || 0) > 0;
-}
-
-function rp_filteredReports(reports) {
-  return (reports || []).filter(rp_reportMatchesFilter);
-}
-
-function rp_switchFilter(mode) {
-  rp_filterMode = mode === 'fix' ? 'fix' : 'all';
-  ['all', 'fix'].forEach(m => {
-    const btn = document.getElementById('rp-filter-' + m);
-    if (btn) btn.classList.toggle('active', m === rp_filterMode);
-  });
-  const filtered = rp_filteredReports(rp_reportsCache);
-  rp_renderSummary(filtered);
-  if (rp_selectedDate && !filtered.some(report => report.report_date === rp_selectedDate)) {
-    rp_selectedDate = filtered[0]?.report_date || null;
-  }
-  return rp_switchView(rp_viewMode);
-}
-
-function rp_afterGenerate(mode) {
-  rp_renderSummary(rp_filteredReports(rp_reportsCache));
-  if (mode === 'fix') {
-    return rp_switchFilter('fix');
-  }
-  return rp_switchView(rp_viewMode);
-}
-
-function rp_collectFixData(data) {
-  const rawEntries = (data.raw_entries || []).filter(entry => entry && entry.task_type === 'fix');
-  const byWorker = {};
-  const byPowerBlock = {};
-  rawEntries.forEach(entry => {
-    const worker = entry.worker_name || 'Unknown';
-    const block = entry.power_block_name || 'Unknown';
-    if (!byWorker[worker]) byWorker[worker] = [];
-    if (!byPowerBlock[block]) byPowerBlock[block] = [];
-    byWorker[worker].push(block);
-    byPowerBlock[block].push(worker);
-  });
-  return { rawEntries, byWorker, byPowerBlock };
-}
-
-function rp_formatDate(dateStr, options = { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) {
-  const parsed = new Date(`${dateStr}T12:00:00`);
-  if (Number.isNaN(parsed.getTime())) return dateStr;
-  return parsed.toLocaleDateString('en-US', options);
 }
 
 function rp_renderSummary(reports) {
@@ -5696,8 +5671,6 @@ function rp_renderSummary(reports) {
   const totalReports = reports.length;
   const totalEntries = reports.reduce((sum, report) => sum + Number(report.total_entries || 0), 0);
   const totalScans = reports.reduce((sum, report) => sum + Number(report.claim_scan_count || 0), 0);
-  const totalFixEntries = reports.reduce((sum, report) => sum + Number(report.fix_entry_count || 0), 0);
-  const totalFixReports = reports.filter(report => Number(report.fix_entry_count || 0) > 0).length;
   const workersTouched = new Set(reports.flatMap(report => report.workers || [])).size;
   const latestReport = reports[0];
 
@@ -5706,7 +5679,6 @@ function rp_renderSummary(reports) {
     { kicker: 'Task Entries', value: `${totalEntries}`, meta: 'Logged work entries across this tracker view', tone: 'violet' },
     { kicker: 'Crew In Reports', value: `${workersTouched}`, meta: 'Distinct workers captured in report history', tone: 'emerald' },
     { kicker: 'Claim Scans', value: `${totalScans}`, meta: latestReport ? `Latest report: ${rp_formatDate(latestReport.report_date, { month: 'short', day: 'numeric', year: 'numeric' })}` : 'No reports yet', tone: 'amber' },
-    { kicker: 'Fix Entries', value: `${totalFixEntries}`, meta: `${totalFixReports} report${totalFixReports === 1 ? '' : 's'} include fix work`, tone: 'amber' }
   ];
 
   summary.innerHTML = cards.map(card => `
@@ -5738,13 +5710,8 @@ async function loadReportsPage() {
           <button id="rp-tab-list" class="reports-tab-btn" onclick="rp_switchView('list')">List</button>
           <button id="rp-tab-calendar" class="reports-tab-btn" onclick="rp_switchView('calendar')">Calendar</button>
         </div>
-        <div class="reports-toolbar-tabs">
-          <button id="rp-filter-all" class="reports-tab-btn" onclick="rp_switchFilter('all')">All Reports</button>
-          <button id="rp-filter-fix" class="reports-tab-btn" onclick="rp_switchFilter('fix')">Fix Reports</button>
-        </div>
         <div class="reports-toolbar-actions">
-          <button class="reports-generate-btn" onclick="rp_generate('all')">Generate Today's Report</button>
-          <button class="reports-generate-btn reports-generate-btn-fix" onclick="rp_generate('fix')">Generate Fix Report</button>
+          <button class="reports-generate-btn" onclick="rp_generate()">Generate Today's Report</button>
         </div>
       </div>
       <div id="rp-summary" class="reports-summary-grid"></div>
@@ -5752,14 +5719,12 @@ async function loadReportsPage() {
     </section>`;
 
   const reports = await rp_fetchReports(true).catch(() => []);
-  rp_renderSummary(rp_filteredReports(reports));
-  rp_switchFilter(rp_filterMode);
+  rp_renderSummary(reports);
   await rp_switchView(rp_viewMode);
 }
 
 async function rp_switchView(mode) {
   rp_viewMode = mode;
-  // Update tab styles
   ['list', 'calendar'].forEach(m => {
     const btn = document.getElementById('rp-tab-' + m);
     if (btn) btn.classList.toggle('active', m === mode);
@@ -5768,14 +5733,17 @@ async function rp_switchView(mode) {
   else await rp_loadCalendar();
 }
 
-async function rp_generate(mode = 'all') {
+async function rp_generate() {
   try {
     const body = {};
     if (currentTracker) body.tracker_id = currentTracker.id;
     await api.call('/reports/generate', { method: 'POST', body: JSON.stringify(body) });
     await rp_fetchReports(true);
-    await rp_afterGenerate(mode === 'fix' ? 'fix' : 'all');
-  } catch(e) { alert('Error: ' + e.message); }
+    rp_renderSummary(rp_reportsCache);
+    await rp_switchView(rp_viewMode);
+  } catch (e) {
+    alert('Error: ' + e.message);
+  }
 }
 
 async function rp_loadList() {
@@ -5783,12 +5751,9 @@ async function rp_loadList() {
   if (!el) return;
   el.innerHTML = '<div class="reports-empty-copy">Loading reports…</div>';
   try {
-    const reports = rp_filteredReports(await rp_fetchReports());
+    const reports = await rp_fetchReports();
     if (reports.length === 0) {
-      const emptyCopy = rp_filterMode === 'fix'
-        ? 'Generate reports after fix work is claimed to build the dedicated fix log.'
-        : 'Use Generate Today\'s Report to create the first daily snapshot.';
-      rp_renderEmpty(el, rp_filterMode === 'fix' ? 'No fix reports yet.' : 'No reports generated yet.', emptyCopy);
+      rp_renderEmpty(el, 'No reports generated yet.', 'Use Generate Today\'s Report to create the first daily snapshot.');
       return;
     }
     if (!rp_selectedDate) rp_selectedDate = reports[0].report_date;
@@ -5799,13 +5764,12 @@ async function rp_loadList() {
             const workers = Array.isArray(rpt.workers) ? rpt.workers.length : 0;
             const entries = Number(rpt.total_entries || 0);
             const scans = Number(rpt.claim_scan_count || 0);
-            const fixes = Number(rpt.fix_entry_count || 0);
             const isActive = rpt.report_date === rp_selectedDate;
             return `
               <button type="button" class="reports-list-card${isActive ? ' active' : ''}" onclick="rp_showDetail('${rpt.report_date}', true)">
                 <div class="reports-list-card-main">
                   <div class="reports-list-card-date">${rp_formatDate(rpt.report_date)}</div>
-                  <div class="reports-list-card-meta">${workers} worker${workers === 1 ? '' : 's'} • ${entries} entries • ${fixes} fix${fixes === 1 ? '' : 'es'} • ${scans} claim scan${scans === 1 ? '' : 's'}</div>
+                  <div class="reports-list-card-meta">${workers} worker${workers === 1 ? '' : 's'} • ${entries} entries • ${scans} claim scan${scans === 1 ? '' : 's'}</div>
                 </div>
                 ${rpt.latest_claim_scan_image_url ? `<img class="reports-list-thumb" src="${rpt.latest_claim_scan_image_url}" alt="Latest claim scan">` : '<div class="reports-list-thumb reports-list-thumb-empty">No scan</div>'}
               </button>`;
@@ -5814,7 +5778,9 @@ async function rp_loadList() {
         <div id="rp-detail" class="reports-detail-shell"></div>
       </div>`;
     await rp_showDetail(rp_selectedDate, false);
-  } catch(e) { el.innerHTML = `<p style="color:#ff4c6a;">Error: ${e.message}</p>`; }
+  } catch (e) {
+    el.innerHTML = `<p style="color:#ff4c6a;">Error: ${_escapeHtml(e.message)}</p>`;
+  }
 }
 
 async function rp_loadCalendar() {
@@ -5822,7 +5788,7 @@ async function rp_loadCalendar() {
   if (!el) return;
   el.innerHTML = '<div class="reports-empty-copy">Loading calendar…</div>';
   try {
-    const reports = rp_filteredReports(await rp_fetchReports());
+    const reports = await rp_fetchReports();
     const reportDates = new Set(reports.map(rp => rp.report_date));
 
     const now = new Date();
@@ -5857,7 +5823,9 @@ async function rp_loadCalendar() {
     if (rp_selectedDate && reportDates.has(rp_selectedDate)) {
       await rp_showDetail(rp_selectedDate, false);
     }
-  } catch(e) { el.innerHTML = `<p style="color:#ff4c6a;">Error: ${e.message}</p>`; }
+  } catch (e) {
+    el.innerHTML = `<p style="color:#ff4c6a;">Error: ${_escapeHtml(e.message)}</p>`;
+  }
 }
 
 async function rp_showDetail(dateStr, syncSelection = true) {
@@ -5867,58 +5835,51 @@ async function rp_showDetail(dateStr, syncSelection = true) {
       card.classList.toggle('active', card.getAttribute('onclick')?.includes(`'${dateStr}'`));
     });
   }
-  let detailEl = document.getElementById('rp-detail');
+  const detailEl = document.getElementById('rp-detail');
   if (!detailEl) return;
   detailEl.innerHTML = '<div class="reports-empty-copy">Loading report…</div>';
   try {
     const r = await api.call(api._tq(`/reports/date/${dateStr}`));
     const rpt = r.data;
-    if (!rpt) { detailEl.innerHTML = '<div class="reports-empty-copy">No report for this date.</div>'; return; }
+    if (!rpt) {
+      detailEl.innerHTML = '<div class="reports-empty-copy">No report for this date.</div>';
+      return;
+    }
 
     const data = rpt.data || {};
     const dateTitle = rp_formatDate(dateStr, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
     const workers = data.worker_names || [];
     const scans = data.claim_scans || [];
-    const fixData = rp_collectFixData(data);
-    const fixCount = fixData.rawEntries.length;
+    const byWorker = data.by_worker || {};
+    const byTask = data.by_task || {};
 
     let html = `<div class="reports-detail-card">
       <div class="reports-detail-head">
         <div>
-          <div class="reports-detail-kicker">${rp_filterMode === 'fix' ? 'Fix Report' : 'Daily Report'}</div>
+          <div class="reports-detail-kicker">Daily Report</div>
           <h3 class="reports-detail-title">${dateTitle}</h3>
         </div>
         <div class="reports-detail-stat-row">
           <div class="reports-detail-stat"><span>${data.total_entries || 0}</span><small>Entries</small></div>
           <div class="reports-detail-stat"><span>${workers.length}</span><small>Workers</small></div>
-          <div class="reports-detail-stat"><span>${fixCount}</span><small>Fixes</small></div>
+          <div class="reports-detail-stat"><span>${Object.keys(byTask).length}</span><small>Tasks</small></div>
           <div class="reports-detail-stat"><span>${scans.length}</span><small>Claim Scans</small></div>
         </div>
       </div>`;
-
-    if (fixCount > 0) {
-      html += `<div class="reports-detail-section"><div class="reports-detail-section-title">Fix Activity</div><div class="reports-detail-stack">
-        <div class="reports-line-card"><div class="reports-line-card-title"><span class="reports-line-dot" style="background:${STATUS_COLORS.fix || '#FFB347'}"></span>${STATUS_LABELS.fix || 'Fix'}</div>
-          ${Object.entries(fixData.byWorker).map(([worker, blocks]) => `<div class="reports-line-item"><span class="reports-line-label">${worker}:</span><span class="reports-line-copy">${Array.from(new Set(blocks)).join(', ')}</span></div>`).join('')}
-        </div>
-      </div></div>`;
-    }
 
     if (scans.length > 0) {
       html += `<div class="reports-detail-section"><div class="reports-detail-section-title">Claim Scans</div><div class="reports-scan-grid">${scans.map(scan => `
         <article class="reports-scan-card">
           ${scan.image_url ? `<img src="${scan.image_url}" alt="Claim scan for ${scan.power_block_name || 'report'}">` : '<div class="reports-scan-empty">No image</div>'}
-          <div class="reports-scan-meta">${scan.power_block_name || 'Power Block'} • ${scan.claimed_label || 'No crew listed'}</div>
+          <div class="reports-scan-meta">${_escapeHtml(scan.power_block_name || 'Power Block')} • ${_escapeHtml(scan.claimed_label || 'No crew listed')}</div>
         </article>
       `).join('')}</div></div>`;
     }
 
-    // By worker
-    const byWorker = data.by_worker || {};
     if (Object.keys(byWorker).length > 0) {
       html += '<div class="reports-detail-section"><div class="reports-detail-section-title">By Worker</div><div class="reports-detail-stack">';
       for (const [worker, tasks] of Object.entries(byWorker)) {
-        html += `<div class="reports-line-card"><div class="reports-line-card-title">👷 ${worker}</div>`;
+        html += `<div class="reports-line-card"><div class="reports-line-card-title">${_escapeHtml(worker)}</div>`;
         if (typeof tasks === 'object') {
           for (const [task, blocks] of Object.entries(tasks)) {
             const color = STATUS_COLORS[task] || '#888';
@@ -5926,38 +5887,404 @@ async function rp_showDetail(dateStr, syncSelection = true) {
             const blockList = Array.isArray(blocks) ? blocks.join(', ') : blocks;
             html += `<div class="reports-line-item">
               <span class="reports-line-dot" style="background:${color}"></span>
-              <span class="reports-line-label">${label}:</span>
-              <span class="reports-line-copy">${blockList}</span>
+              <span class="reports-line-label">${_escapeHtml(label)}:</span>
+              <span class="reports-line-copy">${_escapeHtml(blockList)}</span>
             </div>`;
           }
         }
         html += '</div>';
       }
-      html += '</div>';
+      html += '</div></div>';
     }
 
-    // By task
-    const byTask = data.by_task || {};
     if (Object.keys(byTask).length > 0) {
       html += '<div class="reports-detail-section"><div class="reports-detail-section-title">By Task</div><div class="reports-detail-stack">';
-      for (const [task, workers] of Object.entries(byTask)) {
+      for (const [task, workersByTask] of Object.entries(byTask)) {
         const color = STATUS_COLORS[task] || '#888';
         const label = STATUS_LABELS[task] || task;
-        html += `<div class="reports-line-card"><div class="reports-line-card-title"><span class="reports-line-dot" style="background:${color}"></span>${label}</div>`;
-        if (typeof workers === 'object') {
-          for (const [w, blocks] of Object.entries(workers)) {
+        html += `<div class="reports-line-card"><div class="reports-line-card-title"><span class="reports-line-dot" style="background:${color}"></span>${_escapeHtml(label)}</div>`;
+        if (typeof workersByTask === 'object') {
+          for (const [workerName, blocks] of Object.entries(workersByTask)) {
             const blockList = Array.isArray(blocks) ? blocks.join(', ') : blocks;
-            html += `<div class="reports-line-item reports-line-item-indent"><span class="reports-line-label">${w}:</span><span class="reports-line-copy">${blockList}</span></div>`;
+            html += `<div class="reports-line-item reports-line-item-indent"><span class="reports-line-label">${_escapeHtml(workerName)}:</span><span class="reports-line-copy">${_escapeHtml(blockList)}</span></div>`;
           }
         }
         html += '</div>';
       }
-      html += '</div>';
+      html += '</div></div>';
     }
 
     html += '</div>';
     detailEl.innerHTML = html;
-  } catch(e) { detailEl.innerHTML = `<p style="color:#ff4c6a;">Error: ${e.message}</p>`; }
+  } catch (e) {
+    detailEl.innerHTML = `<p style="color:#ff4c6a;">Error: ${_escapeHtml(e.message)}</p>`;
+  }
+}
+
+// ============================================================
+// REVIEW PAGE
+// ============================================================
+const reviewPageState = {
+  blocks: [],
+  entries: [],
+  reports: [],
+  reportDetails: {},
+  selectedBlockId: null,
+  selectedReportDate: null,
+  selectedDate: new Date().toISOString().slice(0, 10),
+  search: '',
+  zoneFilter: '',
+  result: 'fail',
+  notes: '',
+  loading: false,
+  submitting: false,
+};
+
+function reviewLatestEntryMap(entries) {
+  const latest = new Map();
+  (entries || []).forEach((entry) => {
+    if (!entry || !entry.power_block_id) return;
+    latest.set(Number(entry.power_block_id), entry);
+  });
+  return latest;
+}
+
+function reviewSelectedBlock() {
+  return reviewPageState.blocks.find(block => Number(block.id) === Number(reviewPageState.selectedBlockId)) || null;
+}
+
+function reviewFilteredBlocks() {
+  const query = reviewPageState.search.trim().toLowerCase();
+  const zoneFilter = reviewPageState.zoneFilter;
+  return reviewPageState.blocks
+    .filter((block) => {
+      if (zoneFilter && (block.zone || '') !== zoneFilter) return false;
+      if (!query) return true;
+      return [block.name, block.zone, block.claimed_label, block.claimed_by]
+        .filter(Boolean)
+        .some(value => String(value).toLowerCase().includes(query));
+    })
+    .sort((left, right) => Number(left.power_block_number || 0) - Number(right.power_block_number || 0));
+}
+
+function reviewZoneOptions() {
+  return Array.from(new Set(reviewPageState.blocks.map(block => String(block.zone || '').trim()).filter(Boolean))).sort();
+}
+
+async function reviewLoadReportDetail(dateStr) {
+  if (!dateStr) return null;
+  if (reviewPageState.reportDetails[dateStr]) return reviewPageState.reportDetails[dateStr];
+  const response = await api.getReviewReportByDate(dateStr);
+  reviewPageState.reportDetails[dateStr] = response.data || null;
+  return reviewPageState.reportDetails[dateStr];
+}
+
+async function loadReviewPage() {
+  const el = document.getElementById('review-content');
+  if (!el || reviewPageState.loading) return;
+  reviewPageState.loading = true;
+  el.innerHTML = '<div class="form-section" style="padding:18px 20px;color:#94a3b8;">Loading review workflow...</div>';
+  try {
+    const [blocksResponse, entriesResponse, reportsResponse] = await Promise.all([
+      api.getPowerBlocks(),
+      api.getReviews(reviewPageState.selectedDate),
+      api.getReviewReports(),
+    ]);
+    reviewPageState.blocks = Array.isArray(blocksResponse.data) ? blocksResponse.data : [];
+    reviewPageState.entries = Array.isArray(entriesResponse.data) ? entriesResponse.data : [];
+    reviewPageState.reports = Array.isArray(reportsResponse.data) ? reportsResponse.data : [];
+    reviewPageState.reports.sort((a, b) => b.report_date.localeCompare(a.report_date));
+    if (!reviewPageState.selectedBlockId || !reviewPageState.blocks.some(block => Number(block.id) === Number(reviewPageState.selectedBlockId))) {
+      reviewPageState.selectedBlockId = reviewPageState.blocks[0]?.id || null;
+    }
+    if (!reviewPageState.selectedReportDate || !reviewPageState.reports.some(report => report.report_date === reviewPageState.selectedReportDate)) {
+      reviewPageState.selectedReportDate = reviewPageState.reports[0]?.report_date || null;
+    }
+    if (reviewPageState.selectedReportDate) {
+      await reviewLoadReportDetail(reviewPageState.selectedReportDate);
+    }
+    renderReviewPage();
+  } catch (e) {
+    el.innerHTML = `<div class="form-section" style="padding:18px 20px;color:#ff8fa3;">Failed to load review workflow: ${_escapeHtml(e.message)}</div>`;
+  } finally {
+    reviewPageState.loading = false;
+  }
+}
+
+function reviewSetSearch(value) {
+  reviewPageState.search = String(value || '');
+  renderReviewPage();
+}
+
+function reviewSetZoneFilter(value) {
+  reviewPageState.zoneFilter = String(value || '');
+  renderReviewPage();
+}
+
+function reviewSelectBlock(blockId) {
+  reviewPageState.selectedBlockId = Number(blockId);
+  renderReviewPage();
+}
+
+function reviewSetResult(result) {
+  reviewPageState.result = result === 'pass' ? 'pass' : 'fail';
+  renderReviewPage();
+}
+
+function reviewSetNotes(value) {
+  reviewPageState.notes = String(value || '');
+}
+
+async function reviewSetDate(value) {
+  reviewPageState.selectedDate = value || new Date().toISOString().slice(0, 10);
+  await loadReviewPage();
+}
+
+async function reviewSelectReport(dateStr) {
+  reviewPageState.selectedReportDate = dateStr;
+  await reviewLoadReportDetail(dateStr);
+  renderReviewPage();
+}
+
+async function reviewSubmitSelected() {
+  const block = reviewSelectedBlock();
+  if (!block) {
+    alert('Select a power block before saving a review.');
+    return;
+  }
+
+  reviewPageState.submitting = true;
+  renderReviewPage();
+  try {
+    await api.submitReview({
+      power_block_id: block.id,
+      tracker_id: currentTracker ? currentTracker.id : null,
+      review_result: reviewPageState.result,
+      review_date: reviewPageState.selectedDate,
+      notes: reviewPageState.notes,
+    });
+    reviewPageState.notes = '';
+    await loadReviewPage();
+  } catch (e) {
+    alert('Review save failed: ' + e.message);
+  } finally {
+    reviewPageState.submitting = false;
+    renderReviewPage();
+  }
+}
+
+async function reviewGenerateReport() {
+  try {
+    const payload = { date: reviewPageState.selectedDate };
+    if (currentTracker) payload.tracker_id = currentTracker.id;
+    await api.generateReviewReport(payload);
+    await loadReviewPage();
+    if (reviewPageState.selectedDate) {
+      reviewPageState.selectedReportDate = reviewPageState.selectedDate;
+      await reviewLoadReportDetail(reviewPageState.selectedDate);
+      renderReviewPage();
+    }
+  } catch (e) {
+    alert('Review report generation failed: ' + e.message);
+  }
+}
+
+function renderReviewPage() {
+  const el = document.getElementById('review-content');
+  if (!el) return;
+
+  const filteredBlocks = reviewFilteredBlocks();
+  const selectedBlock = reviewSelectedBlock();
+  const latestMap = reviewLatestEntryMap(reviewPageState.entries);
+  const latestEntries = Array.from(latestMap.values());
+  const failingBlocks = latestEntries.filter(entry => entry.review_result === 'fail');
+  const reviewReports = reviewPageState.reports;
+  const selectedReport = reviewPageState.selectedReportDate ? reviewPageState.reportDetails[reviewPageState.selectedReportDate] : null;
+  const zoneOptions = reviewZoneOptions();
+
+  const summaryCard = (label, value, meta, toneClass = '') => `
+    <article class="claim-summary-card ${toneClass}">
+      <div class="claim-summary-label">${label}</div>
+      <div class="claim-summary-value">${value}</div>
+      <div class="claim-summary-meta">${meta}</div>
+    </article>`;
+
+  const blockTiles = filteredBlocks.map((block) => {
+    const latest = latestMap.get(Number(block.id));
+    const isSelected = selectedBlock && Number(selectedBlock.id) === Number(block.id);
+    const statusTone = latest?.review_result === 'pass' ? 'review-status-pass' : latest?.review_result === 'fail' ? 'review-status-fail' : 'review-status-pending';
+    const statusLabel = latest
+      ? `${latest.review_result === 'pass' ? 'Passed' : 'Failed'} by ${_escapeHtml(latest.reviewed_by || 'Unknown')}`
+      : 'Not reviewed for this date';
+    return `<button type="button" class="claim-block-tile${isSelected ? ' is-selected' : ''}" onclick="reviewSelectBlock(${block.id})">
+      <div class="claim-block-tile-top">
+        <span class="claim-block-name">${_escapeHtml(block.name)}</span>
+        <span class="claim-block-zone">${_escapeHtml(block.zone || 'Unzoned')}</span>
+      </div>
+      <div class="claim-block-status ${statusTone}">${statusLabel}</div>
+      <div class="claim-block-meta-row">
+        <span class="claim-block-count">${block.lbd_count || 0} ${(currentTracker && currentTracker.item_name_plural) || 'Items'}</span>
+        <span class="claim-block-progress">PB ${_escapeHtml(block.power_block_number)}</span>
+      </div>
+    </button>`;
+  }).join('');
+
+  const selectedLatest = selectedBlock ? latestMap.get(Number(selectedBlock.id)) : null;
+  const selectedStatus = selectedLatest
+    ? `${selectedLatest.review_result === 'pass' ? 'Pass' : 'Fail'} • ${_escapeHtml(selectedLatest.reviewed_by || 'Unknown')} • ${rp_formatDate(selectedLatest.review_date, { month: 'short', day: 'numeric', year: 'numeric' })}`
+    : 'No review saved for this block on the selected date.';
+  const selectedNotes = selectedLatest?.notes ? _escapeHtml(selectedLatest.notes) : 'No notes saved yet.';
+  const entryRows = reviewPageState.entries.slice(0, 14).map((entry) => `
+    <div class="review-entry-row">
+      <div>
+        <strong>${_escapeHtml(entry.power_block_name || 'Power Block')}</strong>
+        <div class="review-entry-meta">${_escapeHtml(entry.reviewed_by || 'Unknown')} • ${_escapeHtml(entry.review_result || 'pending')}</div>
+      </div>
+      <div class="review-entry-notes">${_escapeHtml(entry.notes || 'No notes')}</div>
+    </div>`).join('');
+
+  const reportList = reviewReports.map((report) => {
+    const isActive = report.report_date === reviewPageState.selectedReportDate;
+    return `<button type="button" class="reports-list-card${isActive ? ' active' : ''}" onclick="reviewSelectReport('${report.report_date}')">
+      <div class="reports-list-card-main">
+        <div class="reports-list-card-date">${rp_formatDate(report.report_date)}</div>
+        <div class="reports-list-card-meta">${report.total_reviews || 0} reviews • ${report.fail_count || 0} blocks need fixes • ${Array.isArray(report.reviewers) ? report.reviewers.length : 0} reviewers</div>
+      </div>
+    </button>`;
+  }).join('');
+
+  const selectedReportData = selectedReport?.data || {};
+  const failedCards = (selectedReportData.failed_blocks || []).map((entry) => `
+    <article class="review-fail-card">
+      <div class="review-fail-title">${_escapeHtml(entry.power_block_name || 'Power Block')}</div>
+      <div class="review-fail-meta">Last review: ${_escapeHtml(entry.reviewed_by || 'Unknown')} • ${_escapeHtml(entry.review_result || 'fail')}</div>
+      <div class="review-fail-notes">${_escapeHtml(entry.notes || 'No notes captured')}</div>
+    </article>`).join('');
+  const reviewerGroups = Object.entries(selectedReportData.by_reviewer || {}).map(([reviewer, groups]) => {
+    const passed = Array.isArray(groups.pass) ? groups.pass.join(', ') : '';
+    const failed = Array.isArray(groups.fail) ? groups.fail.join(', ') : '';
+    return `<div class="reports-line-card">
+      <div class="reports-line-card-title">${_escapeHtml(reviewer)}</div>
+      <div class="reports-line-item"><span class="reports-line-label">Pass:</span><span class="reports-line-copy">${_escapeHtml(passed || 'None')}</span></div>
+      <div class="reports-line-item"><span class="reports-line-label">Fail:</span><span class="reports-line-copy">${_escapeHtml(failed || 'None')}</span></div>
+    </div>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div class="claim-shell">
+      <section class="claim-hero">
+        <div class="claim-hero-copy">
+          <div class="claim-kicker">Quality Review</div>
+          <div class="claim-hero-title">Admin-only pass/fail checks for the active tracker</div>
+          <div class="claim-hero-subtitle">Run quality walks separately from claiming. Pass keeps the block clear. Fail keeps it on the review report until it is checked again and passed.</div>
+        </div>
+        <div class="claim-summary-grid">
+          ${summaryCard('Blocks', reviewPageState.blocks.length, 'Power blocks available for review', 'claim-tone-neutral')}
+          ${summaryCard('Reviewed Today', reviewPageState.entries.length, `Entries logged for ${rp_formatDate(reviewPageState.selectedDate, { month: 'short', day: 'numeric', year: 'numeric' })}`, 'claim-tone-cyan')}
+          ${summaryCard('Need Fixes', failingBlocks.length, 'Blocks currently failing on the selected date', 'claim-tone-amber')}
+          ${summaryCard('Review Reports', reviewReports.length, 'Generated review snapshots on record', 'claim-tone-emerald')}
+        </div>
+      </section>
+
+      <section class="claim-filter-shell">
+        <div class="claim-search-wrap">
+          <input class="claim-search-input" type="text" value="${_escapeHtml(reviewPageState.search)}" oninput="reviewSetSearch(this.value)" placeholder="Search blocks, zones, or claimed crew" />
+        </div>
+        <div class="claim-filter-group">
+          <span class="claim-filter-label">Zone</span>
+          <select class="claim-filter-select" onchange="reviewSetZoneFilter(this.value)">
+            <option value="">All Zones</option>
+            ${zoneOptions.map((zone) => `<option value="${_escapeHtml(zone)}"${reviewPageState.zoneFilter === zone ? ' selected' : ''}>${_escapeHtml(zone)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="claim-filter-group">
+          <span class="claim-filter-label">Review Date</span>
+          <input class="claim-filter-select" type="date" value="${_escapeHtml(reviewPageState.selectedDate)}" onchange="reviewSetDate(this.value)" />
+        </div>
+        <div class="claim-filter-actions">
+          <button class="btn btn-secondary" onclick="loadReviewPage()">Refresh</button>
+          <button class="reports-generate-btn" onclick="reviewGenerateReport()">Generate Review Report</button>
+        </div>
+      </section>
+
+      <div class="claim-workspace">
+        <section class="claim-blocks-panel">
+          <div class="claim-panel-head">
+            <div>
+              <div class="claim-panel-kicker">Review Blocks</div>
+              <div class="claim-panel-subtitle">Select a block and record whether it passed or failed quality review.</div>
+            </div>
+            <div class="claim-panel-count">${filteredBlocks.length} shown</div>
+          </div>
+          <div class="claim-block-list">${blockTiles || '<div class="claim-empty-state"><strong>No power blocks match the current filter.</strong><span>Try a different zone or search term.</span></div>'}</div>
+        </section>
+
+        <aside class="claim-detail-panel">
+          <div class="claim-selected-header">
+            <div class="claim-panel-kicker">Selected Block</div>
+            <div class="claim-selected-name">${selectedBlock ? _escapeHtml(selectedBlock.name) : 'None selected'}</div>
+            <div class="claim-selected-meta">${selectedBlock ? `${selectedBlock.lbd_count || 0} ${(currentTracker && currentTracker.item_name_plural) || 'items'} in this power block` : 'Choose a block to log a review.'}</div>
+          </div>
+          <div class="claim-info-card">
+            <div class="claim-card-label">Latest Review</div>
+            <div class="claim-card-value">${selectedLatest ? (selectedLatest.review_result === 'pass' ? 'Passed' : 'Failed') : 'No review yet'}</div>
+            <div class="claim-card-meta">${selectedStatus}</div>
+            <div class="claim-card-copy" style="margin-top:8px;">${selectedNotes}</div>
+          </div>
+          <div class="claim-info-card claim-info-card-accent">
+            <div class="claim-card-label claim-card-label-accent">Result</div>
+            <div class="review-result-row">
+              <button type="button" class="review-result-btn${reviewPageState.result === 'pass' ? ' is-active is-pass' : ''}" onclick="reviewSetResult('pass')">Pass</button>
+              <button type="button" class="review-result-btn${reviewPageState.result === 'fail' ? ' is-active is-fail' : ''}" onclick="reviewSetResult('fail')">Fail</button>
+            </div>
+            <textarea class="claim-modal-textarea claim-scan-textarea" oninput="reviewSetNotes(this.value)" placeholder="Add notes from the quality walk">${_escapeHtml(reviewPageState.notes)}</textarea>
+            <div class="claim-submit-row">
+              <button class="btn btn-success" onclick="reviewSubmitSelected()" ${(selectedBlock && !reviewPageState.submitting) ? '' : 'disabled'}>${reviewPageState.submitting ? 'Saving...' : 'Save Review'}</button>
+            </div>
+          </div>
+          <div class="claim-info-card">
+            <div class="claim-card-label">Recent Activity</div>
+            <div class="review-entry-list">${entryRows || '<div class="claim-muted-copy">No reviews logged for the selected date yet.</div>'}</div>
+          </div>
+        </aside>
+      </div>
+
+      <section class="reports-shell review-report-shell">
+        <div class="reports-toolbar">
+          <div class="reports-toolbar-tabs">
+            <button class="reports-tab-btn active" type="button">Review Reports</button>
+          </div>
+        </div>
+        <div class="reports-list-layout">
+          <div class="reports-list-panel">${reportList || '<div class="reports-empty-copy">Generate a review report to snapshot the day.</div>'}</div>
+          <div class="reports-detail-shell">
+            ${selectedReport ? `
+              <div class="reports-detail-card">
+                <div class="reports-detail-head">
+                  <div>
+                    <div class="reports-detail-kicker">Review Report</div>
+                    <h3 class="reports-detail-title">${rp_formatDate(selectedReport.report_date, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</h3>
+                  </div>
+                  <div class="reports-detail-stat-row">
+                    <div class="reports-detail-stat"><span>${selectedReportData.total_reviews || 0}</span><small>Reviews</small></div>
+                    <div class="reports-detail-stat"><span>${selectedReportData.pass_count || 0}</span><small>Pass</small></div>
+                    <div class="reports-detail-stat"><span>${selectedReportData.fail_count || 0}</span><small>Fail</small></div>
+                    <div class="reports-detail-stat"><span>${(selectedReportData.reviewer_names || []).length}</span><small>Reviewers</small></div>
+                  </div>
+                </div>
+                <div class="reports-detail-section">
+                  <div class="reports-detail-section-title">Blocks That Need Fixes</div>
+                  <div class="review-fail-grid">${failedCards || '<div class="reports-empty-copy">No failed blocks in this report.</div>'}</div>
+                </div>
+                <div class="reports-detail-section">
+                  <div class="reports-detail-section-title">By Reviewer</div>
+                  <div class="reports-detail-stack">${reviewerGroups || '<div class="reports-empty-copy">No reviewer activity captured.</div>'}</div>
+                </div>
+              </div>` : '<div class="reports-empty-copy">Select a review report to inspect failed blocks.</div>'}
+          </div>
+        </div>
+      </section>
+    </div>`;
 }
 
 

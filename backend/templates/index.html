@@ -107,6 +107,7 @@
                     <li><a href="#" onclick="openSiteMap()" id="nav-link-sitemap">Site Map</a></li>
                     <li><a href="#" onclick="showPage('claim')" id="nav-link-claim">Claim</a></li>
                     <li><a href="#" onclick="showPage('reports')" id="nav-link-reports">Reports</a></li>
+                    <li><a href="#" onclick="showPage('review')" class="admin-only" data-perm="admin_settings" id="nav-link-review">Review</a></li>
                     <li><a href="#" onclick="showPage('admin')" class="admin-only" data-perm="admin_settings" id="nav-link-admin">Admin</a></li>
                 </ul>
                 <div id="user-info" style="display:flex;align-items:center;gap:8px;margin-left:12px;"></div>
@@ -791,6 +792,14 @@
                     <h1 class="section-title" id="page-title-reports">Daily Reports</h1>
                     <div id="reports-content"></div>
                 </div>
+            </div>
+
+            <!-- Review Page -->
+            <div id="page-review" class="page admin-only" data-perm="admin_settings">
+              <div class="container">
+                <h1 class="section-title" id="page-title-review">Review</h1>
+                <div id="review-content"></div>
+              </div>
             </div>
 
         </main>

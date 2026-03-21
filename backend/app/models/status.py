@@ -7,8 +7,7 @@ class LBDStatus(db.Model):
     STATUS_TYPES = [
         'ground_brackets',
         'stuff',
-        'term',
-        'fix'
+        'term'
     ]
     
     # Color mapping for each status type
@@ -16,7 +15,6 @@ class LBDStatus(db.Model):
         'ground_brackets': '#95E1D3', # Mint – Bracket/Ground
         'stuff': '#FF6B6B',           # Red – Stuffed
         'term': '#4ECDC4',            # Teal – Termed
-        'fix': '#FFB347',             # Amber – Fix required / completed fix
     }
     
     id = db.Column(db.Integer, primary_key=True)
