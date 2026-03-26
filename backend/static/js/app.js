@@ -23,6 +23,11 @@ function getPowerBlockCountLabel(count) {
   return Number(count) === 1 ? 'LBD' : 'LBDs';
 }
 
+function getLbdDisplayLabel(lbd) {
+  if (!lbd) return 'LBD';
+  return lbd.identifier || lbd.name || (lbd.id ? `LBD ${lbd.id}` : 'LBD');
+}
+
 const api = {
   async call(endpoint, options = {}) {
     const url = `/api${endpoint}`;
@@ -5115,6 +5120,10 @@ async function showBulkClaimDialog() {
     const label = _escapeHtml(STATUS_LABELS[statusType] || statusType.replace(/_/g, ' '));
     return `<button type="button" class="btn btn-secondary bulk-claim-apply-status" data-status-type="${_escapeHtml(statusType)}" style="padding:6px 10px;font-size:11px;">Apply ${label} To All</button>`;
   }).join('');
+  const sortedBulkLbdsByBlock = Object.fromEntries(blocks.map((block) => [
+    String(block.id),
+    (Array.isArray(block.lbds) ? [...block.lbds] : []).sort((left, right) => getLbdDisplayLabel(left).localeCompare(getLbdDisplayLabel(right), undefined, { numeric: true, sensitivity: 'base' }))
+  ]));
   const blockRowsHtml = blocks.map((block) => {
     const labels = LBD_STATUS_TYPES.map((statusType) => {
       const label = _escapeHtml(STATUS_LABELS[statusType] || statusType.replace(/_/g, ' '));
@@ -5127,7 +5136,7 @@ async function showBulkClaimDialog() {
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
         <div>
           <div style="color:#eef2ff;font-size:13px;font-weight:700;">${_escapeHtml(block.name)}</div>
-          <div style="color:#94a3b8;font-size:11px;margin-top:4px;">${block.lbd_count || 0} ${(currentTracker && currentTracker.item_name_plural) || 'items'} in this block</div>
+          <div style="color:#94a3b8;font-size:11px;margin-top:4px;">${block.lbd_count || 0} ${getPowerBlockCountLabel(block.lbd_count || 0)} in this block</div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button type="button" class="btn btn-secondary bulk-claim-block-select-all" data-block-id="${block.id}" style="padding:5px 9px;font-size:11px;">All Tasks</button>
@@ -5137,6 +5146,7 @@ async function showBulkClaimDialog() {
       <div style="margin-top:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;">
         ${labels}
       </div>
+      <div class="bulk-claim-block-assignments" data-block-id="${block.id}" style="margin-top:12px;"></div>
     </div>`;
   }).join('');
 
@@ -5154,11 +5164,11 @@ async function showBulkClaimDialog() {
   }).join('');
 
   overlay.innerHTML = `
-    <div style="width:min(760px,100%);max-height:90vh;overflow:auto;background:#0f172a;border:1px solid rgba(255,255,255,0.12);border-radius:18px;padding:18px;box-shadow:0 30px 80px rgba(0,0,0,0.45);-webkit-overflow-scrolling:touch;">
+    <div style="width:min(980px,100%);max-height:90vh;overflow:auto;background:#0f172a;border:1px solid rgba(255,255,255,0.12);border-radius:18px;padding:18px;box-shadow:0 30px 80px rgba(0,0,0,0.45);-webkit-overflow-scrolling:touch;">
       <div style="display:flex;align-items:start;justify-content:space-between;gap:12px;">
         <div>
           <div style="color:#eef2ff;font-size:18px;font-weight:700;">Bulk Claim ${blocks.length} Power Blocks</div>
-          <div style="color:#94a3b8;font-size:12px;margin-top:4px;">One submission will claim ${blocks.length} blocks and ${totalItems} ${(currentTracker && currentTracker.item_name_plural) || 'items'} with the same crew setup.</div>
+          <div style="color:#94a3b8;font-size:12px;margin-top:4px;">One submission will claim ${blocks.length} blocks and ${totalItems} ${getPowerBlockCountLabel(totalItems)} with the same crew setup.</div>
         </div>
         <button type="button" id="bulk-claim-close" style="background:transparent;border:none;color:#94a3b8;font-size:24px;cursor:pointer;padding:4px 8px;">×</button>
       </div>
@@ -5179,13 +5189,13 @@ async function showBulkClaimDialog() {
         </div>
         <div style="margin-top:18px;">
           <label style="display:block;color:#cbd5e1;font-size:13px;font-weight:600;margin-bottom:6px;">Work types by power block</label>
-          <div style="color:#94a3b8;font-size:12px;margin-bottom:10px;">Choose different task sets for each selected PB. Any task you check will claim every visible LBD in that PB for that task.</div>
+          <div style="color:#94a3b8;font-size:12px;margin-bottom:10px;">Choose the finished work types for each PB, then pick the exact LBDs that were actually completed for that task.</div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
             <button type="button" class="btn btn-secondary" id="bulk-claim-select-all-tasks" style="padding:6px 10px;font-size:11px;">Select Every Task For Every Block</button>
             <button type="button" class="btn btn-secondary" id="bulk-claim-clear-all-tasks" style="padding:6px 10px;font-size:11px;">Clear All Tasks</button>
             ${statusHeaderButtons}
           </div>
-          <div style="display:grid;gap:10px;max-height:320px;overflow:auto;padding-right:4px;">
+          <div style="display:grid;gap:10px;max-height:460px;overflow:auto;padding-right:4px;">
             ${blockRowsHtml}
           </div>
         </div>
@@ -5211,18 +5221,159 @@ async function showBulkClaimDialog() {
   const reviewBtn = overlay.querySelector('#bulk-claim-review-btn');
   const backBtn = overlay.querySelector('#bulk-claim-back');
   const submitBtn = overlay.querySelector('#bulk-claim-submit');
+  const bulkAssignmentsByBlock = {};
 
-  const setBlockStatuses = (blockId, statusTypes) => {
-    const selected = new Set((statusTypes || []).map((statusType) => String(statusType || '').trim()).filter(Boolean));
+  blocks.forEach((block) => {
+    bulkAssignmentsByBlock[String(block.id)] = {};
+  });
+
+  const getBulkBlockLbds = (blockId) => sortedBulkLbdsByBlock[String(blockId)] || [];
+
+  const getBulkBlockState = (blockId) => {
+    const key = String(blockId);
+    if (!bulkAssignmentsByBlock[key]) bulkAssignmentsByBlock[key] = {};
+    return bulkAssignmentsByBlock[key];
+  };
+
+  const getSelectedStatusesForBlock = (blockId) => {
+    const state = getBulkBlockState(blockId);
+    return LBD_STATUS_TYPES.filter((statusType) => Object.prototype.hasOwnProperty.call(state, statusType));
+  };
+
+  const syncBlockStatusInputs = (blockId) => {
+    const selected = new Set(getSelectedStatusesForBlock(blockId));
     overlay.querySelectorAll(`.bulk-claim-block-status[data-block-id="${blockId}"]`).forEach((input) => {
       input.checked = selected.has(String(input.value || '').trim());
     });
   };
 
-  const setAllBlocksStatus = (statusType, shouldCheck) => {
-    overlay.querySelectorAll(`.bulk-claim-block-status[value="${statusType}"]`).forEach((input) => {
-      input.checked = Boolean(shouldCheck);
+  const syncBulkTaskSelectionCount = (blockId, statusType) => {
+    const countEl = overlay.querySelector(`.bulk-claim-task-selected-count[data-block-id="${blockId}"][data-status-type="${statusType}"]`);
+    if (!countEl) return;
+    const selectedCount = (getBulkBlockState(blockId)[statusType] || []).length;
+    const totalCount = getBulkBlockLbds(blockId).length;
+    countEl.textContent = `${selectedCount} of ${totalCount} ${getPowerBlockCountLabel(totalCount)} selected`;
+  };
+
+  const renderBulkBlockAssignments = (blockId) => {
+    const block = blocks.find((entry) => String(entry.id) === String(blockId));
+    const container = overlay.querySelector(`.bulk-claim-block-assignments[data-block-id="${blockId}"]`);
+    if (!block || !container) return;
+
+    const selectedStatuses = getSelectedStatusesForBlock(blockId);
+    if (!selectedStatuses.length) {
+      container.innerHTML = '<div style="color:#94a3b8;font-size:12px;">Select one or more work types to choose the exact LBDs finished in this PB.</div>';
+      return;
+    }
+
+    const blockLbds = getBulkBlockLbds(blockId);
+    const blockState = getBulkBlockState(blockId);
+    container.innerHTML = selectedStatuses.map((statusType) => {
+      const label = _escapeHtml(STATUS_LABELS[statusType] || statusType.replace(/_/g, ' '));
+      const selectedIds = new Set((blockState[statusType] || []).map(Number).filter(Number.isFinite));
+      const options = blockLbds.map((lbd) => {
+        const lbdId = Number(lbd.id);
+        const checked = selectedIds.has(lbdId) ? 'checked' : '';
+        const name = _escapeHtml(getLbdDisplayLabel(lbd));
+        return `<label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid rgba(255,255,255,0.08);border-radius:10px;background:rgba(255,255,255,0.03);cursor:pointer;min-height:40px;">
+          <input type="checkbox" class="bulk-claim-lbd-option" data-block-id="${block.id}" data-status-type="${_escapeHtml(statusType)}" value="${lbd.id}" ${checked} />
+          <span style="color:#eef2ff;font-size:12px;">${name}</span>
+        </label>`;
+      }).join('');
+
+      return `<div style="margin-top:10px;padding:12px;border:1px solid rgba(255,255,255,0.08);border-radius:12px;background:rgba(15,23,42,0.55);">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+          <div style="color:#eef2ff;font-size:12px;font-weight:700;">${label}</div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <div class="bulk-claim-task-selected-count" data-block-id="${block.id}" data-status-type="${_escapeHtml(statusType)}" style="color:#94a3b8;font-size:11px;">${selectedIds.size} of ${blockLbds.length} ${getPowerBlockCountLabel(blockLbds.length)} selected</div>
+            <button type="button" class="btn btn-secondary bulk-claim-task-select-all" data-block-id="${block.id}" data-status-type="${_escapeHtml(statusType)}" style="padding:5px 9px;font-size:11px;">Select All</button>
+            <button type="button" class="btn btn-secondary bulk-claim-task-clear" data-block-id="${block.id}" data-status-type="${_escapeHtml(statusType)}" style="padding:5px 9px;font-size:11px;">Clear</button>
+          </div>
+        </div>
+        <div style="margin-top:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;max-height:170px;overflow:auto;padding-right:4px;">
+          ${options || '<div style="color:#94a3b8;font-size:12px;">No LBDs found for this block.</div>'}
+        </div>
+      </div>`;
+    }).join('');
+  };
+
+  const setBlockStatusSelection = (blockId, statusType, shouldCheck) => {
+    const normalizedStatusType = String(statusType || '').trim();
+    if (!normalizedStatusType) return;
+    const blockState = getBulkBlockState(blockId);
+    if (shouldCheck) {
+      if (!Object.prototype.hasOwnProperty.call(blockState, normalizedStatusType)) {
+        blockState[normalizedStatusType] = getBulkBlockLbds(blockId).map((lbd) => Number(lbd.id)).filter(Number.isFinite);
+      }
+    } else {
+      delete blockState[normalizedStatusType];
+    }
+    syncBlockStatusInputs(blockId);
+    renderBulkBlockAssignments(blockId);
+  };
+
+  const setBlockStatuses = (blockId, statusTypes) => {
+    const selected = new Set((statusTypes || []).map((statusType) => String(statusType || '').trim()).filter(Boolean));
+    LBD_STATUS_TYPES.forEach((statusType) => {
+      const shouldCheck = selected.has(statusType);
+      const blockState = getBulkBlockState(blockId);
+      if (shouldCheck) {
+        if (!Object.prototype.hasOwnProperty.call(blockState, statusType)) {
+          blockState[statusType] = getBulkBlockLbds(blockId).map((lbd) => Number(lbd.id)).filter(Number.isFinite);
+        }
+      } else {
+        delete blockState[statusType];
+      }
     });
+    syncBlockStatusInputs(blockId);
+    renderBulkBlockAssignments(blockId);
+  };
+
+  const setAllBlocksStatus = (statusType, shouldCheck) => {
+    blocks.forEach((block) => {
+      const blockState = getBulkBlockState(block.id);
+      if (shouldCheck) {
+        if (!Object.prototype.hasOwnProperty.call(blockState, statusType)) {
+          blockState[statusType] = getBulkBlockLbds(block.id).map((lbd) => Number(lbd.id)).filter(Number.isFinite);
+        }
+      } else {
+        delete blockState[statusType];
+      }
+      syncBlockStatusInputs(block.id);
+      renderBulkBlockAssignments(block.id);
+    });
+  };
+
+  const setTaskLbdSelection = (blockId, statusType, shouldSelect) => {
+    const normalizedStatusType = String(statusType || '').trim();
+    if (!normalizedStatusType) return;
+    const blockState = getBulkBlockState(blockId);
+    if (!Object.prototype.hasOwnProperty.call(blockState, normalizedStatusType)) return;
+    blockState[normalizedStatusType] = shouldSelect
+      ? getBulkBlockLbds(blockId).map((lbd) => Number(lbd.id)).filter(Number.isFinite)
+      : [];
+    overlay.querySelectorAll(`.bulk-claim-lbd-option[data-block-id="${blockId}"][data-status-type="${normalizedStatusType}"]`).forEach((input) => {
+      input.checked = Boolean(shouldSelect);
+    });
+    syncBulkTaskSelectionCount(blockId, normalizedStatusType);
+  };
+
+  const updateTaskLbdSelection = (blockId, statusType, lbdId, checked) => {
+    const normalizedStatusType = String(statusType || '').trim();
+    const normalizedLbdId = Number(lbdId);
+    if (!normalizedStatusType || !Number.isFinite(normalizedLbdId)) return;
+    const blockState = getBulkBlockState(blockId);
+    if (!Object.prototype.hasOwnProperty.call(blockState, normalizedStatusType)) {
+      blockState[normalizedStatusType] = [];
+    }
+    const selectedIds = new Set((blockState[normalizedStatusType] || []).map(Number).filter(Number.isFinite));
+    if (checked) {
+      selectedIds.add(normalizedLbdId);
+    } else {
+      selectedIds.delete(normalizedLbdId);
+    }
+    blockState[normalizedStatusType] = Array.from(selectedIds);
+    syncBulkTaskSelectionCount(blockId, normalizedStatusType);
   };
 
   const buildDraft = () => {
@@ -5233,14 +5384,12 @@ async function showBulkClaimDialog() {
     const assignmentsByBlock = {};
     const statusTypeSet = new Set();
     blocks.forEach((block) => {
-      const checkedStatusTypes = Array.from(overlay.querySelectorAll(`.bulk-claim-block-status[data-block-id="${block.id}"]:checked`))
-        .map((input) => String(input.value || '').trim())
-        .filter(Boolean);
-      const lbdIds = Array.isArray(block.lbds) ? block.lbds.map((lbd) => Number(lbd.id)).filter(Number.isFinite) : [];
-      if (!checkedStatusTypes.length || !lbdIds.length) return;
-      assignmentsByBlock[block.id] = {};
-      checkedStatusTypes.forEach((statusType) => {
-        assignmentsByBlock[block.id][statusType] = [...lbdIds];
+      const blockState = getBulkBlockState(block.id);
+      Object.entries(blockState).forEach(([statusType, lbdIds]) => {
+        const normalizedIds = Array.isArray(lbdIds) ? lbdIds.map(Number).filter(Number.isFinite) : [];
+        if (!normalizedIds.length) return;
+        if (!assignmentsByBlock[block.id]) assignmentsByBlock[block.id] = {};
+        assignmentsByBlock[block.id][statusType] = normalizedIds;
         statusTypeSet.add(statusType);
       });
     });
@@ -5253,6 +5402,28 @@ async function showBulkClaimDialog() {
 
   overlay.addEventListener('click', (event) => {
     if (event.target === overlay) close();
+  });
+  overlay.addEventListener('change', (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) return;
+    if (target.classList.contains('bulk-claim-block-status')) {
+      setBlockStatusSelection(target.dataset.blockId, target.value, target.checked);
+      return;
+    }
+    if (target.classList.contains('bulk-claim-lbd-option')) {
+      updateTaskLbdSelection(target.dataset.blockId, target.dataset.statusType, target.value, target.checked);
+    }
+  });
+  overlay.addEventListener('click', (event) => {
+    const button = event.target instanceof Element ? event.target.closest('button') : null;
+    if (!button) return;
+    if (button.classList.contains('bulk-claim-task-select-all')) {
+      setTaskLbdSelection(button.dataset.blockId, button.dataset.statusType, true);
+      return;
+    }
+    if (button.classList.contains('bulk-claim-task-clear')) {
+      setTaskLbdSelection(button.dataset.blockId, button.dataset.statusType, false);
+    }
   });
   overlay.querySelector('#bulk-claim-close').addEventListener('click', close);
   overlay.querySelector('#bulk-claim-cancel').addEventListener('click', close);
@@ -5284,6 +5455,11 @@ async function showBulkClaimDialog() {
     });
   });
 
+  blocks.forEach((block) => {
+    syncBlockStatusInputs(block.id);
+    renderBulkBlockAssignments(block.id);
+  });
+
   reviewBtn.addEventListener('click', () => {
     const draft = buildDraft();
     if (!draft.people.length) {
@@ -5292,10 +5468,21 @@ async function showBulkClaimDialog() {
     }
     const perBlockRows = blocks.map((block) => {
       const assignments = draft.assignmentsByBlock[block.id] || {};
-      const labels = Object.keys(assignments).map((statusType) => _escapeHtml(STATUS_LABELS[statusType] || statusType.replace(/_/g, ' ')));
+      const labels = Object.entries(assignments).map(([statusType, lbdIds]) => {
+        const label = _escapeHtml(STATUS_LABELS[statusType] || statusType.replace(/_/g, ' '));
+        const selectedNames = getBulkBlockLbds(block.id)
+          .filter((lbd) => lbdIds.includes(Number(lbd.id)))
+          .map((lbd) => _escapeHtml(getLbdDisplayLabel(lbd)));
+        const preview = selectedNames.slice(0, 6).join(', ');
+        const extraCount = selectedNames.length > 6 ? `, +${selectedNames.length - 6} more` : '';
+        return `<div style="margin-top:6px;color:#94a3b8;font-size:12px;">
+          <span style="color:#eef2ff;">${label}</span> • ${lbdIds.length} ${getPowerBlockCountLabel(lbdIds.length)}
+          ${preview ? `<div style="margin-top:4px;color:#8adfff;">${preview}${extraCount}</div>` : ''}
+        </div>`;
+      }).join('');
       return `<div style="padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);">
         <div style="font-weight:700;color:#eef2ff;">${_escapeHtml(block.name)}</div>
-        <div style="margin-top:4px;color:#94a3b8;font-size:12px;">${labels.length ? labels.join(', ') : 'Crew only, no task assignments'}</div>
+        <div style="margin-top:4px;color:#94a3b8;font-size:12px;">${labels || 'Crew only, no task assignments'}</div>
       </div>`;
     }).join('');
     reviewContent.innerHTML = `
