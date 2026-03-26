@@ -19,6 +19,10 @@ function getTrackerDisplayName(trackerOrName) {
   return stripped || trimmed;
 }
 
+function getPowerBlockCountLabel(count) {
+  return Number(count) === 1 ? 'LBD' : 'LBDs';
+}
+
 const api = {
   async call(endpoint, options = {}) {
     const url = `/api${endpoint}`;
@@ -1563,7 +1567,6 @@ function renderBlocks(blocks) {
     html = '<div class="blocks-empty-state"><strong>No power blocks match the current filter.</strong><span>Try a different zone or sort order to bring more blocks back into view.</span></div>';
   } else {
     const cols = LBD_STATUS_TYPES;
-    const itemLabel = currentTracker ? currentTracker.item_name_singular : 'Item';
 
     filtered.forEach(block => {
       const total = block.lbd_count || 0;
@@ -1615,7 +1618,7 @@ function renderBlocks(blocks) {
                 <span class="pb-card-kicker">Power Block</span>
                 <span class="pb-card-name">${block.name}</span>
               </div>
-              <span class="pb-card-meta">${claimed}${zonePill}<span class="pb-card-count">${total} ${itemLabel}${total !== 1 ? 's' : ''}</span></span>
+              <span class="pb-card-meta">${claimed}${zonePill}<span class="pb-card-count">${total} ${getPowerBlockCountLabel(total)}</span></span>
             </div>
             <div class="pb-overall-bar-wrap" title="Overall: ${overallPct}% complete">
               <div class="pb-overall-bar-fill" style="width:${overallPct}%"></div>
@@ -5531,7 +5534,7 @@ function renderClaimPage() {
       </div>
       <div class="claim-block-status${blockHasClaim(block) ? ' is-claimed' : ''}">${claimLabel}</div>
       <div class="claim-block-meta-row">
-        <span class="claim-block-count">${block.lbd_count || 0} ${(currentTracker && currentTracker.item_name_plural) || 'Items'}</span>
+        <span class="claim-block-count">${block.lbd_count || 0} ${getPowerBlockCountLabel(block.lbd_count || 0)}</span>
         <span class="claim-block-progress">${progressPct}% complete</span>
       </div>
     </button>`;
@@ -6564,7 +6567,7 @@ function renderReviewPage(options = {}) {
       </div>
       <div class="claim-block-status ${statusTone}">${statusLabel}</div>
       <div class="claim-block-meta-row">
-        <span class="claim-block-count">${summary.total} ${(currentTracker && currentTracker.item_name_plural) || 'LBDs'}</span>
+        <span class="claim-block-count">${summary.total} ${getPowerBlockCountLabel(summary.total)}</span>
         <span class="claim-block-progress">${_escapeHtml(block.zone || 'Unzoned')}</span>
       </div>
       <div style="margin-top:10px;display:flex;justify-content:flex-end;">
