@@ -5763,7 +5763,6 @@ function renderClaimPage() {
   const detailsButton = selectedBlock
     ? `<button class="btn btn-secondary" onclick="showBlockModal(${selectedBlock.id})">View Details</button>`
     : '';
-  const selectedItemLabel = (currentTracker && currentTracker.item_name_plural) || 'items';
   const selectedRangeCopy = selectedBlocks.length > 1
     ? `${selectedBlocks.length} blocks selected for bulk claim`
     : 'Choose a power block to manage its claim workflow.';
@@ -5854,7 +5853,7 @@ function renderClaimPage() {
           <div class="claim-selected-header">
             <div class="claim-panel-kicker">Selected Block</div>
             <div class="claim-selected-name">${selectedBlock ? _escapeHtml(selectedBlock.name) : 'None selected'}</div>
-            <div class="claim-selected-meta">${selectedBlock ? `${selectedBlock.lbd_count || 0} ${selectedItemLabel} in the active tracker` : selectedRangeCopy}</div>
+            <div class="claim-selected-meta">${selectedBlock ? `${selectedBlock.lbd_count || 0} ${getPowerBlockCountLabel(selectedBlock.lbd_count || 0)} in the active tracker` : selectedRangeCopy}</div>
           </div>
           <div class="claim-action-row">${claimActionButton}${releaseButton}${detailsButton}</div>
           ${bulkSelectionCard}
@@ -6576,7 +6575,7 @@ async function reviewOpenBlockDialog(blockId) {
         <div>
           <div style="font-size:12px;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;color:#8adfff;">Review Power Block</div>
           <div style="margin-top:6px;font-size:24px;font-weight:800;color:#eef2ff;">${_escapeHtml(block.name || 'Power Block')}</div>
-          <div style="margin-top:6px;font-size:13px;color:rgba(238,242,255,0.66);">PB ${_escapeHtml(block.power_block_number || '')} • ${_escapeHtml(block.zone || 'Unzoned')} • ${summary.total} ${(currentTracker && currentTracker.item_name_plural) || 'LBDs'}</div>
+          <div style="margin-top:6px;font-size:13px;color:rgba(238,242,255,0.66);">PB ${_escapeHtml(block.power_block_number || '')} • ${_escapeHtml(block.zone || 'Unzoned')} • ${summary.total} ${getPowerBlockCountLabel(summary.total)}</div>
         </div>
         <button id="review-bulk-close" type="button" style="border:none;background:rgba(255,255,255,0.08);color:#eef2ff;width:40px;height:40px;border-radius:999px;font-size:18px;cursor:pointer;">&times;</button>
       </div>
