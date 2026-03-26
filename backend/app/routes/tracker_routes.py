@@ -6,7 +6,7 @@ from app import db
 from app.models import PowerBlock, LBD, LBDStatus
 from app.models.tracker import Tracker
 from app.models.site_area import SiteArea
-from app.models.user import User
+from app.models.user import User, is_claim_eligible_role
 from app.models.worker import Worker
 from app.models.admin_settings import AdminSettings
 from datetime import datetime
@@ -30,7 +30,54 @@ def _current_user_name():
 
 def _is_admin_user(user=None):
     user = user or current_session_user()
-    return bool(user and (user.is_admin or user.role == 'admin'))
+    return bool(user and (user.is_admin or user.normalized_role() == 'admin'))
+
+
+def _block_has_claim(block):
+    if not block:
+        return False
+    return bool(block.claimed_by or block.get_claimed_people() or block.get_claim_assignments())
+
+
+def _claim_permission_for_action(action, block=None):
+    normalized_action = str(action or 'claim').strip().lower() or 'claim'
+    if normalized_action == 'unclaim':
+        return 'claim_delete'
+    if normalized_action == 'claim' and _block_has_claim(block):
+        return 'claim_edit'
+    return 'claim_create'
+
+
+def _can_manage_claim(action, block=None, user=None):
+    user = user or current_session_user()
+    if not user:
+        return False
+    if _is_admin_user(user):
+        return True
+    return user.has_permission(_claim_permission_for_action(action, block))
+
+
+def _available_claim_people(extra_names=None):
+    names = []
+    names.extend(
+        name
+        for name, role in db.session.query(User.name, User.role).order_by(User.name).all()
+        if name and is_claim_eligible_role(role)
+    )
+    names.extend(
+        name
+        for (name,) in db.session.query(Worker.name).filter_by(is_active=True).order_by(Worker.name).all()
+        if name
+    )
+    names.extend(extra_names or [])
+    return _normalize_people(names)
+
+
+def _validate_claim_people(names, extra_names=None):
+    allowed_lookup = {name.casefold() for name in _available_claim_people(extra_names=extra_names)}
+    invalid = [name for name in _normalize_people(names) if name.casefold() not in allowed_lookup]
+    if invalid:
+        raise ValueError('Only Foreman, Worker, and Lead crew members can be assigned to claims')
 
 
 def _can_view_ifc(user=None):
@@ -319,9 +366,11 @@ def _apply_block_claim(block, action, actor, requested_people=None, assignments=
         block.claimed_at = None
         return []
 
-    people = _normalize_people([actor, *requested_people])
+    people = _normalize_people(requested_people)
     if not people:
         raise ValueError('A crew member is required to claim a block')
+
+    _validate_claim_people(people, extra_names=block.get_claimed_people())
 
     valid_lbd_ids = [lbd.id for lbd in block.lbds if _lbd_is_accessible(lbd)]
     normalized_assignments = _normalize_claim_assignments(assignments or {}, valid_lbd_ids)
@@ -353,14 +402,7 @@ bp = Blueprint('tracker', __name__, url_prefix='/api/tracker')
 
 @bp.route('/claim-people', methods=['GET'])
 def get_claim_people():
-    names = []
-    names.extend(AdminSettings.get_claim_people())
-    names.extend(name for (name,) in db.session.query(User.name).order_by(User.name).all() if name)
-    names.extend(name for (name,) in db.session.query(Worker.name).filter_by(is_active=True).order_by(Worker.name).all() if name)
-    actor = _current_user_name()
-    if actor:
-        names.insert(0, actor)
-    people = _normalize_people(names)
+    people = _available_claim_people()
     return jsonify({'success': True, 'data': people}), 200
 
 @bp.route('/power-blocks', methods=['GET'])
@@ -695,6 +737,8 @@ def claim_power_block(block_id):
             return jsonify({'error': 'That power block is not accessible for your job site'}), 403
         data  = request.get_json() or {}
         action = data.get('action', 'claim')   # 'claim' or 'unclaim'
+        if not _can_manage_claim(action, block):
+            return jsonify({'error': 'Permission denied'}), 403
         actor  = _current_user_name() or str(data.get('actor_name') or '').strip() or None
         status_updates = _apply_block_claim(
             block,
@@ -760,6 +804,10 @@ def bulk_claim_power_blocks():
             return jsonify({'error': f'Power block not found: {missing_ids[0]}'}), 404
         if inaccessible_ids:
             return jsonify({'error': 'One or more selected power blocks are not accessible for your job site'}), 403
+        required_permission = 'claim_delete' if action == 'unclaim' else ('claim_edit' if any(_block_has_claim(blocks_by_id[block_id]) for block_id in block_ids) else 'claim_create')
+        user = current_session_user()
+        if not (user and (_is_admin_user(user) or user.has_permission(required_permission))):
+            return jsonify({'error': 'Permission denied'}), 403
 
         requested_people = data.get('people') or []
         claimed_blocks = []

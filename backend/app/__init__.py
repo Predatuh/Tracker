@@ -246,7 +246,7 @@ def _migrate_generic(app):
         ('site_areas', 'label_offset_x', 'FLOAT'),
         ('site_areas', 'label_offset_y', 'FLOAT'),
         ('site_areas', 'zone', 'VARCHAR(50)'),
-        ('users', 'role', "VARCHAR(20) DEFAULT 'user'"),
+        ('users', 'role', "VARCHAR(20) DEFAULT 'worker'"),
         ('users', 'permissions', "TEXT DEFAULT '[]'"),
         ('users', 'email', 'VARCHAR(255)'),
         ('users', 'job_site_name', 'VARCHAR(120)'),
@@ -307,7 +307,7 @@ def _migrate_sqlite(app, db_uri):
     _add_col(cur, 'site_areas', 'label_offset_x', 'REAL')
     _add_col(cur, 'site_areas', 'label_offset_y', 'REAL')
     _add_col(cur, 'site_areas', 'zone', 'VARCHAR(50)')
-    _add_col(cur, 'users', 'role', "VARCHAR(20) DEFAULT 'user'")
+    _add_col(cur, 'users', 'role', "VARCHAR(20) DEFAULT 'worker'")
     _add_col(cur, 'users', 'permissions', "TEXT DEFAULT '[]'")
     _add_col(cur, 'users', 'email', 'VARCHAR(255)')
     _add_col(cur, 'users', 'job_site_name', 'VARCHAR(120)')

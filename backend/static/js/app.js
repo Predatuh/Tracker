@@ -340,15 +340,76 @@ function renderHeaderTrackerSwitcher() {
 
 function updateTrackerCrumb() {
   const crumb = document.getElementById('active-tracker-crumb');
-  const nameEl = document.getElementById('active-tracker-name');
-  if (!crumb || !nameEl) return;
-  const activePage = document.querySelector('.page.active');
-  if (currentTracker && activePage && activePage.id !== 'page-sitemap') {
-    nameEl.textContent = (currentTracker.icon || '') + ' ' + getTrackerDisplayName(currentTracker);
-    crumb.style.display = 'flex';
-  } else {
-    crumb.style.display = 'none';
-  }
+  if (crumb) crumb.style.display = 'none';
+}
+
+const ADMIN_PAGE_PERMISSIONS = ['manage_trackers', 'manage_tracker_names', 'manage_columns', 'manage_tasks', 'manage_workers', 'manage_ui', 'edit_map'];
+const ADMIN_TAB_PERMISSIONS = {
+  colors: ['manage_ui'],
+  names: ['manage_tracker_names'],
+  columns: ['manage_columns', 'manage_tasks'],
+  trackers: ['manage_trackers'],
+  maplabels: ['manage_ui'],
+  zones: ['edit_map'],
+  claimcrew: ['manage_workers'],
+  users: null,
+  audit: null,
+  appearance: ['manage_ui'],
+  uilabels: ['manage_ui'],
+  updates: null,
+};
+
+function currentUserRole() {
+  if (!currentUser) return 'worker';
+  if (currentUser.is_admin) return 'admin';
+  return currentUser.role || 'worker';
+}
+
+function currentUserPermissions() {
+  return currentUser ? (currentUser.permissions || []) : [];
+}
+
+function currentUserCan(permission) {
+  if (!currentUser) return false;
+  if (currentUser.is_admin) return true;
+  if (!permission) return true;
+  return currentUserPermissions().includes(permission);
+}
+
+function currentUserCanAny(permissions = []) {
+  if (!currentUser) return false;
+  if (currentUser.is_admin) return true;
+  return (permissions || []).some(permission => currentUserCan(permission));
+}
+
+function currentUserCanAccessAdminPage() {
+  return currentUserCanAny(ADMIN_PAGE_PERMISSIONS);
+}
+
+function currentUserRoleLabel() {
+  if (!currentUser) return 'Worker';
+  return currentUser.role_label || (currentUser.is_admin ? 'Admin' : 'Worker');
+}
+
+function adminTabVisible(tabKey) {
+  if (currentUserCan('manage_ui') && currentUser.is_admin) return true;
+  const required = ADMIN_TAB_PERMISSIONS[tabKey];
+  if (required === null) return !!(currentUser && currentUser.is_admin);
+  return currentUserCanAny(required);
+}
+
+function adminDefaultTabKey() {
+  const orderedTabs = ['trackers', 'names', 'columns', 'claimcrew', 'zones', 'colors', 'appearance', 'uilabels', 'users', 'audit', 'updates'];
+  return orderedTabs.find(tabKey => adminTabVisible(tabKey)) || 'trackers';
+}
+
+function syncAdminTabVisibility() {
+  Object.keys(ADMIN_TAB_PERMISSIONS).forEach((tabKey) => {
+    const button = document.getElementById('atab-' + tabKey);
+    if (button) {
+      button.style.display = adminTabVisible(tabKey) ? '' : 'none';
+    }
+  });
 }
 
 async function switchTracker(trackerId) {
@@ -382,16 +443,13 @@ async function switchTracker(trackerId) {
 // Page navigation
 function showPage(pageName) {
   // Enforce permission checks for restricted pages
-  const isAdmin = !!(currentUser && currentUser.is_admin);
-
-  if (pageName === 'upload' && !isAdmin) {
+  if (pageName === 'upload' && !currentUserCan('upload_pdf')) {
     return;  // block access
   }
-  const role = currentUser ? (currentUser.role || 'user') : 'user';
-  const perms = currentUser ? (currentUser.permissions || []) : [];
-  const isAssistant = role === 'assistant_admin';
-  const canManageAdminPages = isAdmin || (isAssistant && perms.includes('admin_settings'));
-  if ((pageName === 'admin' || pageName === 'review') && !canManageAdminPages) {
+  if (pageName === 'admin' && !currentUserCanAccessAdminPage()) {
+    return;
+  }
+  if (pageName === 'review' && !currentUserCan('admin_settings')) {
     return;
   }
 
@@ -400,13 +458,7 @@ function showPage(pageName) {
   // Show selected page
   document.getElementById(`page-${pageName}`).classList.add('active');
 
-  // Show tracker breadcrumb only when inside a tracker-specific page
-  if (pageName === 'dashboard' || pageName === 'sitemap') {
-    const crumb = document.getElementById('active-tracker-crumb');
-    if (crumb) crumb.style.display = 'none';
-  } else {
-    updateTrackerCrumb();
-  }
+  updateTrackerCrumb();
   renderHeaderTrackerSwitcher();
 
   // Load data for the page
@@ -614,13 +666,18 @@ function _dedupeClaimNames(names) {
     });
 }
 
+function _filterAllowedClaimNames(names, allowedNames = []) {
+  const allowedLookup = new Set((allowedNames || []).map((name) => String(name || '').trim().toLowerCase()).filter(Boolean));
+  return _dedupeClaimNames(names).filter((name) => allowedLookup.has(String(name || '').trim().toLowerCase()));
+}
+
 function _readSharedClaimCrew(overlay) {
   if (!overlay) return [];
   const checked = Array.from(overlay.querySelectorAll('.claim-person-option:checked'))
     .map((input) => String(input.value || '').trim())
     .filter(Boolean);
   const extras = claimParseCrewNames(overlay.querySelector('#claim-extra-names')?.value || '');
-  return _dedupeClaimNames([...checked, ...extras]);
+  return _filterAllowedClaimNames([...checked, ...extras], claimPageState.peopleSuggestions);
 }
 
 function _collectClaimAssignmentDraft(overlay, block) {
@@ -640,7 +697,7 @@ function _collectClaimAssignmentDraft(overlay, block) {
     overlay.querySelectorAll('.claim-task-crew').forEach((textarea) => {
       const statusType = String(textarea.dataset.statusType || '').trim();
       if (!statusType) return;
-      const names = _dedupeClaimNames(claimParseCrewNames(textarea.value || ''));
+      const names = _filterAllowedClaimNames(claimParseCrewNames(textarea.value || ''), claimPageState.peopleSuggestions);
       if (names.length) {
         taskCrews[statusType] = names;
       }
@@ -669,7 +726,7 @@ function claimAppendTaskCrew(statusType, name) {
   if (!overlay) return;
   const textarea = overlay.querySelector(`.claim-task-crew[data-status-type="${statusType}"]`);
   if (!textarea) return;
-  const nextNames = _dedupeClaimNames([...claimParseCrewNames(textarea.value || ''), String(name || '').trim()]);
+  const nextNames = _filterAllowedClaimNames([...claimParseCrewNames(textarea.value || ''), String(name || '').trim()], claimPageState.peopleSuggestions);
   textarea.value = nextNames.join(', ');
 }
 
@@ -770,10 +827,10 @@ async function claimBlock(blockId, action, people = [], assignments = {}) {
 async function showClaimPeopleDialog(block) {
   try {
     const response = await api.getClaimPeople();
-    const suggestions = Array.isArray(response.data) ? response.data : [];
+    const suggestions = _dedupeClaimNames([...(Array.isArray(response.data) ? response.data : []), ...((block.claimed_people || []).map(name => String(name || '').trim()))]);
     const selected = new Set((block.claimed_people || []).map(name => String(name)));
     const existingAssignments = _getClaimAssignments(block);
-    if (selected.size === 0 && currentUser?.name) selected.add(currentUser.name);
+    if (selected.size === 0 && currentUser?.name && suggestions.includes(currentUser.name)) selected.add(currentUser.name);
 
     const overlay = document.createElement('div');
     overlay.id = 'claim-people-overlay';
@@ -803,7 +860,7 @@ async function showClaimPeopleDialog(block) {
             <label style="display:block;color:#cbd5e1;font-size:13px;font-weight:600;margin-bottom:6px;">Shared crew on this power block</label>
           </div>
           <div style="margin-top:8px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;">
-            ${optionsHtml || '<div style="color:#94a3b8;font-size:12px;">No saved people yet — add names below.</div>'}
+            ${optionsHtml || '<div style="color:#94a3b8;font-size:12px;">No Foreman, Worker, or Lead crew members are available yet.</div>'}
           </div>
           <div style="margin-top:12px;">
             <label style="display:block;color:#cbd5e1;font-size:13px;font-weight:600;margin-bottom:6px;">Add extra crew names</label>
@@ -977,26 +1034,26 @@ function _fmtDate(iso) {
 
 function _buildClaimedBanner(block) {
   const claimedPeople = Array.isArray(block.claimed_people) ? block.claimed_people : [];
-  const claimedLabel = block.claimed_label || claimedPeople.join(', ');
+  const claimedLabel = block.claimed_label || claimedPeople.join(', ') || block.claimed_by || '';
   const claimed   = block.claimed_by;
   const claimedAt = block.claimed_at ? _fmtDate(block.claimed_at) : '';
   const lastBy    = block.last_updated_by;
   const lastAt    = block.last_updated_at ? _fmtDate(block.last_updated_at) : '';
+  const isClaimed = blockHasClaim(block);
 
   let claimPart = '';
   let actionButtons = '';
-  if (claimed) {
-    claimPart = '<span style="color:#1565c0;font-weight:600;">&#128204; Claimed by ' + _escapeHtml(claimedLabel || claimed) + '</span>'
+  if (isClaimed && claimedLabel) {
+    claimPart = '<span style="color:#1565c0;font-weight:600;">&#128204; Claimed by ' + _escapeHtml(claimedLabel) + '</span>'
       + '<span style="color:#666;font-size:11px;"> &mdash; ' + claimedAt + '</span>';
-    if (currentUser) {
+    if (currentUser && (currentUserCan('claim_edit') || currentUserCan('claim_delete'))) {
       actionButtons = '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">'
-        + '<button onclick="showClaimPeopleDialogById(' + block.id + ')" style="background:rgba(0,212,255,0.15);color:#00d4ff;border:1px solid rgba(0,212,255,0.3);border-radius:5px;padding:5px 12px;cursor:pointer;font-size:11px;font-weight:600;">Edit Claim / Add Crew</button>'
-        + '<button onclick="claimBlock(' + block.id + ',\'unclaim\')" style="background:rgba(255,76,106,0.1);color:#ff4c6a;border:1px solid rgba(255,76,106,0.3);border-radius:5px;padding:5px 12px;cursor:pointer;font-size:11px;font-weight:600;">Release Claim</button>'
+        + (currentUserCan('claim_edit') ? '<button onclick="showClaimPeopleDialogById(' + block.id + ')" style="background:rgba(0,212,255,0.15);color:#00d4ff;border:1px solid rgba(0,212,255,0.3);border-radius:5px;padding:5px 12px;cursor:pointer;font-size:11px;font-weight:600;">Edit Claim / Add Crew</button>' : '')
+        + (currentUserCan('claim_delete') ? '<button onclick="claimBlock(' + block.id + ',\'unclaim\')" style="background:rgba(255,76,106,0.1);color:#ff4c6a;border:1px solid rgba(255,76,106,0.3);border-radius:5px;padding:5px 12px;cursor:pointer;font-size:11px;font-weight:600;">Release Claim</button>' : '')
         + '</div>';
     }
   } else {
-    claimPart = '<span style="color:#999;font-size:12px;">Unclaimed</span>';
-    if (currentUser) {
+    if (currentUserCan('claim_create')) {
       actionButtons = '<div style="margin-top:8px;">'
         + '<button onclick="showClaimPeopleDialogById(' + block.id + ')" style="background:rgba(0,232,122,0.15);color:#00e87a;border:1px solid rgba(0,232,122,0.3);border-radius:5px;padding:5px 12px;cursor:pointer;font-size:11px;font-weight:700;">Claim Block / Add Crew</button>'
         + '</div>';
@@ -2023,29 +2080,17 @@ async function checkAuth() {
 
 function _applyRoleUI() {
   const isAdmin = !!(currentUser && currentUser.is_admin);
-  const role = currentUser ? (currentUser.role || 'user') : 'user';
-  const perms = currentUser ? (currentUser.permissions || []) : [];
-  const isAssistant = role === 'assistant_admin';
 
-  // Full admins see everything with .admin-only
   document.querySelectorAll('.admin-only').forEach(el => {
-    const requiredPerm = el.dataset.perm; // e.g. data-perm="upload_pdf"
-    if (isAdmin) {
-      el.style.display = '';
-    } else if (isAssistant && requiredPerm && perms.includes(requiredPerm)) {
-      el.style.display = '';
-    } else if (isAssistant && !requiredPerm) {
-      // assistant admins see generic admin-only items only if they have any perms
-      el.style.display = '';
-    } else {
-      el.style.display = 'none';
-    }
+    const requiredPerm = el.dataset.perm;
+    el.style.display = (requiredPerm ? currentUserCan(requiredPerm) : currentUserCanAccessAdminPage()) ? '' : 'none';
   });
 
-  // Items that ONLY the main admin can see (not assistant admins)
   document.querySelectorAll('.main-admin-only').forEach(el => {
     el.style.display = isAdmin ? '' : 'none';
   });
+
+  syncAdminTabVisibility();
 
   const ui = document.getElementById('user-info');
   if (ui) {
@@ -2054,8 +2099,8 @@ function _applyRoleUI() {
       let badge = '';
       if (isAdmin) {
         badge = `<span style="font-size:9px;background:rgba(0,212,255,0.15);color:#00d4ff;border:1px solid rgba(0,212,255,0.3);border-radius:4px;padding:1px 6px;font-weight:700;letter-spacing:0.5px;">ADMIN</span>`;
-      } else if (isAssistant) {
-        badge = `<span style="font-size:9px;background:rgba(124,108,252,0.15);color:#7c6cfc;border:1px solid rgba(124,108,252,0.3);border-radius:4px;padding:1px 6px;font-weight:700;letter-spacing:0.5px;">ASST ADMIN</span>`;
+      } else {
+        badge = `<span style="font-size:9px;background:rgba(124,108,252,0.15);color:#7c6cfc;border:1px solid rgba(124,108,252,0.3);border-radius:4px;padding:1px 6px;font-weight:700;letter-spacing:0.5px;">${_escapeHtml(currentUserRoleLabel().toUpperCase())}</span>`;
       }
       ui.innerHTML = `<div style="display:flex;align-items:center;gap:8px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:100px;padding:4px 12px 4px 6px;">`
         + `<div style="width:26px;height:26px;background:linear-gradient(135deg,#00d4ff,#7c6cfc);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#000;flex-shrink:0;">${initials}</div>`
@@ -4192,21 +4237,20 @@ function showPBPanel(pb) {
 
   // Header row + bulk row + claim banner
   const claimedPeople = Array.isArray(pb.claimed_people) ? pb.claimed_people : [];
-  const claimedLabel = pb.claimed_label || claimedPeople.join(', ');
-  const pbClaimed = pb.claimed_by;
+  const claimedLabel = pb.claimed_label || claimedPeople.join(', ') || pb.claimed_by || '';
+  const pbClaimed = blockHasClaim(pb);
   let mapClaimBanner = '';
   if (currentUser) {
     if (pbClaimed) {
       mapClaimBanner = `<div style="margin-bottom:8px;padding:8px 10px;background:rgba(21,101,192,0.1);border:1px solid rgba(21,101,192,0.2);border-radius:6px;">
-        <div style="font-size:12px;color:#8adfff;">&#128204; Claimed by <strong>${_escapeHtml(claimedLabel || pbClaimed)}</strong></div>
+        <div style="font-size:12px;color:#8adfff;">&#128204; Claimed by <strong>${_escapeHtml(claimedLabel || 'Crew')}</strong></div>
         <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
-          <button onclick="showClaimPeopleDialogById(${pb.id})" style="background:rgba(0,212,255,0.15);color:#00d4ff;border:1px solid rgba(0,212,255,0.3);border-radius:4px;padding:3px 10px;cursor:pointer;font-size:10px;font-weight:600;">Edit Claim / Add Crew</button>
-          <button onclick="claimBlock(${pb.id},'unclaim').then(()=>{const r=mapPBs.find(b=>b.id===${pb.id});if(r){r.claimed_by=null;r.claimed_people=[];showPBPanel(r);}})" style="background:rgba(255,76,106,0.1);color:#ff4c6a;border:1px solid rgba(255,76,106,0.3);border-radius:4px;padding:3px 10px;cursor:pointer;font-size:10px;font-weight:600;">Release</button>
+          ${currentUserCan('claim_edit') ? `<button onclick="showClaimPeopleDialogById(${pb.id})" style="background:rgba(0,212,255,0.15);color:#00d4ff;border:1px solid rgba(0,212,255,0.3);border-radius:4px;padding:3px 10px;cursor:pointer;font-size:10px;font-weight:600;">Edit Claim / Add Crew</button>` : ''}
+          ${currentUserCan('claim_delete') ? `<button onclick="claimBlock(${pb.id},'unclaim').then(()=>{const r=mapPBs.find(b=>b.id===${pb.id});if(r){r.claimed_by=null;r.claimed_people=[];r.claim_assignments={};r.claimed_label='';showPBPanel(r);}})" style="background:rgba(255,76,106,0.1);color:#ff4c6a;border:1px solid rgba(255,76,106,0.3);border-radius:4px;padding:3px 10px;cursor:pointer;font-size:10px;font-weight:600;">Release</button>` : ''}
         </div>
       </div>`;
-    } else {
+    } else if (currentUserCan('claim_create')) {
       mapClaimBanner = `<div style="margin-bottom:8px;padding:8px 10px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:6px;">
-        <div style="font-size:11px;color:#94a3b8;">Unclaimed</div>
         <div style="margin-top:6px;">
           <button onclick="showClaimPeopleDialogById(${pb.id})" style="background:rgba(0,232,122,0.15);color:#00e87a;border:1px solid rgba(0,232,122,0.3);border-radius:4px;padding:3px 10px;cursor:pointer;font-size:10px;font-weight:700;">Claim Block / Add Crew</button>
         </div>
@@ -4854,10 +4898,16 @@ function claimSelectedBlocks() {
 }
 
 function canReleaseClaim(block) {
-  if (!block || !currentUser) return false;
-  if (currentUser.is_admin) return true;
-  const claimedPeople = Array.isArray(block.claimed_people) ? block.claimed_people : [];
-  return claimedPeople.includes(currentUser.name);
+  return !!(block && currentUserCan('claim_delete'));
+}
+
+function blockHasClaim(block) {
+  if (!block) return false;
+  const claimedPeople = Array.isArray(block.claimed_people) ? block.claimed_people.filter(Boolean) : [];
+  const assignments = block.claim_assignments && typeof block.claim_assignments === 'object'
+    ? Object.keys(block.claim_assignments).length
+    : 0;
+  return Boolean(block.claimed_by || claimedPeople.length || assignments);
 }
 
 function claimBlockNumber(block) {
@@ -4916,7 +4966,9 @@ function claimFilteredBlocks() {
   }
 
   if (claimPageState.statusFilter === 'unclaimed') {
-    filtered = filtered.filter((block) => !block.claimed_by);
+    filtered = filtered.filter((block) => !blockHasClaim(block));
+    
+    const claimed = blockHasClaim(block) ? `<span class="pb-claimed-pill">👥 ${_escapeHtml(block.claimed_label || (Array.isArray(block.claimed_people) ? block.claimed_people.join(', ') : '') || block.claimed_by || 'Crew')}</span>` : '';
   } else if (claimPageState.statusFilter === 'recently_claimed') {
     filtered = filtered.filter((block) => !!block.claimed_at);
   } else if (claimPageState.statusFilter === 'in_progress') {
@@ -5441,7 +5493,7 @@ function renderClaimPage() {
   const selectedBlock = claimSelectedBlock();
   const selectedBlocks = claimSelectedBlocks();
   const selectedBlockIds = new Set(selectedBlocks.map((block) => Number(block.id)));
-  const claimedBlocks = claimPageState.blocks.filter(block => block.claimed_by);
+  const claimedBlocks = claimPageState.blocks.filter(block => blockHasClaim(block));
   const crewCount = new Set(claimedBlocks.flatMap(block => {
     if (Array.isArray(block.claimed_people) && block.claimed_people.length > 0) return block.claimed_people;
     return block.claimed_by ? [block.claimed_by] : [];
@@ -5459,7 +5511,9 @@ function renderClaimPage() {
   const blockTiles = filtered.map((block) => {
     const selected = selectedBlock && Number(selectedBlock.id) === Number(block.id);
     const checked = selectedBlockIds.has(Number(block.id));
-    const claimLabel = block.claimed_by ? `Claimed by ${_escapeHtml(block.claimed_label || block.claimed_by)}` : 'Ready to claim';
+    const claimLabel = blockHasClaim(block)
+      ? `Claimed by ${_escapeHtml(block.claimed_label || (Array.isArray(block.claimed_people) ? block.claimed_people.join(', ') : '') || block.claimed_by || 'Crew')}`
+      : 'Ready to claim';
     const zoneText = block.zone ? _escapeHtml(block.zone) : 'Unzoned';
     const progressSteps = Number(block.lbd_count || 0) * LBD_STATUS_TYPES.length;
     const completedSteps = claimCompletedSteps(block);
@@ -5475,7 +5529,7 @@ function renderClaimPage() {
           <span>${checked ? 'Included in batch' : 'Add to batch'}</span>
         </label>
       </div>
-      <div class="claim-block-status${block.claimed_by ? ' is-claimed' : ''}">${claimLabel}</div>
+      <div class="claim-block-status${blockHasClaim(block) ? ' is-claimed' : ''}">${claimLabel}</div>
       <div class="claim-block-meta-row">
         <span class="claim-block-count">${block.lbd_count || 0} ${(currentTracker && currentTracker.item_name_plural) || 'Items'}</span>
         <span class="claim-block-progress">${progressPct}% complete</span>
@@ -5505,10 +5559,13 @@ function renderClaimPage() {
     const encodedName = encodeURIComponent(String(name));
     return `<button type="button" class="claim-crew-chip" onclick="claimAppendCrewName(decodeURIComponent('${encodedName}'))">${_escapeHtml(name)}</button>`;
   }).join('');
+  const canClaimSelection = selectedBlocks.length > 1
+    ? (selectedBlocks.some(block => blockHasClaim(block)) ? currentUserCan('claim_edit') : currentUserCan('claim_create'))
+    : (selectedBlock ? (blockHasClaim(selectedBlock) ? currentUserCan('claim_edit') : currentUserCan('claim_create')) : false);
   const claimActionButton = selectedBlocks.length > 1
-    ? `<button class="btn btn-primary" onclick="showBulkClaimDialog()">Claim ${selectedBlocks.length} Blocks</button>`
+    ? `<button class="btn btn-primary" ${canClaimSelection ? `onclick="showBulkClaimDialog()"` : 'disabled'}>Claim ${selectedBlocks.length} Blocks</button>`
     : (selectedBlock
-      ? `<button class="btn btn-primary" onclick="showClaimPeopleDialogById(${selectedBlock.id})">Claim Block</button>`
+      ? `<button class="btn btn-primary" ${canClaimSelection ? `onclick="showClaimPeopleDialogById(${selectedBlock.id})"` : 'disabled'}>${blockHasClaim(selectedBlock) ? 'Edit Claim' : 'Claim Block'}</button>`
       : '<button class="btn btn-primary" disabled>Claim Block</button>');
   const releaseButton = selectedBlock && canReleaseClaim(selectedBlock)
     ? `<button class="btn btn-danger" onclick="claimReleaseSelectedBlock()">Release Claim</button>`
@@ -5613,7 +5670,7 @@ function renderClaimPage() {
           ${bulkSelectionCard}
           <div class="claim-info-card">
             <div class="claim-card-label">Claim Status</div>
-            <div class="claim-card-value">${selectedBlock && selectedBlock.claimed_by ? `Claimed by ${_escapeHtml(selectedBlock.claimed_label || selectedBlock.claimed_by)}` : 'Unclaimed'}</div>
+            <div class="claim-card-value">${selectedBlock && blockHasClaim(selectedBlock) ? `Claimed by ${_escapeHtml(selectedBlock.claimed_label || (Array.isArray(selectedBlock.claimed_people) ? selectedBlock.claimed_people.join(', ') : '') || selectedBlock.claimed_by || 'Crew')}` : 'Ready to claim'}</div>
             <div class="claim-card-meta">${selectedClaimedPeople || 'No crew assigned yet.'}</div>
             ${selectedAssignments || ''}
           </div>
@@ -6699,7 +6756,8 @@ document.addEventListener('DOMContentLoaded', () => {
 // ADMIN PAGE
 // ============================================================
 async function loadAdminPage() {
-  switchAdminTab('colors');
+  syncAdminTabVisibility();
+  switchAdminTab(adminDefaultTabKey());
   try {
     const r = await api.getAdminSettings();
     const d = r.data;
@@ -6718,6 +6776,7 @@ async function loadAdminPage() {
 }
 
 function switchAdminTab(tabKey) {
+  if (!adminTabVisible(tabKey)) return;
   document.querySelectorAll('.admin-tab-content').forEach(el => el.style.display = 'none');
   document.querySelectorAll('.admin-tab').forEach(el => el.classList.remove('active'));
   const content = document.getElementById('admin-tab-' + tabKey);
@@ -6775,7 +6834,7 @@ function summarizeAdminAuditItem(item) {
   }
 
   if (item.action === 'user.role.update') {
-    const roleLabel = details.role === 'assistant_admin' ? 'Assistant Admin' : 'User';
+    const roleLabel = formatRoleLabel(details.role);
     const perms = Array.isArray(details.permissions) && details.permissions.length
       ? `Permissions: ${details.permissions.join(', ')}`
       : '';
@@ -7943,13 +8002,28 @@ async function uploadNewEXE() {
 
 // ── User Role Management (Admin Only) ─────────────────────────
 const PRIVILEGE_LABELS = {
+  claim_create: '✅ Create Claims',
+  claim_edit: '✏️ Edit Claims',
+  claim_delete: '🗑️ Delete Claims',
   upload_pdf: '📤 Upload PDF',
   edit_map: '🗺️ Edit Map',
+  manage_trackers: '📋 Manage Trackers',
+  manage_tracker_names: '🏷️ Manage Names',
+  manage_columns: '📊 Manage Columns',
+  manage_tasks: '🧩 Manage Tasks',
   manage_blocks: '📦 Manage Blocks',
   manage_workers: '👷 Manage Workers',
   view_reports: '📊 View Reports',
-  admin_settings: '⚙️ Admin Settings',
+  manage_ui: '🎨 Manage UI / Colors',
+  admin_settings: '🔒 Review Admin',
 };
+
+let roleDefinitionsByKey = {};
+
+function formatRoleLabel(roleKey) {
+  const key = String(roleKey || '').trim();
+  return roleDefinitionsByKey[key]?.label || key.replace(/_/g, ' ').replace(/\b\w/g, (match) => match.toUpperCase()) || 'Worker';
+}
 
 async function loadUsersTab() {
   const container = document.getElementById('admin-users-list');
@@ -7964,6 +8038,11 @@ async function loadUsersTab() {
     const data = await res.json();
     const users = data.users || [];
     const allPrivs = data.all_privileges || Object.keys(PRIVILEGE_LABELS);
+    const roles = Array.isArray(data.roles) ? data.roles : [];
+    roleDefinitionsByKey = roles.reduce((accumulator, role) => {
+      accumulator[role.key] = role;
+      return accumulator;
+    }, {});
     const recentPinResets = buildRecentPinResetMap(auditResponse.data || []);
 
     if (!users.length) { container.innerHTML = '<p style="color:#777;">No users found.</p>'; return; }
@@ -7980,10 +8059,8 @@ async function loadUsersTab() {
       let roleBadge = '';
       if (isMainAdmin) {
         roleBadge = '<span style="font-size:10px;background:rgba(0,212,255,0.15);color:#00d4ff;border:1px solid rgba(0,212,255,0.3);border-radius:4px;padding:2px 8px;font-weight:700;">ADMIN</span>';
-      } else if (role === 'assistant_admin') {
-        roleBadge = '<span style="font-size:10px;background:rgba(124,108,252,0.15);color:#7c6cfc;border:1px solid rgba(124,108,252,0.3);border-radius:4px;padding:2px 8px;font-weight:700;">ASST ADMIN</span>';
       } else {
-        roleBadge = '<span style="font-size:10px;background:rgba(255,255,255,0.05);color:#888;border:1px solid rgba(255,255,255,0.1);border-radius:4px;padding:2px 8px;font-weight:600;">USER</span>';
+        roleBadge = `<span style="font-size:10px;background:rgba(124,108,252,0.15);color:#7c6cfc;border:1px solid rgba(124,108,252,0.3);border-radius:4px;padding:2px 8px;font-weight:700;">${_escapeHtml(u.role_label || formatRoleLabel(role)).toUpperCase()}</span>`;
       }
 
       let controls = '';
@@ -7992,11 +8069,11 @@ async function loadUsersTab() {
           <div style="margin-top:10px;display:flex;flex-wrap:wrap;align-items:center;gap:8px;">
             <label style="font-size:12px;color:#aaa;">Role:</label>
             <select id="role-select-${u.id}" onchange="onRoleChange(${u.id})" style="font-size:12px;padding:4px 8px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:rgba(7,9,26,0.8);color:#eef2ff;">
-              <option value="user" ${role==='user'?'selected':''}>User</option>
-              <option value="assistant_admin" ${role==='assistant_admin'?'selected':''}>Assistant Admin</option>
+              ${roles.map((roleOption) => `<option value="${_escapeHtml(roleOption.key)}" ${role===roleOption.key?'selected':''}>${_escapeHtml(roleOption.label)}</option>`).join('')}
             </select>
           </div>
-          <div id="perms-${u.id}" style="margin-top:8px;display:${role==='assistant_admin'?'flex':'none'};flex-wrap:wrap;gap:6px;">
+          <div style="margin-top:8px;font-size:11px;color:#94a3b8;">${roleDefinitionsByKey[role]?.claim_eligible ? 'Shows up in claim crew pickers.' : 'Does not show up in claim crew pickers.'}</div>
+          <div id="perms-${u.id}" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;">
             ${allPrivs.map(p => {
               const checked = perms.includes(p) ? 'checked' : '';
               const label = PRIVILEGE_LABELS[p] || p;
@@ -8031,9 +8108,12 @@ async function loadUsersTab() {
 
 function onRoleChange(userId) {
   const sel = document.getElementById('role-select-' + userId);
-  const permsDiv = document.getElementById('perms-' + userId);
-  if (sel && permsDiv) {
-    permsDiv.style.display = sel.value === 'assistant_admin' ? 'flex' : 'none';
+  if (sel) {
+    const defaults = roleDefinitionsByKey[sel.value]?.default_permissions || [];
+    const defaultSet = new Set(defaults);
+    document.querySelectorAll(`#perms-${userId} input[type="checkbox"]`).forEach(cb => {
+      cb.checked = defaultSet.has(cb.dataset.perm);
+    });
   }
   saveUserRole(userId);
 }

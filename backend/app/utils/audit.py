@@ -12,6 +12,26 @@ def current_user():
     return User.query.get(user_id)
 
 
+def user_has_permission(user, permission=None):
+    if not user:
+        return False
+    if user.is_admin or user.role == 'admin':
+        return True
+    if not permission:
+        return True
+    return user.has_permission(permission)
+
+
+def user_has_any_permission(user, permissions=None):
+    if not user:
+        return False
+    if user.is_admin or user.role == 'admin':
+        return True
+    if not permissions:
+        return True
+    return any(user.has_permission(permission) for permission in (permissions or []))
+
+
 def require_permission(permission=None, admin_only=False):
     user = current_user()
     if not user:
@@ -20,7 +40,20 @@ def require_permission(permission=None, admin_only=False):
         return user, None, None
     if admin_only:
         return None, jsonify({'error': 'Admin access required'}), 403
-    if permission and user.has_permission(permission):
+    if user_has_permission(user, permission):
+        return user, None, None
+    return None, jsonify({'error': 'Permission denied'}), 403
+
+
+def require_any_permission(permissions=None, admin_only=False):
+    user = current_user()
+    if not user:
+        return None, jsonify({'error': 'Not authenticated'}), 401
+    if user.is_admin or user.role == 'admin':
+        return user, None, None
+    if admin_only:
+        return None, jsonify({'error': 'Admin access required'}), 403
+    if user_has_any_permission(user, permissions):
         return user, None, None
     return None, jsonify({'error': 'Permission denied'}), 403
 

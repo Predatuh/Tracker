@@ -3,11 +3,21 @@ from app import db
 from app.models import LBDStatus, AuditLog
 from app.models.admin_settings import AdminSettings
 from app.models.tracker import Tracker
-from app.utils.audit import require_permission, log_action
+from app.utils.audit import require_any_permission, require_permission, log_action
 from app.utils.job_sites import default_job_site
 from app.utils.tracker_access import allowed_tracker_query, resolve_accessible_tracker
 
 bp = Blueprint('admin', __name__, url_prefix='/api/admin')
+
+ADMIN_PAGE_PERMISSIONS = [
+    'manage_trackers',
+    'manage_tracker_names',
+    'manage_columns',
+    'manage_tasks',
+    'manage_workers',
+    'manage_ui',
+    'edit_map',
+]
 
 
 # ------------------------------------------------------------------ #
@@ -21,7 +31,7 @@ def list_trackers():
 
 @bp.route('/trackers', methods=['POST'])
 def create_tracker():
-    actor, err, status = require_permission('admin_settings')
+    actor, err, status = require_any_permission(['manage_trackers'])
     if not actor:
         return err, status
     data = request.get_json() or {}
@@ -56,7 +66,7 @@ def create_tracker():
 
 @bp.route('/trackers/<int:tracker_id>', methods=['PUT'])
 def update_tracker(tracker_id):
-    actor, err, status = require_permission('admin_settings')
+    actor, err, status = require_any_permission(['manage_trackers'])
     if not actor:
         return err, status
     t = Tracker.query.get_or_404(tracker_id)
@@ -79,7 +89,7 @@ def update_tracker(tracker_id):
 
 @bp.route('/trackers/<int:tracker_id>', methods=['DELETE'])
 def delete_tracker(tracker_id):
-    actor, err, status = require_permission('admin_settings')
+    actor, err, status = require_any_permission(['manage_trackers'])
     if not actor:
         return err, status
     t = Tracker.query.get_or_404(tracker_id)
@@ -91,7 +101,7 @@ def delete_tracker(tracker_id):
 
 @bp.route('/audit-logs', methods=['GET'])
 def list_audit_logs():
-    actor, err, status = require_permission('admin_settings')
+    actor, err, status = require_permission(admin_only=True)
     if not actor:
         return err, status
     limit = min(int(request.args.get('limit', 100)), 250)
@@ -147,7 +157,7 @@ def get_settings():
 @bp.route('/settings/claim-people', methods=['PUT'])
 def update_claim_people():
     try:
-        actor, err, status = require_permission('admin_settings')
+        actor, err, status = require_any_permission(['manage_workers'])
         if not actor:
             return err, status
         data = request.get_json() or {}
@@ -178,7 +188,7 @@ def update_claim_people():
 @bp.route('/settings/zone-names', methods=['PUT'])
 def update_zone_names():
     try:
-        actor, err, status = require_permission('admin_settings')
+        actor, err, status = require_any_permission(['edit_map'])
         if not actor:
             return err, status
         data = request.get_json() or {}
@@ -200,7 +210,7 @@ def update_zone_names():
 @bp.route('/settings/colors', methods=['PUT'])
 def update_colors():
     try:
-        actor, err, status = require_permission('admin_settings')
+        actor, err, status = require_any_permission(['manage_ui'], admin_only=True)
         if not actor:
             return err, status
         data = request.get_json()
@@ -225,7 +235,7 @@ def update_colors():
 @bp.route('/settings/names', methods=['PUT'])
 def update_names():
     try:
-        actor, err, status = require_permission('admin_settings')
+        actor, err, status = require_any_permission(['manage_tracker_names'])
         if not actor:
             return err, status
         data = request.get_json()
@@ -250,7 +260,7 @@ def update_names():
 @bp.route('/settings/columns', methods=['POST'])
 def add_column():
     try:
-        actor, err, status = require_permission('admin_settings')
+        actor, err, status = require_any_permission(['manage_columns', 'manage_tasks'])
         if not actor:
             return err, status
         data = request.get_json()
@@ -322,7 +332,7 @@ def add_column():
 @bp.route('/settings/columns/<column_key>', methods=['DELETE'])
 def delete_column(column_key):
     try:
-        actor, err, status = require_permission('admin_settings')
+        actor, err, status = require_any_permission(['manage_columns', 'manage_tasks'])
         if not actor:
             return err, status
         tracker = _get_tracker()
@@ -374,7 +384,7 @@ def delete_column(column_key):
 @bp.route('/settings/font-size', methods=['PUT'])
 def update_font_size():
     try:
-        actor, err, status = require_permission('admin_settings')
+        actor, err, status = require_any_permission(['manage_ui'], admin_only=True)
         if not actor:
             return err, status
         data = request.get_json()
@@ -393,7 +403,7 @@ def update_font_size():
 @bp.route('/settings/column-order', methods=['PUT'])
 def update_column_order():
     try:
-        actor, err, status = require_permission('admin_settings')
+        actor, err, status = require_any_permission(['manage_columns', 'manage_tasks'])
         if not actor:
             return err, status
         data = request.get_json()
@@ -429,7 +439,7 @@ def update_column_order():
 @bp.route('/settings/appearance', methods=['PUT'])
 def update_appearance():
     try:
-        actor, err, status = require_permission('admin_settings')
+        actor, err, status = require_any_permission(['manage_ui'], admin_only=True)
         if not actor:
             return err, status
         data = request.get_json() or {}
@@ -453,7 +463,7 @@ def update_appearance():
 @bp.route('/settings/ui-text', methods=['PUT'])
 def update_ui_text():
     try:
-        actor, err, status = require_permission('admin_settings')
+        actor, err, status = require_any_permission(['manage_ui'], admin_only=True)
         if not actor:
             return err, status
         data = request.get_json() or {}

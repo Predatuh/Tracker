@@ -3,7 +3,7 @@ import re
 from flask import Blueprint, jsonify, request, session
 
 from app import db
-from app.models.user import User
+from app.models.user import User, ALL_PRIVILEGES, ROLE_DEFINITIONS, default_permissions_for_role, normalize_role_key
 from app.utils.audit import log_action
 from app.utils.job_sites import list_job_sites, resolve_job_site
 from app.utils.tracker_access import current_guest_job_site
@@ -55,17 +55,19 @@ def _validate_registration_payload(data):
 
 
 def _create_user(payload):
+    default_role = normalize_role_key(payload.get('role') or 'worker')
     user = User(
         name=payload['name'],
         username=payload['username'],
         email=payload['email'] or None,
         is_admin=False,
-        role='user',
+        role=default_role,
         job_site_name=payload['job_site_name'],
         job_site_slug=payload['job_site_slug'],
         email_verified=True,
     )
     user.set_pin(payload['pin'])
+    user.set_permissions(default_permissions_for_role(default_role))
     user.verification_code_hash = None
     user.verification_sent_at = None
     user.verification_expires_at = None
@@ -161,7 +163,7 @@ def _require_admin():
     if not uid:
         return None, jsonify({'error': 'Not authenticated'}), 401
     user = User.query.get(uid)
-    if not user or not user.is_admin:
+    if not user or not (user.is_admin or user.normalized_role() == 'admin'):
         return None, jsonify({'error': 'Admin access required'}), 403
     return user, None, None
 
@@ -171,11 +173,20 @@ def list_users():
     caller, *err = _require_admin()
     if not caller:
         return err[0], err[1]
-    from app.models.user import ALL_PRIVILEGES
     users = User.query.order_by(User.name).all()
     return jsonify({
         'users': [u.to_dict() for u in users],
         'all_privileges': ALL_PRIVILEGES,
+        'roles': [
+            {
+                'key': key,
+                'label': details.get('label', key.title()),
+                'default_permissions': details.get('default_permissions', []),
+                'claim_eligible': bool(details.get('claim_eligible')),
+            }
+            for key, details in ROLE_DEFINITIONS.items()
+            if key != 'admin'
+        ],
         'job_sites': list_job_sites(),
     }), 200
 
@@ -234,21 +245,21 @@ def update_user_role(user_id):
         return jsonify({'error': 'Cannot change the main admin account'}), 400
 
     data = request.get_json() or {}
-    new_role = data.get('role', 'user')
+    new_role = normalize_role_key(data.get('role', 'worker'))
     perms = data.get('permissions', [])
 
-    if new_role not in ('user', 'assistant_admin'):
+    if new_role not in ROLE_DEFINITIONS or new_role == 'admin':
         return jsonify({'error': 'Invalid role'}), 400
 
-    from app.models.user import ALL_PRIVILEGES
+    if not isinstance(perms, list):
+        perms = []
     valid_perms = [p for p in perms if p in ALL_PRIVILEGES]
+    if not valid_perms:
+        valid_perms = default_permissions_for_role(new_role)
 
     target.role = new_role
     target.is_admin = False
-    if new_role == 'assistant_admin':
-        target.set_permissions(valid_perms)
-    else:
-        target.set_permissions([])
+    target.set_permissions(valid_perms)
 
     db.session.commit()
     log_action('user.role.update', 'user', target.id, {'role': new_role, 'permissions': valid_perms}, actor=caller)
