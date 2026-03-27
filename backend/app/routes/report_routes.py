@@ -203,14 +203,85 @@ def _resolve_tracker_id():
     return t.id if t else None
 
 
-def _build_report_data(target_date, tracker_id=None, existing_data=None):
-    """Aggregate WorkEntry rows for *target_date* into a structured snapshot."""
-    q = WorkEntry.query.filter_by(work_date=target_date)
+def _claim_day_utc_bounds(target_date):
+    start_local = CST.localize(datetime.combine(target_date, datetime.min.time()))
+    end_local = start_local + timedelta(days=1)
+    return (
+        start_local.astimezone(pytz.utc).replace(tzinfo=None),
+        end_local.astimezone(pytz.utc).replace(tzinfo=None),
+    )
+
+
+def _claim_snapshot_rows(target_date, tracker=None, tracker_id=None, user=None, existing_keys=None):
+    user = user or _current_user()
+    seen_keys = existing_keys if existing_keys is not None else set()
+    start_utc, end_utc = _claim_day_utc_bounds(target_date)
+
+    query = PowerBlock.query.options(subqueryload(PowerBlock.lbds)).filter(
+        PowerBlock.claimed_at >= start_utc,
+        PowerBlock.claimed_at < end_utc,
+    )
     if tracker_id:
-        q = q.filter_by(tracker_id=tracker_id)
+        query = query.filter(PowerBlock.lbds.any(LBD.tracker_id == tracker_id))
+    elif not _is_admin_user(user):
+        allowed_ids = _allowed_tracker_id_set(user=user)
+        if not allowed_ids:
+            return []
+        query = query.filter(PowerBlock.lbds.any(LBD.tracker_id.in_(allowed_ids)))
+
+    rows = []
+    for block in query.all():
+        accessible_lbd_ids = set(_block_accessible_lbd_ids(block, tracker=tracker))
+        if not accessible_lbd_ids:
+            continue
+
+        assignments = {}
+        for status_type, lbd_ids in (block.get_claim_assignments() or {}).items():
+            filtered_ids = [lbd_id for lbd_id in (lbd_ids or []) if lbd_id in accessible_lbd_ids]
+            if filtered_ids:
+                assignments[status_type] = filtered_ids
+
+        people = block.get_claimed_people()
+        if not people or not assignments:
+            continue
+
+        claimed_at_iso = block.claimed_at.isoformat() if block.claimed_at else None
+        for status_type, lbd_ids in assignments.items():
+            for person in people:
+                dedupe_key = (str(person or '').casefold(), block.id, str(status_type or '').strip())
+                if dedupe_key in seen_keys:
+                    continue
+                seen_keys.add(dedupe_key)
+                rows.append({
+                    'id': None,
+                    'worker_id': None,
+                    'worker_name': person,
+                    'power_block_id': block.id,
+                    'tracker_id': tracker.id if tracker else None,
+                    'power_block_name': block.name,
+                    'task_type': status_type,
+                    'work_date': target_date.isoformat(),
+                    'logged_by': block.claimed_by,
+                    'created_at': claimed_at_iso,
+                    'source': 'claim_snapshot',
+                    'assignment_count': len(lbd_ids),
+                    'claimed_at': claimed_at_iso,
+                })
+    return rows
+
+
+def _build_report_data(target_date, tracker_id=None, existing_data=None):
+    """Aggregate WorkEntry rows and dated claim snapshots for *target_date*."""
+    user = _current_user()
+    q = _scope_query_to_accessible_trackers(
+        WorkEntry.query.filter_by(work_date=target_date),
+        WorkEntry.tracker_id,
+        tracker_id=tracker_id,
+        user=user,
+    )
     entries = q.all()
 
-    tracker = resolve_accessible_tracker(tracker_id) if tracker_id else None
+    tracker = resolve_accessible_tracker(tracker_id, user=user) if tracker_id else None
     col_names = tracker.get_status_names() if tracker else AdminSettings.get_names()
 
     # Group by task_type → worker → [power_blocks]
@@ -219,10 +290,28 @@ def _build_report_data(target_date, tracker_id=None, existing_data=None):
     by_pb       = defaultdict(lambda: defaultdict(list))
     worker_names = set()
 
+    raw_entries = []
+    existing_keys = set()
     for e in entries:
-        task   = e.task_type
         worker = e.worker.name if e.worker else '?'
-        pb     = e.power_block.name if e.power_block else '?'
+        raw_entries.append({
+            **e.to_dict(),
+            'source': 'work_entry',
+        })
+        existing_keys.add((worker.casefold(), e.power_block_id, e.task_type))
+
+    raw_entries.extend(_claim_snapshot_rows(
+        target_date,
+        tracker=tracker,
+        tracker_id=tracker_id,
+        user=user,
+        existing_keys=existing_keys,
+    ))
+
+    for entry in raw_entries:
+        task = entry.get('task_type')
+        worker = entry.get('worker_name') or '?'
+        pb = entry.get('power_block_name') or '?'
         by_task[task][worker].append(pb)
         by_worker[worker][task].append(pb)
         by_pb[pb][task].append(worker)
@@ -232,13 +321,13 @@ def _build_report_data(target_date, tracker_id=None, existing_data=None):
 
     return {
         'report_date':   target_date.isoformat(),
-        'total_entries': len(entries),
+        'total_entries': len(raw_entries),
         'worker_names':  sorted(worker_names),
         'by_task':       {t: dict(w) for t, w in by_task.items()},
         'by_worker':     {w: dict(t) for w, t in by_worker.items()},
         'by_power_block': {pb: dict(t) for pb, t in by_pb.items()},
         'task_labels':   col_names,
-        'raw_entries': [e.to_dict() for e in entries],
+        'raw_entries': raw_entries,
         'claim_scans': list(existing_data.get('claim_scans') or []),
     }
 
