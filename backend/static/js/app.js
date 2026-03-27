@@ -2388,33 +2388,24 @@ function _initSocket() {
   });
 
   _socket.on('claim_update', function(data) {
-    const pb = mapPBs.find(p => p.id === data.pb_id);
-    if (pb) {
-      pb.claimed_by = data.claimed_by;
-      pb.claimed_people = data.claimed_people || [];
-      pb.claim_assignments = data.claim_assignments || {};
-      pb.claimed_label = data.claimed_label || '';
-      pb.claimed_at = data.claimed_at;
-    }
-    if (_blocksCache[data.pb_id]) {
-      _blocksCache[data.pb_id].claimed_by = data.claimed_by;
-      _blocksCache[data.pb_id].claimed_people = data.claimed_people || [];
-      _blocksCache[data.pb_id].claim_assignments = data.claim_assignments || {};
-      _blocksCache[data.pb_id].claimed_label = data.claimed_label || '';
-      _blocksCache[data.pb_id].claimed_at = data.claimed_at;
-    }
-    _allBlocksData = _allBlocksData.map(block => block.id === data.pb_id ? {
-      ...block,
-      claimed_by: data.claimed_by,
-      claimed_people: data.claimed_people || [],
-      claim_assignments: data.claim_assignments || {},
-      claimed_label: data.claimed_label || '',
-      claimed_at: data.claimed_at,
-    } : block);
-    if (activePBId === data.pb_id) {
-      const banner = document.getElementById('pb-claimed-banner');
-      if (banner && pb) banner.outerHTML = _buildClaimedBanner(pb);
-    }
+    if (!currentTracker || !currentTracker.id) return;
+    api.getPowerBlock(data.pb_id, currentTracker.id).then(r => {
+      const nextBlock = r.data;
+      const mapIndex = mapPBs.findIndex(p => p.id === data.pb_id);
+      if (mapIndex >= 0) {
+        mapPBs[mapIndex] = nextBlock;
+        _updateMarkerColor(nextBlock);
+      }
+      _blocksCache[data.pb_id] = nextBlock;
+      _allBlocksData = _allBlocksData.map(block => block.id === data.pb_id ? nextBlock : block);
+      claimPageState.blocks = claimPageState.blocks.map(block => block.id === data.pb_id ? nextBlock : block);
+      if (pageName === 'claim') {
+        renderClaimPage();
+      }
+      if (activePBId === data.pb_id) {
+        showPBPanel(nextBlock);
+      }
+    }).catch(() => {});
   });
 }
 
