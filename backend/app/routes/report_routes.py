@@ -204,6 +204,27 @@ def _resolve_tracker_id():
     return t.id if t else None
 
 
+def _can_backfill_claims(user=None):
+    user = user or _current_user()
+    return bool(user and (_is_admin_user(user) or user.has_permission('admin_settings')))
+
+
+def _parse_claim_activity_timestamp(raw_value, target_date):
+    raw = str(raw_value or '').strip()
+    if not raw:
+        local_dt = CST.localize(datetime.combine(target_date, datetime.min.time().replace(hour=12)))
+        return local_dt.astimezone(pytz.utc).replace(tzinfo=None)
+    try:
+        parsed = datetime.fromisoformat(raw.replace('Z', '+00:00'))
+    except ValueError as exc:
+        raise ValueError('Invalid claim time, use YYYY-MM-DDTHH:MM') from exc
+    if parsed.tzinfo is None:
+        parsed = CST.localize(parsed)
+    else:
+        parsed = parsed.astimezone(CST)
+    return parsed.astimezone(pytz.utc).replace(tzinfo=None)
+
+
 def _report_block_label(entry):
     power_block_name = str(entry.get('power_block_name') or '?')
     count = int(entry.get('assignment_count') or 0)
@@ -2113,6 +2134,67 @@ def submit_claim_scan():
             'claim': _claim_payload(block),
         }
     }), 200
+
+
+@bp.route('/reports/claim-activities/backfill', methods=['POST'])
+def backfill_claim_activity():
+    user = _current_user()
+    if not _can_backfill_claims(user):
+        return jsonify({'error': 'Claim backfill is restricted to admin users'}), 403
+
+    data = request.get_json() or {}
+    try:
+        block_id = int(data.get('power_block_id') or 0)
+    except (TypeError, ValueError):
+        block_id = 0
+    if block_id <= 0:
+        return jsonify({'error': 'power_block_id is required'}), 400
+
+    block = PowerBlock.query.options(
+        subqueryload(PowerBlock.lbds).subqueryload(LBD.statuses)
+    ).get_or_404(block_id)
+
+    tracker = _resolve_block_tracker(block, data.get('tracker_id'), user=user)
+    if data.get('tracker_id') and not tracker and not _is_admin_user(user):
+        return jsonify({'error': 'That tracker is not accessible for this power block'}), 403
+
+    from app.routes.tracker_routes import _normalize_people, _normalize_claim_assignments, _parse_claim_work_date, _record_claim_activity, _validate_claim_people
+
+    people = _normalize_people(data.get('people') or [])
+    if not people:
+        return jsonify({'error': 'At least one crew member is required'}), 400
+
+    _validate_claim_people(people, extra_names=block.get_claimed_people())
+    work_date = _parse_claim_work_date(data.get('work_date') or data.get('date'))
+    claimed_at = _parse_claim_activity_timestamp(data.get('claimed_at'), work_date)
+    valid_lbd_ids = _block_accessible_lbd_ids(block, tracker=tracker)
+    assignments = _normalize_claim_assignments(data.get('assignments') or {}, valid_lbd_ids)
+    if not assignments:
+        return jsonify({'error': 'Select at least one LBD assignment before backfilling'}), 400
+
+    actor = str(data.get('claimed_by') or _current_user_name()).strip() or None
+    activity = _record_claim_activity(
+        block,
+        people,
+        assignments,
+        work_date,
+        actor=actor,
+        tracker=tracker,
+        source='admin_backfill',
+        claimed_at=claimed_at,
+    )
+    report = _get_or_generate_report(work_date, tracker.id if tracker else None)
+    if not report:
+        db.session.rollback()
+        return jsonify({'error': 'No accessible tracker is available for this request'}), 403
+
+    return jsonify({
+        'success': True,
+        'data': {
+            'activity': activity.to_dict() if activity else None,
+            'report_id': report.id,
+        }
+    }), 201
 
 
 @bp.route('/reports/date/<date_str>', methods=['GET'])

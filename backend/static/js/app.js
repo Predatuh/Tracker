@@ -196,6 +196,12 @@ const api = {
       body: JSON.stringify(payload)
     });
   },
+  backfillClaimActivity(payload) {
+    return this.call('/reports/claim-activities/backfill', {
+      method:'POST',
+      body: JSON.stringify(payload)
+    });
+  },
   getReviews(dateStr = null) {
     const endpoint = dateStr ? `/reviews?date=${encodeURIComponent(dateStr)}` : '/reviews';
     return this.call(this._tq(endpoint));
@@ -6045,6 +6051,9 @@ async function loadReportsPage() {
   if (!el) return;
 
   rp_syncCalendarFromDate(rp_selectedDate || todayIsoDate());
+  const backfillBtn = currentUserCan('admin_settings')
+    ? '<button class="btn btn-secondary" onclick="rp_openBackfillDialog()">Backfill Missing Claims</button>'
+    : '';
   el.innerHTML = `
     <section class="reports-shell">
       <div class="reports-toolbar">
@@ -6055,6 +6064,7 @@ async function loadReportsPage() {
         <div class="reports-toolbar-actions" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
           <input id="rp-selected-date" type="date" value="${_escapeHtml(rp_selectedDate || todayIsoDate())}" onchange="rp_pickDate(this.value)" style="min-height:40px;padding:8px 12px;border-radius:10px;border:1px solid rgba(15,23,42,0.12);background:#fff;color:#0f172a;" />
           <button class="reports-generate-btn" onclick="rp_generate()">Generate Selected Day</button>
+          ${backfillBtn}
           <button class="btn btn-secondary" onclick="rp_openPdf(false)">View PDF</button>
           <button class="btn btn-secondary" onclick="rp_openPdf(true)">Download PDF</button>
         </div>
@@ -6326,6 +6336,247 @@ async function rp_showDetail(dateStr, syncSelection = true, ensure = true) {
     detailEl.innerHTML = html;
   } catch (e) {
     detailEl.innerHTML = `<p style="color:#ff4c6a;">Error: ${_escapeHtml(e.message)}</p>`;
+  }
+}
+
+function rp_defaultBackfillTimestamp(dateStr) {
+  const date = String(dateStr || rp_selectedDate || todayIsoDate());
+  return `${date}T12:00`;
+}
+
+async function rp_openBackfillDialog() {
+  if (!currentUserCan('admin_settings')) {
+    alert('Only admin users can backfill missing claims.');
+    return;
+  }
+
+  try {
+    const [blocksResponse, peopleResponse] = await Promise.all([
+      api.getPowerBlocks(),
+      api.getClaimPeople(),
+    ]);
+    const blocks = Array.isArray(blocksResponse.data) ? blocksResponse.data.slice().sort((left, right) => claimCompareBlocks(left, right, 'number_asc')) : [];
+    if (!blocks.length) {
+      alert('No power blocks are available for this tracker yet.');
+      return;
+    }
+    const suggestions = _dedupeClaimNames(Array.isArray(peopleResponse.data) ? peopleResponse.data : []);
+    claimPageState.peopleSuggestions = suggestions;
+
+    let activeBlock = blocks[0];
+    const overlay = document.createElement('div');
+    overlay.id = 'claim-people-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(3,8,20,0.7);backdrop-filter:blur(6px);z-index:10000;display:flex;align-items:flex-start;justify-content:center;padding:10px;overflow-y:auto;-webkit-overflow-scrolling:touch;';
+
+    const optionsHtml = suggestions.map(name => {
+      const escaped = _escapeHtml(name);
+      const checked = currentUser?.name === name ? 'checked' : '';
+      return `<label style="display:flex;align-items:center;gap:10px;padding:12px 14px;border:1px solid rgba(255,255,255,0.1);border-radius:10px;background:rgba(255,255,255,0.04);cursor:pointer;min-height:44px;">
+        <input type="checkbox" class="claim-person-option" value="${escaped}" ${checked} style="width:20px;height:20px;min-width:20px;" />
+        <span style="color:#eef2ff;font-size:14px;">${escaped}</span>
+      </label>`;
+    }).join('');
+
+    overlay.innerHTML = `
+      <div style="width:min(820px,100%);max-height:90vh;overflow:auto;background:#0f172a;border:1px solid rgba(255,255,255,0.12);border-radius:18px;padding:18px;box-shadow:0 30px 80px rgba(0,0,0,0.45);-webkit-overflow-scrolling:touch;">
+        <div style="display:flex;align-items:start;justify-content:space-between;gap:12px;">
+          <div>
+            <div style="color:#eef2ff;font-size:18px;font-weight:700;">Backfill Missing Claim Activity</div>
+            <div style="color:#94a3b8;font-size:12px;margin-top:4px;">This adds historical claim events to the report timeline without changing the block's current claim state.</div>
+          </div>
+          <button type="button" id="report-backfill-close" style="background:transparent;border:none;color:#94a3b8;font-size:24px;cursor:pointer;padding:4px 8px;">×</button>
+        </div>
+        <div style="margin-top:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;">
+          <div>
+            <label style="display:block;color:#cbd5e1;font-size:13px;font-weight:600;margin-bottom:6px;">Power Block</label>
+            <select id="report-backfill-block" style="width:100%;min-height:42px;padding:10px 12px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#eef2ff;">${blocks.map((block) => `<option value="${block.id}">${_escapeHtml(block.name)}</option>`).join('')}</select>
+          </div>
+          <div>
+            <label style="display:block;color:#cbd5e1;font-size:13px;font-weight:600;margin-bottom:6px;">Claim Date</label>
+            <input id="report-backfill-date" type="date" value="${_escapeHtml(rp_selectedDate || todayIsoDate())}" style="width:100%;min-height:42px;padding:10px 12px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#eef2ff;" />
+          </div>
+          <div>
+            <label style="display:block;color:#cbd5e1;font-size:13px;font-weight:600;margin-bottom:6px;">Claim Time</label>
+            <input id="report-backfill-time" type="datetime-local" value="${_escapeHtml(rp_defaultBackfillTimestamp(rp_selectedDate || todayIsoDate()))}" style="width:100%;min-height:42px;padding:10px 12px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#eef2ff;" />
+          </div>
+          <div>
+            <label style="display:block;color:#cbd5e1;font-size:13px;font-weight:600;margin-bottom:6px;">Logged By</label>
+            <input id="report-backfill-actor" type="text" value="${_escapeHtml(currentUser?.name || '')}" placeholder="Who is entering this backfill" style="width:100%;min-height:42px;padding:10px 12px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#eef2ff;" />
+          </div>
+        </div>
+        <div style="margin-top:16px;">
+          <label style="display:block;color:#cbd5e1;font-size:13px;font-weight:600;margin-bottom:6px;">Shared crew on this claim</label>
+        </div>
+        <div style="margin-top:8px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;">
+          ${optionsHtml || '<div style="color:#94a3b8;font-size:12px;">No saved crew suggestions yet.</div>'}
+        </div>
+        <div style="margin-top:12px;">
+          <label style="display:block;color:#cbd5e1;font-size:13px;font-weight:600;margin-bottom:6px;">Add extra crew names</label>
+          <textarea id="claim-extra-names" class="claim-modal-textarea" rows="2" placeholder="Type names separated by commas or new lines" style="width:100%;resize:vertical;font-size:14px;padding:10px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#eef2ff;"></textarea>
+        </div>
+        <div style="margin-top:16px;">
+          <label style="display:block;color:#cbd5e1;font-size:12px;margin-bottom:6px;">Work types</label>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;">
+            ${LBD_STATUS_TYPES.map(statusType => {
+              const label = _escapeHtml(STATUS_LABELS[statusType] || statusType.replace(/_/g, ' '));
+              return `<label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid rgba(255,255,255,0.08);border-radius:10px;background:rgba(255,255,255,0.03);cursor:pointer;">
+                <input type="checkbox" class="claim-status-type" value="${_escapeHtml(statusType)}" />
+                <span style="color:#eef2ff;font-size:12px;">${label}</span>
+              </label>`;
+            }).join('')}
+          </div>
+        </div>
+        <div style="margin-top:16px;">
+          <label style="display:block;color:#cbd5e1;font-size:12px;margin-bottom:6px;">LBD selection by work type</label>
+          <div id="claim-assignment-sections"></div>
+        </div>
+        <div id="report-backfill-review" style="display:none;margin-top:16px;padding:16px;border-radius:14px;border:1px solid rgba(0,212,255,0.16);background:rgba(0,212,255,0.05);">
+          <div style="font-size:12px;font-weight:700;color:#8adfff;letter-spacing:0.7px;text-transform:uppercase;">Review Backfill</div>
+          <div id="report-backfill-review-content" style="margin-top:12px;"></div>
+        </div>
+        <div style="margin-top:18px;display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;">
+          <button type="button" id="report-backfill-cancel" class="btn btn-secondary" style="min-height:44px;padding:10px 20px;font-size:14px;">Cancel</button>
+          <button type="button" id="report-backfill-back" class="btn btn-secondary" style="display:none;min-height:44px;padding:10px 20px;font-size:14px;">Back</button>
+          <button type="button" id="report-backfill-review-btn" class="btn btn-primary" style="min-height:44px;padding:10px 20px;font-size:14px;">Review Backfill</button>
+          <button type="button" id="report-backfill-submit" class="btn btn-success" style="display:none;min-height:44px;padding:10px 20px;font-size:14px;">Save Backfill</button>
+        </div>
+      </div>`;
+
+    document.body.appendChild(overlay);
+
+    const close = () => overlay.remove();
+    const renderAssignments = () => _renderClaimAssignmentSections(overlay, activeBlock, suggestions);
+    renderAssignments();
+
+    overlay.addEventListener('click', (event) => {
+      if (event.target === overlay) close();
+    });
+    overlay.querySelector('#report-backfill-close').addEventListener('click', close);
+    overlay.querySelector('#report-backfill-cancel').addEventListener('click', close);
+    overlay.querySelector('#report-backfill-block').addEventListener('change', (event) => {
+      const nextId = Number(event.target.value);
+      activeBlock = blocks.find((block) => Number(block.id) === nextId) || blocks[0];
+      renderAssignments();
+    });
+    overlay.querySelector('#report-backfill-date').addEventListener('change', (event) => {
+      const nextDate = String(event.target.value || todayIsoDate());
+      const timeInput = overlay.querySelector('#report-backfill-time');
+      if (timeInput) timeInput.value = rp_defaultBackfillTimestamp(nextDate);
+    });
+    overlay.querySelectorAll('.claim-status-type').forEach((input) => {
+      input.addEventListener('change', renderAssignments);
+    });
+
+    const reviewPanel = overlay.querySelector('#report-backfill-review');
+    const reviewContent = overlay.querySelector('#report-backfill-review-content');
+    const reviewBtn = overlay.querySelector('#report-backfill-review-btn');
+    const backBtn = overlay.querySelector('#report-backfill-back');
+    const submitBtn = overlay.querySelector('#report-backfill-submit');
+    const editorSections = Array.from(overlay.children[0].children).slice(1, -1);
+
+    const buildDraft = () => {
+      const sharedPeople = _readSharedClaimCrew(overlay);
+      const people = [...sharedPeople];
+      const assignments = {};
+      const taskCrews = {};
+      const workDate = String(overlay.querySelector('#report-backfill-date')?.value || rp_selectedDate || todayIsoDate());
+      const claimedAt = String(overlay.querySelector('#report-backfill-time')?.value || rp_defaultBackfillTimestamp(workDate));
+      const claimedBy = String(overlay.querySelector('#report-backfill-actor')?.value || currentUser?.name || '').trim();
+      Array.from(overlay.querySelectorAll('.claim-status-type:checked')).forEach((input) => {
+        const statusType = input.value;
+        const lbdIds = Array.from(overlay.querySelectorAll(`.claim-lbd-option[data-status-type="${statusType}"]:checked`))
+          .map((option) => Number(option.value))
+          .filter(Number.isFinite);
+        if (lbdIds.length > 0) {
+          assignments[statusType] = lbdIds;
+        }
+        const taskPeople = _dedupeClaimNames(claimParseCrewNames(overlay.querySelector(`.claim-task-crew[data-status-type="${statusType}"]`)?.value || ''));
+        if (taskPeople.length > 0) {
+          taskCrews[statusType] = taskPeople;
+          people.push(...taskPeople);
+        }
+      });
+      return {
+        powerBlockId: activeBlock.id,
+        powerBlockName: activeBlock.name,
+        people: _dedupeClaimNames(people),
+        assignments,
+        sharedPeople,
+        taskCrews,
+        workDate,
+        claimedAt,
+        claimedBy,
+      };
+    };
+
+    reviewBtn.addEventListener('click', () => {
+      const draft = buildDraft();
+      if (!draft.people.length) {
+        alert('Choose at least one crew member before reviewing the backfill.');
+        return;
+      }
+      if (!Object.keys(draft.assignments).length) {
+        alert('Select at least one task and LBD assignment before reviewing the backfill.');
+        return;
+      }
+      const assignmentRows = Object.entries(draft.assignments).map(([statusType, lbdIds]) => {
+        const label = _escapeHtml(STATUS_LABELS[statusType] || statusType.replace(/_/g, ' '));
+        const lbdNames = (activeBlock.lbds || [])
+          .filter((lbd) => lbdIds.includes(lbd.id))
+          .map((lbd) => _escapeHtml(lbd.identifier || lbd.name || `LBD ${lbd.id}`));
+        const crewNames = Array.isArray(draft.taskCrews[statusType]) && draft.taskCrews[statusType].length
+          ? draft.taskCrews[statusType].map(_escapeHtml).join(', ')
+          : (draft.sharedPeople.length ? draft.sharedPeople.map(_escapeHtml).join(', ') : 'No task-specific crew listed');
+        return `<div style="padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);">
+          <div style="font-weight:700;color:#eef2ff;">${label}</div>
+          <div style="margin-top:4px;color:#8adfff;font-size:12px;">Crew: ${crewNames}</div>
+          <div style="margin-top:4px;color:#94a3b8;font-size:12px;">${lbdNames.length ? lbdNames.join(', ') : 'No specific LBDs selected'}</div>
+        </div>`;
+      }).join('');
+
+      reviewContent.innerHTML = `
+        <div style="display:grid;gap:12px;">
+          <div><div style="font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:0.7px;text-transform:uppercase;">Power Block</div><div style="margin-top:6px;color:#eef2ff;font-size:14px;">${_escapeHtml(draft.powerBlockName)}</div></div>
+          <div><div style="font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:0.7px;text-transform:uppercase;">Claim Date</div><div style="margin-top:6px;color:#eef2ff;font-size:14px;">${_escapeHtml(draft.workDate)}</div></div>
+          <div><div style="font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:0.7px;text-transform:uppercase;">Claim Time</div><div style="margin-top:6px;color:#eef2ff;font-size:14px;">${_escapeHtml(draft.claimedAt)}</div></div>
+          <div><div style="font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:0.7px;text-transform:uppercase;">Crew</div><div style="margin-top:6px;color:#eef2ff;font-size:14px;">${draft.people.map(_escapeHtml).join(', ')}</div></div>
+          <div><div style="font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:0.7px;text-transform:uppercase;">Assignments</div><div style="margin-top:8px;display:grid;gap:8px;">${assignmentRows}</div></div>
+        </div>`;
+
+      editorSections.forEach((section) => { section.style.display = 'none'; });
+      reviewPanel.style.display = 'block';
+      reviewBtn.style.display = 'none';
+      backBtn.style.display = 'inline-flex';
+      submitBtn.style.display = 'inline-flex';
+      submitBtn._draft = draft;
+    });
+
+    backBtn.addEventListener('click', () => {
+      editorSections.forEach((section) => { section.style.display = ''; });
+      reviewPanel.style.display = 'none';
+      reviewBtn.style.display = 'inline-flex';
+      backBtn.style.display = 'none';
+      submitBtn.style.display = 'none';
+    });
+
+    submitBtn.addEventListener('click', async () => {
+      const draft = submitBtn._draft || buildDraft();
+      await api.backfillClaimActivity({
+        power_block_id: draft.powerBlockId,
+        tracker_id: currentTracker ? currentTracker.id : undefined,
+        people: draft.people,
+        assignments: draft.assignments,
+        work_date: draft.workDate,
+        claimed_at: draft.claimedAt,
+        claimed_by: draft.claimedBy,
+      });
+      close();
+      await rp_fetchReports(true);
+      rp_renderSummary(rp_reportsCache);
+      await rp_showDetail(draft.workDate, true, true);
+    });
+  } catch (e) {
+    alert('Backfill error: ' + e.message);
   }
 }
 
