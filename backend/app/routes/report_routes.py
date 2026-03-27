@@ -2084,10 +2084,16 @@ def submit_claim_scan():
     work_entries = _record_claim_work_entries(block, people, assignments, target, actor=actor, tracker=tracker)
     _record_claim_activity(block, people, assignments, target, actor=actor, tracker=tracker, source=draft.get('source') or 'claim_scan')
     completed_assignments = _completed_claim_assignments(block, valid_lbd_ids)
-    merged_assignments = _merge_claim_assignments(block.get_claim_assignments(), completed_assignments, assignments)
-    merged_people = _merge_claim_people(block.get_claimed_people(), people)
+    merged_assignments = _merge_claim_assignments(block.get_claim_assignments(tracker_id=tracker_id), completed_assignments, assignments)
+    merged_people = _merge_claim_people(block.get_claimed_people(tracker_id=tracker_id), people)
     block.claimed_by = actor or (people[0] if people else None)
-    block.set_claim_state(merged_people, merged_assignments)
+    block.set_claim_state(
+        merged_people,
+        merged_assignments,
+        tracker_id=tracker_id,
+        claimed_by=block.claimed_by,
+        claimed_at=datetime.utcnow(),
+    )
     block.claimed_at = datetime.utcnow()
     status_updates = _apply_claim_assignments_to_statuses(block, assignments, actor or (people[0] if people else None))
 
@@ -2164,7 +2170,7 @@ def backfill_claim_activity():
     if not people:
         return jsonify({'error': 'At least one crew member is required'}), 400
 
-    _validate_claim_people(people, extra_names=block.get_claimed_people())
+    _validate_claim_people(people, extra_names=block.get_claimed_people(tracker_id=tracker.id if tracker else None))
     work_date = _parse_claim_work_date(data.get('work_date') or data.get('date'))
     claimed_at = _parse_claim_activity_timestamp(data.get('claimed_at'), work_date)
     valid_lbd_ids = _block_accessible_lbd_ids(block, tracker=tracker)

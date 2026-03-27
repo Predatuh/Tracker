@@ -127,10 +127,8 @@ def _serialize_accessible_block(block, tracker=None):
     user = current_session_user()
     payload = block.to_dict()
     if tracker:
-        visible_lbds = [
-            lbd for lbd in payload.get('lbds', [])
-            if lbd.get('tracker_id') == tracker.id or lbd.get('tracker_id') is None
-        ]
+        exact_lbds = [lbd for lbd in payload.get('lbds', []) if lbd.get('tracker_id') == tracker.id]
+        visible_lbds = exact_lbds or [lbd for lbd in payload.get('lbds', []) if lbd.get('tracker_id') is None]
     elif _is_admin_user(user):
         visible_lbds = list(payload.get('lbds', []))
     else:
@@ -141,7 +139,7 @@ def _serialize_accessible_block(block, tracker=None):
         ]
     payload['lbds'] = visible_lbds
     payload['lbd_count'] = len(visible_lbds)
-    payload.update(_claim_payload(block, [lbd.get('id') for lbd in visible_lbds]))
+    payload.update(_claim_payload(block, tracker=tracker, visible_lbd_ids=[lbd.get('id') for lbd in visible_lbds]))
 
     summary = {'total': len(visible_lbds)}
     for col in AdminSettings.all_column_keys():
@@ -210,25 +208,30 @@ def _resolve_claim_tracker_for_block(block, requested_tracker_id=None, user=None
 def _block_accessible_lbd_ids(block, tracker=None, user=None):
     user = user or current_session_user()
     if tracker:
-        return [lbd.id for lbd in block.lbds if lbd.tracker_id == tracker.id or lbd.tracker_id is None]
+        exact_ids = [lbd.id for lbd in block.lbds if lbd.tracker_id == tracker.id]
+        if exact_ids:
+            return exact_ids
+        return [lbd.id for lbd in block.lbds if lbd.tracker_id is None]
     if _is_admin_user(user):
         return [lbd.id for lbd in block.lbds]
     allowed_ids = _allowed_tracker_id_set()
     return [lbd.id for lbd in block.lbds if lbd.tracker_id in allowed_ids or lbd.tracker_id is None]
 
 
-def _claim_payload(block, visible_lbd_ids=None):
-    assignments = block.get_claim_assignments()
+def _claim_payload(block, tracker=None, visible_lbd_ids=None):
+    tracker_id = tracker.id if tracker else None
+    assignments = block.get_claim_assignments(tracker_id=tracker_id)
     if visible_lbd_ids is not None:
         assignments = _normalize_claim_assignments(assignments, visible_lbd_ids)
-    claimed_people = block.get_claimed_people() if assignments else []
-    claimed_by = block.claimed_by if assignments else None
+    claimed_people = block.get_claimed_people(tracker_id=tracker_id) if assignments else []
+    claimed_by = block.get_claimed_by(tracker_id=tracker_id) if assignments else None
+    claimed_at = block.get_claimed_at(tracker_id=tracker_id) if assignments else None
     return {
         'claimed_by': claimed_by,
         'claimed_people': claimed_people,
         'claim_assignments': assignments,
         'claimed_label': ', '.join(claimed_people),
-        'claimed_at': block.claimed_at.isoformat() if assignments and block.claimed_at else None,
+        'claimed_at': claimed_at.isoformat() if assignments and claimed_at else None,
     }
 
 
@@ -489,25 +492,35 @@ def _apply_block_claim(block, action, actor, requested_people=None, assignments=
         requested_people = [requested_people]
 
     if action == 'unclaim':
-        block.claimed_by = None
-        block.set_claim_state([], {})
-        block.claimed_at = None
+        block.set_claim_state([], {}, tracker_id=tracker.id if tracker else None, claimed_by=None, claimed_at=None)
+        if not block.get_claim_assignments():
+            block.claimed_by = None
+            block.claimed_at = None
         return []
 
     people = _normalize_people(requested_people)
     if not people:
         raise ValueError('A crew member is required to claim a block')
 
-    _validate_claim_people(people, extra_names=block.get_claimed_people())
+    tracker_id = tracker.id if tracker else None
+    _validate_claim_people(people, extra_names=block.get_claimed_people(tracker_id=tracker_id))
 
     valid_lbd_ids = _block_accessible_lbd_ids(block, tracker=tracker)
     normalized_assignments = _normalize_claim_assignments(assignments or {}, valid_lbd_ids)
     completed_assignments = _completed_claim_assignments(block, valid_lbd_ids)
-    merged_assignments = _merge_claim_assignments(block.get_claim_assignments(), completed_assignments, normalized_assignments)
-    merged_people = _merge_claim_people(block.get_claimed_people(), people)
-    block.claimed_by = actor or people[0]
-    block.set_claim_state(merged_people, merged_assignments)
-    block.claimed_at = datetime.utcnow()
+    merged_assignments = _merge_claim_assignments(block.get_claim_assignments(tracker_id=tracker_id), completed_assignments, normalized_assignments)
+    merged_people = _merge_claim_people(block.get_claimed_people(tracker_id=tracker_id), people)
+    claimed_by = actor or people[0]
+    claimed_at = datetime.utcnow()
+    block.claimed_by = claimed_by
+    block.claimed_at = claimed_at
+    block.set_claim_state(
+        merged_people,
+        merged_assignments,
+        tracker_id=tracker_id,
+        claimed_by=claimed_by,
+        claimed_at=claimed_at,
+    )
     _ensure_claim_workers(people)
     return {
         'merged_people': merged_people,
@@ -557,7 +570,7 @@ def get_power_blocks():
 
         # Query 2: LBDs filtered by tracker
         lbd_q = db.session.query(
-            LBD.id, LBD.power_block_id, LBD.name, LBD.identifier, LBD.inventory_number
+            LBD.id, LBD.power_block_id, LBD.tracker_id, LBD.name, LBD.identifier, LBD.inventory_number
         )
         if is_admin:
             pass
@@ -589,6 +602,7 @@ def get_power_blocks():
         for l in lbd_rows:
             lbds_by_pb.setdefault(l.power_block_id, []).append({
                 'id': l.id,
+                'tracker_id': l.tracker_id,
                 'name': l.name,
                 'identifier': l.identifier,
                 'inventory_number': l.inventory_number,
@@ -607,6 +621,9 @@ def get_power_blocks():
         result = []
         for b in blocks:
             pb_lbds = lbds_by_pb.get(b.id, [])
+            if tracker_id:
+                exact_pb_lbds = [lbd for lbd in pb_lbds if lbd.get('tracker_id') == tracker_id]
+                pb_lbds = exact_pb_lbds or [lbd for lbd in pb_lbds if lbd.get('tracker_id') is None]
             if not is_admin and tracker_id and not pb_lbds:
                 continue
             lbd_count = len(pb_lbds)
@@ -629,7 +646,7 @@ def get_power_blocks():
                 'ifc_filename': b.ifc_pdf_filename if can_view_ifc else None,
                 'ifc_url': f'/api/tracker/power-blocks/{b.id}/ifc' if can_view_ifc and b.ifc_pdf_data else None,
                 'is_completed': b.is_completed,
-                **_claim_payload(b, [lbd['id'] for lbd in pb_lbds]),
+                **_claim_payload(b, tracker=tracker, visible_lbd_ids=[lbd['id'] for lbd in pb_lbds]),
                 'last_updated_by': b.last_updated_by,
                 'last_updated_at': b.last_updated_at.isoformat() if b.last_updated_at else None,
                 'lbd_count': lbd_count,
@@ -905,7 +922,7 @@ def claim_power_block(block_id):
             )
 
         db.session.commit()
-        payload = _claim_payload(block)
+        payload = _claim_payload(block, tracker=tracker)
         _emit_claim_updates([(block_id, payload)], claim_result['status_updates'])
 
         if action != 'unclaim' and claim_result['normalized_assignments']:
@@ -1017,7 +1034,7 @@ def bulk_claim_power_blocks():
                     tracker=tracker,
                     source='bulk_claim',
                 )
-            payload = _claim_payload(block)
+            payload = _claim_payload(block, tracker=tracker)
             claim_payloads.append((block.id, payload))
             claimed_blocks.append({
                 'id': block.id,
