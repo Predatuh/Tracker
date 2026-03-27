@@ -663,9 +663,9 @@ body::after {
 }
 
 .claim-block-tile.is-partially-claimed {
-  border-color: rgba(0,232,122,0.22);
-  background: linear-gradient(180deg, rgba(0,232,122,0.08), rgba(255,255,255,0.03));
-  box-shadow: 0 0 0 1px rgba(0,232,122,0.08), 0 18px 38px rgba(0,0,0,0.22);
+  border-color: rgba(255,215,0,0.26);
+  background: linear-gradient(180deg, rgba(255,215,0,0.10), rgba(255,255,255,0.03));
+  box-shadow: 0 0 0 1px rgba(255,215,0,0.10), 0 18px 38px rgba(0,0,0,0.22);
 }
 
 .claim-block-tile.is-fully-claimed {
@@ -741,6 +741,12 @@ body::after {
 
 .claim-block-status.is-complete {
   color: #7ef7b2;
+}
+
+.claim-block-tile.is-partially-claimed .claim-block-status,
+.claim-block-tile.is-partially-claimed .claim-block-claim-copy,
+.claim-block-tile.is-partially-claimed .claim-block-progress {
+  color: #ffd700;
 }
 
 .claim-block-claim-copy {

@@ -4956,6 +4956,23 @@ function claimBlockClaimProgress(block) {
   return Math.max(0, Math.min(1, claimClaimedLbdCount(block) / totalItems));
 }
 
+function claimTotalSteps(block) {
+  return Number(block?.lbd_count || 0) * LBD_STATUS_TYPES.length;
+}
+
+function claimCompletionRatio(block) {
+  const totalSteps = claimTotalSteps(block);
+  if (!totalSteps) return 0;
+  return Math.max(0, Math.min(1, claimCompletedSteps(block) / totalSteps));
+}
+
+function claimFormatPct(progress) {
+  const percent = progress * 100;
+  return Math.abs(percent - Math.round(percent)) < 0.005
+    ? `${Math.round(percent)}%`
+    : `${percent.toFixed(2)}%`;
+}
+
 function claimBlockIsFullyClaimed(block) {
   const totalItems = Number(block?.lbd_count || 0);
   return totalItems > 0 && claimClaimedLbdCount(block) >= totalItems;
@@ -4985,17 +5002,15 @@ function claimCompletedSteps(block) {
 }
 
 function claimBlockIsInProgress(block) {
-  const totalItems = Number(block.lbd_count || 0);
-  if (!totalItems) return false;
-  const totalSteps = totalItems * LBD_STATUS_TYPES.length;
+  const totalSteps = claimTotalSteps(block);
+  if (!totalSteps) return false;
   const completedSteps = claimCompletedSteps(block);
   return completedSteps > 0 && completedSteps < totalSteps;
 }
 
 function claimBlockIsCompleted(block) {
-  const totalItems = Number(block.lbd_count || 0);
-  if (!totalItems) return false;
-  const totalSteps = totalItems * LBD_STATUS_TYPES.length;
+  const totalSteps = claimTotalSteps(block);
+  if (!totalSteps) return false;
   return claimCompletedSteps(block) >= totalSteps;
 }
 
@@ -5122,6 +5137,7 @@ function claimSelectRange() {
   }
 
   const lower = Math.min(start, end);
+      completionRatio: claimCompletionRatio(block),
   const upper = Math.max(start, end);
   const matchingBlocks = claimFilteredBlocks().filter((block) => {
     const blockNumber = claimBlockNumber(block);
@@ -5774,9 +5790,9 @@ function renderClaimPage() {
     const claimedLbdCount = claimClaimedLbdCount(block);
     const visualState = claimBlockVisualState(block);
     const fullyClaimed = claimBlockIsFullyClaimed(block);
-    const progressSteps = Number(block.lbd_count || 0) * LBD_STATUS_TYPES.length;
+    const progressSteps = claimTotalSteps(block);
     const completedSteps = claimCompletedSteps(block);
-    const progressPct = progressSteps > 0 ? Math.round((completedSteps / progressSteps) * 100) : 0;
+    const progressPctLabel = claimFormatPct(visualState.completionRatio);
     const hasClaim = blockHasClaim(block);
     const claimLabel = hasClaim
       ? `Claimed by ${_escapeHtml(block.claimed_label || (Array.isArray(block.claimed_people) ? block.claimed_people.join(', ') : '') || block.claimed_by || 'Crew')}`
@@ -5786,7 +5802,7 @@ function renderClaimPage() {
       : (hasClaim && claimedLbdCount > 0
         ? `${claimedLbdCount}/${block.lbd_count || 0} ${getPowerBlockCountLabel(block.lbd_count || 0)} claimed`
         : (visualState.complete || visualState.inProgress)
-          ? `${progressPct}% complete in this tracker`
+          ? `${completedSteps}/${progressSteps} parts complete • ${progressPctLabel}`
           : 'No live claim on this block');
     const zoneText = block.zone ? _escapeHtml(block.zone) : 'Unzoned';
     return `<button type="button" class="claim-block-tile${selected ? ' is-selected' : ''}${checked ? ' is-checked' : ''}${visualState.complete ? ' is-fully-claimed' : ''}${visualState.inProgress ? ' is-partially-claimed' : ''}" onclick="claimSelectBlock(${block.id})">
@@ -5804,7 +5820,7 @@ function renderClaimPage() {
       <div class="claim-block-claim-copy${visualState.complete ? ' is-fully-claimed' : ''}">${_escapeHtml(claimProgressLabel)}</div>
       <div class="claim-block-meta-row">
         <span class="claim-block-count">${block.lbd_count || 0} ${getPowerBlockCountLabel(block.lbd_count || 0)}</span>
-        <span class="claim-block-progress">${progressPct}% complete</span>
+        <span class="claim-block-progress">${progressPctLabel} complete</span>
       </div>
     </button>`;
   }).join('');
