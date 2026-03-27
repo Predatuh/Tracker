@@ -4961,6 +4961,18 @@ function claimBlockIsFullyClaimed(block) {
   return totalItems > 0 && claimClaimedLbdCount(block) >= totalItems;
 }
 
+function claimBlockVisualState(block) {
+  const claimProgress = claimBlockClaimProgress(block);
+  const completed = claimBlockIsCompleted(block);
+  const inProgress = claimBlockIsInProgress(block);
+  const fullyClaimed = claimBlockIsFullyClaimed(block);
+  return {
+    complete: completed || fullyClaimed,
+    inProgress: !(completed || fullyClaimed) && (claimProgress > 0 || inProgress),
+    claimProgress,
+  };
+}
+
 function claimBlockNumber(block) {
   const raw = block.power_block_number || block.name || '';
   const match = String(raw).match(/\d+/);
@@ -5760,21 +5772,24 @@ function renderClaimPage() {
     const selected = selectedBlock && Number(selectedBlock.id) === Number(block.id);
     const checked = selectedBlockIds.has(Number(block.id));
     const claimedLbdCount = claimClaimedLbdCount(block);
-    const claimProgress = claimBlockClaimProgress(block);
+    const visualState = claimBlockVisualState(block);
     const fullyClaimed = claimBlockIsFullyClaimed(block);
-    const claimLabel = blockHasClaim(block)
-      ? `Claimed by ${_escapeHtml(block.claimed_label || (Array.isArray(block.claimed_people) ? block.claimed_people.join(', ') : '') || block.claimed_by || 'Crew')}`
-      : 'Ready to claim';
-    const claimProgressLabel = fullyClaimed
-      ? `All ${block.lbd_count || 0} ${getPowerBlockCountLabel(block.lbd_count || 0)} claimed`
-      : (claimedLbdCount > 0
-        ? `${claimedLbdCount}/${block.lbd_count || 0} ${getPowerBlockCountLabel(block.lbd_count || 0)} claimed`
-        : 'No live claim on this block');
-    const zoneText = block.zone ? _escapeHtml(block.zone) : 'Unzoned';
     const progressSteps = Number(block.lbd_count || 0) * LBD_STATUS_TYPES.length;
     const completedSteps = claimCompletedSteps(block);
     const progressPct = progressSteps > 0 ? Math.round((completedSteps / progressSteps) * 100) : 0;
-    return `<button type="button" class="claim-block-tile${selected ? ' is-selected' : ''}${checked ? ' is-checked' : ''}${fullyClaimed ? ' is-fully-claimed' : ''}${claimProgress > 0 && !fullyClaimed ? ' is-partially-claimed' : ''}" onclick="claimSelectBlock(${block.id})">
+    const hasClaim = blockHasClaim(block);
+    const claimLabel = hasClaim
+      ? `Claimed by ${_escapeHtml(block.claimed_label || (Array.isArray(block.claimed_people) ? block.claimed_people.join(', ') : '') || block.claimed_by || 'Crew')}`
+      : (visualState.complete ? 'Complete in this tracker' : (visualState.inProgress ? 'Work in progress' : 'Ready to claim'));
+    const claimProgressLabel = fullyClaimed
+      ? `All ${block.lbd_count || 0} ${getPowerBlockCountLabel(block.lbd_count || 0)} claimed`
+      : (hasClaim && claimedLbdCount > 0
+        ? `${claimedLbdCount}/${block.lbd_count || 0} ${getPowerBlockCountLabel(block.lbd_count || 0)} claimed`
+        : (visualState.complete || visualState.inProgress)
+          ? `${progressPct}% complete in this tracker`
+          : 'No live claim on this block');
+    const zoneText = block.zone ? _escapeHtml(block.zone) : 'Unzoned';
+    return `<button type="button" class="claim-block-tile${selected ? ' is-selected' : ''}${checked ? ' is-checked' : ''}${visualState.complete ? ' is-fully-claimed' : ''}${visualState.inProgress ? ' is-partially-claimed' : ''}" onclick="claimSelectBlock(${block.id})">
       <div class="claim-block-tile-top">
         <span class="claim-block-name">${_escapeHtml(block.name)}</span>
         <span class="claim-block-zone">${zoneText}</span>
@@ -5785,8 +5800,8 @@ function renderClaimPage() {
           <span>${checked ? 'Included in batch' : 'Add to batch'}</span>
         </label>
       </div>
-      <div class="claim-block-status${blockHasClaim(block) ? ' is-claimed' : ''}">${claimLabel}</div>
-      <div class="claim-block-claim-copy${fullyClaimed ? ' is-fully-claimed' : ''}">${_escapeHtml(claimProgressLabel)}</div>
+      <div class="claim-block-status${hasClaim ? ' is-claimed' : (visualState.complete || visualState.inProgress ? ' is-complete' : '')}">${claimLabel}</div>
+      <div class="claim-block-claim-copy${visualState.complete ? ' is-fully-claimed' : ''}">${_escapeHtml(claimProgressLabel)}</div>
       <div class="claim-block-meta-row">
         <span class="claim-block-count">${block.lbd_count || 0} ${getPowerBlockCountLabel(block.lbd_count || 0)}</span>
         <span class="claim-block-progress">${progressPct}% complete</span>

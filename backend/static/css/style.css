@@ -739,6 +739,10 @@ body::after {
   color: #8adfff;
 }
 
+.claim-block-status.is-complete {
+  color: #7ef7b2;
+}
+
 .claim-block-claim-copy {
   font-size: 11px;
   color: rgba(238,242,255,0.6);
