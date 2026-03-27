@@ -8,6 +8,7 @@ from app.models.tracker import Tracker
 from app.models.site_area import SiteArea
 from app.models.user import User, is_claim_eligible_role
 from app.models.worker import Worker, WorkEntry
+from app.models.claim_activity import ClaimActivity
 from app.models.admin_settings import AdminSettings
 from datetime import date, datetime
 import pytz
@@ -358,6 +359,26 @@ def _record_claim_work_entries(block, people, assignments, work_date, actor=None
             created += 1
 
     return {'created': created, 'skipped': skipped}
+
+
+def _record_claim_activity(block, people, assignments, work_date, actor=None, tracker=None, source='claim', claimed_at=None):
+    normalized_people = _normalize_people(people)
+    normalized_assignments = _normalize_claim_assignments(assignments)
+    if not block or not normalized_people or not normalized_assignments or not work_date:
+        return None
+
+    activity = ClaimActivity(
+        power_block_id=block.id,
+        tracker_id=tracker.id if tracker else None,
+        work_date=work_date,
+        claimed_by=actor,
+        source=str(source or 'claim').strip() or 'claim',
+        claimed_at=claimed_at or datetime.utcnow(),
+    )
+    activity.set_people(normalized_people)
+    activity.set_assignments(normalized_assignments)
+    db.session.add(activity)
+    return activity
 
 
 def _apply_claim_assignments_to_statuses(block, assignments, actor=None):
@@ -862,6 +883,15 @@ def claim_power_block(block_id):
                 actor=actor,
                 tracker=tracker,
             )
+            _record_claim_activity(
+                block,
+                data.get('people') or [],
+                claim_result['normalized_assignments'],
+                work_date,
+                actor=actor,
+                tracker=tracker,
+                source='claim',
+            )
 
         db.session.commit()
         payload = _claim_payload(block)
@@ -966,6 +996,15 @@ def bulk_claim_power_blocks():
                     work_date,
                     actor=actor,
                     tracker=tracker,
+                )
+                _record_claim_activity(
+                    block,
+                    requested_people,
+                    claim_result['normalized_assignments'],
+                    work_date,
+                    actor=actor,
+                    tracker=tracker,
+                    source='bulk_claim',
                 )
             payload = _claim_payload(block)
             claim_payloads.append((block.id, payload))

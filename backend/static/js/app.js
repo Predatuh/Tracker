@@ -6247,6 +6247,7 @@ async function rp_showDetail(dateStr, syncSelection = true, ensure = true) {
           </div>
           <div class="reports-detail-stat-row">
             <div class="reports-detail-stat"><span>${Number(data.total_entries || 0)}</span><small>Entries</small></div>
+            <div class="reports-detail-stat"><span>${Number(data.total_lbd_count || 0)}</span><small>LBDs</small></div>
             <div class="reports-detail-stat"><span>${workers.length}</span><small>Workers</small></div>
             <div class="reports-detail-stat"><span>${Object.keys(byPowerBlock).length}</span><small>Blocks</small></div>
             <div class="reports-detail-stat"><span>${scans.length}</span><small>Claim Scans</small></div>
@@ -6313,12 +6314,12 @@ async function rp_showDetail(dateStr, syncSelection = true, ensure = true) {
     }
 
     if (rawEntries.length > 0) {
-      html += `<div class="reports-detail-section"><div class="reports-detail-section-title">Detailed Log</div><div style="overflow:auto;"><table class="lbd-tbl" style="min-width:700px;"><thead><tr><th class="lbd-tbl-th">Worker</th><th class="lbd-tbl-th">Task</th><th class="lbd-tbl-th">Power Block</th><th class="lbd-tbl-th">Date</th><th class="lbd-tbl-th">Logged By</th></tr></thead><tbody>${rawEntries.map((entry) => `
-        <tr class="lbd-tbl-row"><td class="lbd-tbl-name">${_escapeHtml(entry.worker_name || '')}</td><td class="lbd-tbl-td">${_escapeHtml(STATUS_LABELS[entry.task_type] || entry.task_type || '')}</td><td class="lbd-tbl-td">${_escapeHtml(entry.power_block_name || '')}</td><td class="lbd-tbl-td">${_escapeHtml(entry.work_date || '')}</td><td class="lbd-tbl-td">${_escapeHtml(entry.logged_by || '')}</td></tr>`).join('')}</tbody></table></div></div>`;
+      html += `<div class="reports-detail-section"><div class="reports-detail-section-title">Detailed Log</div><div style="overflow:auto;"><table class="lbd-tbl" style="min-width:760px;"><thead><tr><th class="lbd-tbl-th">Worker</th><th class="lbd-tbl-th">Task</th><th class="lbd-tbl-th">Power Block</th><th class="lbd-tbl-th">LBD Count</th><th class="lbd-tbl-th">Date</th><th class="lbd-tbl-th">Logged By</th></tr></thead><tbody>${rawEntries.map((entry) => `
+        <tr class="lbd-tbl-row"><td class="lbd-tbl-name">${_escapeHtml(entry.worker_name || '')}</td><td class="lbd-tbl-td">${_escapeHtml(STATUS_LABELS[entry.task_type] || entry.task_type || '')}</td><td class="lbd-tbl-td">${_escapeHtml(entry.power_block_name || '')}</td><td class="lbd-tbl-td">${_escapeHtml(String(entry.assignment_count || 1))}</td><td class="lbd-tbl-td">${_escapeHtml(entry.work_date || '')}</td><td class="lbd-tbl-td">${_escapeHtml(entry.logged_by || '')}</td></tr>`).join('')}</tbody></table></div></div>`;
     }
 
     if (!Number(data.total_entries || 0) && scans.length === 0) {
-      html += '<div class="reports-empty-copy">No work was logged for this day.</div>';
+      html += '<div class="reports-empty-copy">No claims were recorded for this day.</div>';
     }
 
     html += '</div>';

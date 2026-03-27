@@ -21,6 +21,7 @@ from app.models.daily_review_report import DailyReviewReport
 from app.models.admin_settings import AdminSettings
 from app.models.tracker import Tracker
 from app.models.power_block import PowerBlock
+from app.models.claim_activity import ClaimActivity
 from app.models.lbd import LBD
 from collections import defaultdict
 from datetime import date, datetime, timedelta
@@ -203,6 +204,64 @@ def _resolve_tracker_id():
     return t.id if t else None
 
 
+def _report_block_label(entry):
+    power_block_name = str(entry.get('power_block_name') or '?')
+    count = int(entry.get('assignment_count') or 0)
+    if count > 1:
+        return f'{power_block_name} ({count} LBDs)'
+    if count == 1:
+        return f'{power_block_name} (1 LBD)'
+    return power_block_name
+
+
+def _report_worker_label(entry):
+    worker_name = str(entry.get('worker_name') or '?')
+    count = int(entry.get('assignment_count') or 0)
+    if count > 1:
+        return f'{worker_name} ({count})'
+    return worker_name
+
+
+def _claim_activity_rows(target_date, tracker_id=None, user=None):
+    user = user or _current_user()
+    query = _scope_query_to_accessible_trackers(
+        ClaimActivity.query.options(subqueryload(ClaimActivity.power_block)).filter_by(work_date=target_date),
+        ClaimActivity.tracker_id,
+        tracker_id=tracker_id,
+        user=user,
+    ).order_by(ClaimActivity.claimed_at.asc(), ClaimActivity.id.asc())
+
+    rows = []
+    for activity in query.all():
+        people = activity.get_people()
+        assignments = activity.get_assignments()
+        if not people or not assignments:
+            continue
+        power_block_name = activity.power_block.name if activity.power_block else f'Power Block {activity.power_block_id}'
+        claimed_at_iso = activity.claimed_at.isoformat() if activity.claimed_at else None
+        for status_type, lbd_ids in assignments.items():
+            count = len(lbd_ids or [])
+            if count <= 0:
+                continue
+            for person in people:
+                rows.append({
+                    'id': activity.id,
+                    'worker_id': None,
+                    'worker_name': person,
+                    'power_block_id': activity.power_block_id,
+                    'tracker_id': activity.tracker_id,
+                    'power_block_name': power_block_name,
+                    'task_type': status_type,
+                    'work_date': activity.work_date.isoformat() if activity.work_date else None,
+                    'logged_by': activity.claimed_by,
+                    'created_at': claimed_at_iso,
+                    'source': activity.source or 'claim_activity',
+                    'assignment_count': count,
+                    'claimed_at': claimed_at_iso,
+                })
+    return rows
+
+
 def _claim_day_utc_bounds(target_date):
     start_local = CST.localize(datetime.combine(target_date, datetime.min.time()))
     end_local = start_local + timedelta(days=1)
@@ -271,18 +330,11 @@ def _claim_snapshot_rows(target_date, tracker=None, tracker_id=None, user=None, 
 
 
 def _build_report_data(target_date, tracker_id=None, existing_data=None):
-    """Aggregate WorkEntry rows and dated claim snapshots for *target_date*."""
+    """Aggregate claim activity for *target_date*, with legacy fallbacks."""
     user = _current_user()
-    q = _scope_query_to_accessible_trackers(
-        WorkEntry.query.filter_by(work_date=target_date),
-        WorkEntry.tracker_id,
-        tracker_id=tracker_id,
-        user=user,
-    )
-    entries = q.all()
-
     tracker = resolve_accessible_tracker(tracker_id, user=user) if tracker_id else None
     col_names = tracker.get_status_names() if tracker else AdminSettings.get_names()
+    raw_entries = _claim_activity_rows(target_date, tracker_id=tracker_id, user=user)
 
     # Group by task_type → worker → [power_blocks]
     by_task     = defaultdict(lambda: defaultdict(list))
@@ -290,38 +342,48 @@ def _build_report_data(target_date, tracker_id=None, existing_data=None):
     by_pb       = defaultdict(lambda: defaultdict(list))
     worker_names = set()
 
-    raw_entries = []
-    existing_keys = set()
-    for e in entries:
-        worker = e.worker.name if e.worker else '?'
-        raw_entries.append({
-            **e.to_dict(),
-            'source': 'work_entry',
-        })
-        existing_keys.add((worker.casefold(), e.power_block_id, e.task_type))
+    if not raw_entries:
+        q = _scope_query_to_accessible_trackers(
+            WorkEntry.query.filter_by(work_date=target_date),
+            WorkEntry.tracker_id,
+            tracker_id=tracker_id,
+            user=user,
+        )
+        entries = q.all()
+        existing_keys = set()
+        for e in entries:
+            worker = e.worker.name if e.worker else '?'
+            raw_entries.append({
+                **e.to_dict(),
+                'source': 'work_entry',
+                'assignment_count': 1,
+            })
+            existing_keys.add((worker.casefold(), e.power_block_id, e.task_type))
 
-    raw_entries.extend(_claim_snapshot_rows(
-        target_date,
-        tracker=tracker,
-        tracker_id=tracker_id,
-        user=user,
-        existing_keys=existing_keys,
-    ))
+        raw_entries.extend(_claim_snapshot_rows(
+            target_date,
+            tracker=tracker,
+            tracker_id=tracker_id,
+            user=user,
+            existing_keys=existing_keys,
+        ))
 
     for entry in raw_entries:
         task = entry.get('task_type')
         worker = entry.get('worker_name') or '?'
-        pb = entry.get('power_block_name') or '?'
+        pb = _report_block_label(entry)
         by_task[task][worker].append(pb)
         by_worker[worker][task].append(pb)
-        by_pb[pb][task].append(worker)
+        by_pb[str(entry.get('power_block_name') or '?')][task].append(_report_worker_label(entry))
         worker_names.add(worker)
 
     existing_data = existing_data or {}
+    total_lbd_count = sum(int(entry.get('assignment_count') or 1) for entry in raw_entries)
 
     return {
         'report_date':   target_date.isoformat(),
         'total_entries': len(raw_entries),
+        'total_lbd_count': total_lbd_count,
         'worker_names':  sorted(worker_names),
         'by_task':       {t: dict(w) for t, w in by_task.items()},
         'by_worker':     {w: dict(t) for w, t in by_worker.items()},
@@ -446,8 +508,8 @@ def _report_pdf_bytes(report):
     ]
 
     stats = _kv_table([
-        ['Total Entries', str(payload.get('total_entries', 0)), 'Workers', str(len(worker_names)), 'Power Blocks', str(len(by_power_block))],
-    ], column_widths=[90, 60, 70, 50, 90, 50])
+        ['Total Entries', str(payload.get('total_entries', 0)), 'LBDs', str(payload.get('total_lbd_count', 0)), 'Workers', str(len(worker_names)), 'Power Blocks', str(len(by_power_block))],
+    ], column_widths=[85, 48, 50, 48, 65, 48, 85, 48])
     stats.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#f8fafc')),
         ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
@@ -502,16 +564,17 @@ def _report_pdf_bytes(report):
 
     if raw_entries:
         story.append(_paragraph('Detailed Log', section_style))
-        rows = [['Worker', 'Task', 'Power Block', 'Date', 'Logged By']]
+        rows = [['Worker', 'Task', 'Power Block', 'LBD Count', 'Date', 'Logged By']]
         for entry in raw_entries:
             rows.append([
                 str(entry.get('worker_name') or ''),
                 str(entry.get('task_type') or ''),
                 str(entry.get('power_block_name') or ''),
+                str(entry.get('assignment_count') or 1),
                 str(entry.get('work_date') or ''),
                 str(entry.get('logged_by') or ''),
             ])
-        story.append(_kv_table(rows, column_widths=[90, 90, 160, 70, 80], header=True))
+        story.append(_kv_table(rows, column_widths=[80, 80, 140, 60, 60, 80], header=True))
     elif not by_power_block and not by_task and not by_worker and not claim_scans:
         story.append(_paragraph('No work was logged for this day.', muted_style))
 
@@ -1988,7 +2051,7 @@ def submit_claim_scan():
     valid_lbd_ids = _block_accessible_lbd_ids(block, tracker=tracker)
     assignments = _normalize_claim_assignments(data.get('assignments') or {}, valid_lbd_ids)
 
-    from app.routes.tracker_routes import _merge_claim_people, _parse_claim_work_date, _record_claim_work_entries
+    from app.routes.tracker_routes import _merge_claim_people, _parse_claim_work_date, _record_claim_work_entries, _record_claim_activity
 
     target = _parse_claim_work_date(draft.get('work_date') or data.get('work_date'))
 
@@ -1998,6 +2061,7 @@ def submit_claim_scan():
     from app.routes.tracker_routes import _apply_claim_assignments_to_statuses, _completed_claim_assignments, _merge_claim_assignments
 
     work_entries = _record_claim_work_entries(block, people, assignments, target, actor=actor, tracker=tracker)
+    _record_claim_activity(block, people, assignments, target, actor=actor, tracker=tracker, source=draft.get('source') or 'claim_scan')
     completed_assignments = _completed_claim_assignments(block, valid_lbd_ids)
     merged_assignments = _merge_claim_assignments(block.get_claim_assignments(), completed_assignments, assignments)
     merged_people = _merge_claim_people(block.get_claimed_people(), people)

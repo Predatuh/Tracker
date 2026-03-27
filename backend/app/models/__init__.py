@@ -11,6 +11,7 @@ from .review_entry import ReviewEntry
 from .daily_review_report import DailyReviewReport
 from .tracker import Tracker
 from .audit_log import AuditLog
+from .claim_activity import ClaimActivity
 
 __all__ = ['PowerBlock', 'LBD', 'LBDStatus', 'SiteMap', 'SiteArea', 'AdminSettings', 'User',
-           'Worker', 'WorkEntry', 'DailyReport', 'ReviewEntry', 'DailyReviewReport', 'Tracker', 'AuditLog']
+           'Worker', 'WorkEntry', 'DailyReport', 'ReviewEntry', 'DailyReviewReport', 'Tracker', 'AuditLog', 'ClaimActivity']
