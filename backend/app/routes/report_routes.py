@@ -12,7 +12,7 @@ Workers & Daily Reports API
   GET        /api/reports/range               – reports in a date range (weekly / monthly)
 """
 
-from flask import Blueprint, request, jsonify, session, current_app, send_from_directory
+from flask import Blueprint, request, jsonify, session, current_app, send_file, send_from_directory
 from app import db
 from app.models.worker import Worker, WorkEntry
 from app.models.daily_report import DailyReport
@@ -26,6 +26,7 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta
 from sqlalchemy.orm import subqueryload
 from sqlalchemy import or_
+from io import BytesIO
 import pytz
 import base64
 import os
@@ -266,6 +267,176 @@ def _get_or_generate_report(target_date, tracker_id=None):
     report.generated_at = datetime.utcnow()
     db.session.commit()
     return report
+
+
+def _report_pdf_bytes(report):
+    from html import escape
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+    payload = report.get_data() or {}
+    by_task = payload.get('by_task') or {}
+    by_worker = payload.get('by_worker') or {}
+    by_power_block = payload.get('by_power_block') or {}
+    raw_entries = payload.get('raw_entries') or []
+    claim_scans = payload.get('claim_scans') or []
+    worker_names = payload.get('worker_names') or []
+
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        'ReportTitle',
+        parent=styles['Title'],
+        fontName='Helvetica-Bold',
+        fontSize=22,
+        leading=26,
+        textColor=colors.HexColor('#0f172a'),
+        spaceAfter=4,
+    )
+    subtitle_style = ParagraphStyle(
+        'ReportSubtitle',
+        parent=styles['BodyText'],
+        fontName='Helvetica',
+        fontSize=12,
+        leading=16,
+        textColor=colors.HexColor('#475569'),
+        spaceAfter=6,
+    )
+    section_style = ParagraphStyle(
+        'ReportSection',
+        parent=styles['Heading2'],
+        fontName='Helvetica-Bold',
+        fontSize=14,
+        leading=18,
+        textColor=colors.HexColor('#0f766e'),
+        spaceBefore=12,
+        spaceAfter=6,
+    )
+    body_style = ParagraphStyle(
+        'ReportBody',
+        parent=styles['BodyText'],
+        fontName='Helvetica',
+        fontSize=10,
+        leading=13,
+        textColor=colors.HexColor('#1e293b'),
+    )
+    muted_style = ParagraphStyle(
+        'ReportMuted',
+        parent=body_style,
+        textColor=colors.HexColor('#64748b'),
+    )
+
+    def _paragraph(text, style=body_style):
+        return Paragraph(escape(str(text or '')), style)
+
+    def _kv_table(rows, column_widths=None, header=False):
+        table = Table(rows, colWidths=column_widths, hAlign='LEFT')
+        style_commands = [
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cbd5e1')),
+            ('LEFTPADDING', (0, 0), (-1, -1), 8),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+            ('TOPPADDING', (0, 0), (-1, -1), 6),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ]
+        if header:
+            style_commands.extend([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#e2e8f0')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.HexColor('#0f172a')),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ])
+        table.setStyle(TableStyle(style_commands))
+        return table
+
+    story = [
+        _paragraph('Princess Trackers', title_style),
+        _paragraph('Daily Progress Report', subtitle_style),
+        _paragraph(report.report_date.isoformat() if report.report_date else '', muted_style),
+        Spacer(1, 12),
+    ]
+
+    stats = _kv_table([
+        ['Total Entries', str(payload.get('total_entries', 0)), 'Workers', str(len(worker_names)), 'Power Blocks', str(len(by_power_block))],
+    ], column_widths=[90, 60, 70, 50, 90, 50])
+    stats.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#f8fafc')),
+        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
+        ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#0f172a')),
+    ]))
+    story.extend([stats, Spacer(1, 14)])
+
+    if by_power_block:
+        story.append(_paragraph('Work By Power Block', section_style))
+        for power_block, task_map in by_power_block.items():
+            rows = [['Task', 'Workers']]
+            for task, workers in (task_map or {}).items():
+                rows.append([str(task), ', '.join(str(worker) for worker in (workers or [])) or 'None'])
+            story.append(_paragraph(power_block, ParagraphStyle('BlockName', parent=body_style, fontName='Helvetica-Bold', fontSize=11)))
+            story.append(_kv_table(rows, column_widths=[140, 340], header=True))
+            story.append(Spacer(1, 8))
+
+    if by_task:
+        story.append(_paragraph('Task Breakdown', section_style))
+        for task, worker_map in by_task.items():
+            rows = [['Worker', 'Power Blocks']]
+            for worker, blocks in (worker_map or {}).items():
+                rows.append([str(worker), ', '.join(str(block) for block in (blocks or [])) or 'None'])
+            story.append(_paragraph(task, ParagraphStyle('TaskName', parent=body_style, fontName='Helvetica-Bold', fontSize=11)))
+            story.append(_kv_table(rows, column_widths=[140, 340], header=True))
+            story.append(Spacer(1, 8))
+
+    if by_worker:
+        story.append(_paragraph('Worker Summary', section_style))
+        for worker, task_map in by_worker.items():
+            rows = [['Task', 'Power Blocks']]
+            for task, blocks in (task_map or {}).items():
+                rows.append([str(task), ', '.join(str(block) for block in (blocks or [])) or 'None'])
+            story.append(_paragraph(worker, ParagraphStyle('WorkerName', parent=body_style, fontName='Helvetica-Bold', fontSize=11)))
+            story.append(_kv_table(rows, column_widths=[140, 340], header=True))
+            story.append(Spacer(1, 8))
+
+    if claim_scans:
+        story.append(_paragraph('Claim Scans', section_style))
+        rows = [['Power Block', 'Crew', 'Assignments', 'Created']]
+        for scan in claim_scans:
+            summary = scan.get('assignment_summary') or {}
+            summary_text = ', '.join(f'{task}: {count}' for task, count in summary.items()) or 'No assignments'
+            rows.append([
+                str(scan.get('power_block_name') or ''),
+                ', '.join(str(name) for name in (scan.get('people') or [])) or 'No crew listed',
+                summary_text,
+                str(scan.get('created_at') or ''),
+            ])
+        story.append(_kv_table(rows, column_widths=[120, 140, 170, 90], header=True))
+        story.append(Spacer(1, 8))
+
+    if raw_entries:
+        story.append(_paragraph('Detailed Log', section_style))
+        rows = [['Worker', 'Task', 'Power Block', 'Date', 'Logged By']]
+        for entry in raw_entries:
+            rows.append([
+                str(entry.get('worker_name') or ''),
+                str(entry.get('task_type') or ''),
+                str(entry.get('power_block_name') or ''),
+                str(entry.get('work_date') or ''),
+                str(entry.get('logged_by') or ''),
+            ])
+        story.append(_kv_table(rows, column_widths=[90, 90, 160, 70, 80], header=True))
+    elif not by_power_block and not by_task and not by_worker and not claim_scans:
+        story.append(_paragraph('No work was logged for this day.', muted_style))
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=letter,
+        leftMargin=28,
+        rightMargin=28,
+        topMargin=28,
+        bottomMargin=28,
+    )
+    doc.build(story)
+    return buffer.getvalue()
 
 
 def _build_review_report_data(target_date, tracker_id=None):
@@ -1725,62 +1896,24 @@ def submit_claim_scan():
     tracker_id = tracker.id if tracker else None
     people = _normalize_people(data.get('people') or [])
     actor = _current_user_name() or str(data.get('actor_name') or '').strip() or None
-    if actor and actor.casefold() not in {name.casefold() for name in people}:
-        people = _normalize_people([actor, *people])
     valid_lbd_ids = _block_accessible_lbd_ids(block, tracker=tracker)
     assignments = _normalize_claim_assignments(data.get('assignments') or {}, valid_lbd_ids)
 
-    try:
-        target = date.fromisoformat(str(draft.get('work_date') or data.get('work_date') or _cst_today().isoformat()))
-    except ValueError:
-        target = _cst_today()
+    from app.routes.tracker_routes import _merge_claim_people, _parse_claim_work_date, _record_claim_work_entries
+
+    target = _parse_claim_work_date(draft.get('work_date') or data.get('work_date'))
 
     if not people:
         return jsonify({'error': 'At least one crew member is required'}), 400
 
-    _ensure_claim_workers(people)
-    db.session.flush()
-
-    workers_by_name = {
-        worker.name.casefold(): worker
-        for worker in Worker.query.filter(Worker.name.in_(people)).all()
-    }
-
-    created = 0
-    skipped = 0
-    status_updates = []
-    for status_type, lbd_ids in assignments.items():
-        if not lbd_ids:
-            continue
-        for person in people:
-            worker = workers_by_name.get(person.casefold())
-            if not worker:
-                continue
-            exists = WorkEntry.query.filter_by(
-                worker_id=worker.id,
-                power_block_id=block.id,
-                task_type=status_type,
-                work_date=target,
-            ).first()
-            if exists:
-                skipped += 1
-                continue
-            db.session.add(WorkEntry(
-                worker_id=worker.id,
-                power_block_id=block.id,
-                tracker_id=tracker_id,
-                task_type=status_type,
-                work_date=target,
-                logged_by=actor,
-            ))
-            created += 1
-
     from app.routes.tracker_routes import _apply_claim_assignments_to_statuses, _completed_claim_assignments, _merge_claim_assignments
 
+    work_entries = _record_claim_work_entries(block, people, assignments, target, actor=actor, tracker=tracker)
     completed_assignments = _completed_claim_assignments(block, valid_lbd_ids)
-    merged_assignments = _merge_claim_assignments(completed_assignments, assignments)
+    merged_assignments = _merge_claim_assignments(block.get_claim_assignments(), completed_assignments, assignments)
+    merged_people = _merge_claim_people(block.get_claimed_people(), people)
     block.claimed_by = actor or (people[0] if people else None)
-    block.set_claim_state(people, merged_assignments)
+    block.set_claim_state(merged_people, merged_assignments)
     block.claimed_at = datetime.utcnow()
     status_updates = _apply_claim_assignments_to_statuses(block, assignments, actor or (people[0] if people else None))
 
@@ -1820,8 +1953,8 @@ def submit_claim_scan():
     return jsonify({
         'success': True,
         'data': {
-            'created': created,
-            'skipped': skipped,
+            'created': work_entries['created'],
+            'skipped': work_entries['skipped'],
             'report_id': report.id,
             'scan_record': scan_record,
             'claim': _claim_payload(block),
@@ -1836,15 +1969,44 @@ def get_report_by_date(date_str):
     except ValueError:
         return jsonify({'error': 'Invalid date, use YYYY-MM-DD'}), 400
     tracker_id = _resolve_tracker_id()
-    q = _scope_query_to_accessible_trackers(
-        DailyReport.query.filter_by(report_date=target),
-        DailyReport.tracker_id,
-        tracker_id=tracker_id,
-    )
-    r = q.first()
+    ensure = str(request.args.get('ensure') or '').strip().lower() in {'1', 'true', 'yes'}
+    if ensure:
+        r = _get_or_generate_report(target, tracker_id)
+        if tracker_id and not r:
+            return jsonify({'error': 'No accessible tracker is available for this request'}), 403
+    else:
+        q = _scope_query_to_accessible_trackers(
+            DailyReport.query.filter_by(report_date=target),
+            DailyReport.tracker_id,
+            tracker_id=tracker_id,
+        )
+        r = q.first()
     if not r:
         return jsonify({'success': True, 'data': None}), 200
     return jsonify({'success': True, 'data': r.to_dict()}), 200
+
+
+@bp.route('/reports/date/<date_str>/pdf', methods=['GET'])
+def get_report_pdf_by_date(date_str):
+    try:
+        target = date.fromisoformat(date_str)
+    except ValueError:
+        return jsonify({'error': 'Invalid date, use YYYY-MM-DD'}), 400
+
+    tracker_id = _resolve_tracker_id()
+    report = _get_or_generate_report(target, tracker_id)
+    if not report:
+        return jsonify({'error': 'No accessible tracker is available for this request'}), 403
+
+    pdf_bytes = _report_pdf_bytes(report)
+    filename = f'princess-trackers-{target.isoformat()}.pdf'
+    return send_file(
+        BytesIO(pdf_bytes),
+        mimetype='application/pdf',
+        download_name=filename,
+        as_attachment=str(request.args.get('download') or '').strip().lower() in {'1', 'true', 'yes'},
+        max_age=0,
+    )
 
 
 @bp.route('/reports/generate', methods=['POST'])

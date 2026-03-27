@@ -28,6 +28,14 @@ function getLbdDisplayLabel(lbd) {
   return lbd.identifier || lbd.name || (lbd.id ? `LBD ${lbd.id}` : 'LBD');
 }
 
+function todayIsoDate() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 const api = {
   async call(endpoint, options = {}) {
     const url = `/api${endpoint}`;
@@ -158,16 +166,22 @@ const api = {
   getClaimPeople() {
     return this.call('/tracker/claim-people');
   },
-  claimBlock(blockId, action, people = [], assignments = {}) {
+  claimBlock(blockId, action, people = [], assignments = {}, workDate = null) {
+    const body = { action, people, assignments };
+    if (workDate) body.work_date = workDate;
+    if (currentTracker) body.tracker_id = currentTracker.id;
     return this.call(`/tracker/power-blocks/${blockId}/claim`, {
       method:'POST',
-      body: JSON.stringify({ action, people, assignments })
+      body: JSON.stringify(body)
     });
   },
-  bulkClaimBlocks(blockIds, action, people = [], assignmentsByBlock = {}, statusTypes = []) {
+  bulkClaimBlocks(blockIds, action, people = [], assignmentsByBlock = {}, statusTypes = [], workDate = null) {
+    const body = { block_ids: blockIds, action, people, assignments_by_block: assignmentsByBlock, status_types: statusTypes };
+    if (workDate) body.work_date = workDate;
+    if (currentTracker) body.tracker_id = currentTracker.id;
     return this.call('/tracker/power-blocks/bulk-claim', {
       method:'POST',
-      body: JSON.stringify({ block_ids: blockIds, action, people, assignments_by_block: assignmentsByBlock, status_types: statusTypes })
+      body: JSON.stringify(body)
     });
   },
   draftClaimScan(payload) {
@@ -692,7 +706,6 @@ function _readSharedClaimCrew(overlay) {
 function _collectClaimAssignmentDraft(overlay, block) {
   const assignments = {};
   const taskCrews = {};
-  const existingAssignments = _getClaimAssignments(block);
 
   if (overlay) {
     overlay.querySelectorAll('.claim-lbd-option:checked').forEach((input) => {
@@ -712,11 +725,6 @@ function _collectClaimAssignmentDraft(overlay, block) {
       }
     });
   }
-
-  Object.entries(existingAssignments).forEach(([statusType, lbdIds]) => {
-    if (assignments[statusType] || !Array.isArray(lbdIds) || !lbdIds.length) return;
-    assignments[statusType] = lbdIds.map(Number).filter(Number.isFinite);
-  });
 
   return { assignments, taskCrews };
 }
@@ -759,17 +767,17 @@ function _renderClaimAssignmentSections(overlay, block, suggestions = []) {
   }
 
   const draft = _collectClaimAssignmentDraft(overlay, block);
-  const assignments = _getClaimAssignments(block);
+  const existingAssignments = _getClaimAssignments(block);
   const lbds = Array.isArray(block.lbds) ? [...block.lbds] : [];
   lbds.sort((left, right) => String(left.identifier || left.name || '').localeCompare(String(right.identifier || right.name || '')));
 
   container.innerHTML = selectedTypes.map(statusType => {
     const label = _escapeHtml(STATUS_LABELS[statusType] || statusType.replace(/_/g, ' '));
-    const completedIds = new Set(Array.isArray(assignments[statusType]) ? assignments[statusType].map(Number) : []);
+    const completedIds = new Set(Array.isArray(existingAssignments[statusType]) ? existingAssignments[statusType].map(Number) : []);
     const selectedIds = new Set(
-      Array.isArray(draft.assignments[statusType]) && draft.assignments[statusType].length
+      Array.isArray(draft.assignments[statusType])
         ? draft.assignments[statusType].map(Number)
-        : (Array.isArray(assignments[statusType]) ? assignments[statusType].map(Number) : [])
+        : []
     );
     const taskCrewText = Array.isArray(draft.taskCrews[statusType]) ? draft.taskCrews[statusType].join(', ') : '';
     const suggestionButtons = suggestions.slice(0, 8).map((name) => {
@@ -817,9 +825,9 @@ function _renderClaimAssignmentSections(overlay, block, suggestions = []) {
   }).join('');
 }
 
-async function claimBlock(blockId, action, people = [], assignments = {}) {
+async function claimBlock(blockId, action, people = [], assignments = {}, workDate = null) {
   try {
-    const response = await api.claimBlock(blockId, action, people, assignments);
+    const response = await api.claimBlock(blockId, action, people, assignments, workDate);
     if (_blocksCache[blockId] && response.data) {
       Object.assign(_blocksCache[blockId], response.data);
     }
@@ -837,9 +845,10 @@ async function showClaimPeopleDialog(block) {
   try {
     const response = await api.getClaimPeople();
     const suggestions = _dedupeClaimNames([...(Array.isArray(response.data) ? response.data : []), ...((block.claimed_people || []).map(name => String(name || '').trim()))]);
-    const selected = new Set((block.claimed_people || []).map(name => String(name)));
+    const selected = new Set();
     const existingAssignments = _getClaimAssignments(block);
-    if (selected.size === 0 && currentUser?.name && suggestions.includes(currentUser.name)) selected.add(currentUser.name);
+    if (currentUser?.name && suggestions.includes(currentUser.name)) selected.add(currentUser.name);
+    const defaultWorkDate = todayIsoDate();
 
     const overlay = document.createElement('div');
     overlay.id = 'claim-people-overlay';
@@ -875,14 +884,18 @@ async function showClaimPeopleDialog(block) {
             <label style="display:block;color:#cbd5e1;font-size:13px;font-weight:600;margin-bottom:6px;">Add extra crew names</label>
             <textarea id="claim-extra-names" class="claim-modal-textarea" rows="2" placeholder="Type names separated by commas or new lines" style="width:100%;resize:vertical;font-size:14px;padding:10px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#eef2ff;"></textarea>
           </div>
+          <div style="margin-top:12px;">
+            <label style="display:block;color:#cbd5e1;font-size:13px;font-weight:600;margin-bottom:6px;">Claim Date</label>
+            <input id="claim-work-date" type="date" value="${_escapeHtml(defaultWorkDate)}" style="width:100%;min-height:42px;padding:10px 12px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#eef2ff;" />
+            <div style="margin-top:6px;color:#94a3b8;font-size:11px;">Pick a past day if this claim is being entered late.</div>
+          </div>
           <div style="margin-top:16px;">
             <label style="display:block;color:#cbd5e1;font-size:12px;margin-bottom:6px;">Work types</label>
             <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;">
               ${LBD_STATUS_TYPES.map(statusType => {
                 const label = _escapeHtml(STATUS_LABELS[statusType] || statusType.replace(/_/g, ' '));
-                const checked = Array.isArray(existingAssignments[statusType]) && existingAssignments[statusType].length ? 'checked' : '';
                 return `<label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid rgba(255,255,255,0.08);border-radius:10px;background:rgba(255,255,255,0.03);cursor:pointer;">
-                  <input type="checkbox" class="claim-status-type" value="${_escapeHtml(statusType)}" ${checked} />
+                  <input type="checkbox" class="claim-status-type" value="${_escapeHtml(statusType)}" />
                   <span style="color:#eef2ff;font-size:12px;">${label}</span>
                 </label>`;
               }).join('')}
@@ -936,6 +949,7 @@ async function showClaimPeopleDialog(block) {
       const people = [...sharedPeople];
       const assignments = {};
       const taskCrews = {};
+      const workDate = String(overlay.querySelector('#claim-work-date')?.value || todayIsoDate());
       Array.from(overlay.querySelectorAll('.claim-status-type:checked')).forEach(input => {
         const statusType = input.value;
         const lbdIds = Array.from(overlay.querySelectorAll(`.claim-lbd-option[data-status-type="${statusType}"]:checked`))
@@ -956,6 +970,7 @@ async function showClaimPeopleDialog(block) {
         assignments,
         sharedPeople,
         taskCrews,
+        workDate,
       };
     };
 
@@ -994,6 +1009,10 @@ async function showClaimPeopleDialog(block) {
             <div style="margin-top:6px;color:#eef2ff;font-size:14px;">${_escapeHtml(block.name)}</div>
           </div>
           <div>
+            <div style="font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:0.7px;text-transform:uppercase;">Claim Date</div>
+            <div style="margin-top:6px;color:#eef2ff;font-size:14px;">${_escapeHtml(draft.workDate)}</div>
+          </div>
+          <div>
             <div style="font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:0.7px;text-transform:uppercase;">Assignments</div>
             <div style="margin-top:8px;display:grid;gap:8px;">${assignmentRows || '<div style="color:#94a3b8;font-size:12px;">This claim will assign crew only and will not mark specific LBD rows yet.</div>'}</div>
           </div>
@@ -1016,7 +1035,7 @@ async function showClaimPeopleDialog(block) {
 
     submitBtn.addEventListener('click', async () => {
       const draft = submitBtn._draft || buildDraft();
-      await claimBlock(block.id, 'claim', draft.people, draft.assignments);
+      await claimBlock(block.id, 'claim', draft.people, draft.assignments, draft.workDate);
       close();
     });
   } catch (e) {
@@ -1055,16 +1074,16 @@ function _buildClaimedBanner(block) {
   if (isClaimed && claimedLabel) {
     claimPart = '<span style="color:#1565c0;font-weight:600;">&#128204; Claimed by ' + _escapeHtml(claimedLabel) + '</span>'
       + '<span style="color:#666;font-size:11px;"> &mdash; ' + claimedAt + '</span>';
-    if (currentUser && (currentUserCan('claim_edit') || currentUserCan('claim_delete'))) {
+    if (currentUser && (currentUserCan('claim_create') || currentUserCan('claim_delete'))) {
       actionButtons = '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">'
-        + (currentUserCan('claim_edit') ? '<button onclick="showClaimPeopleDialogById(' + block.id + ')" style="background:rgba(0,212,255,0.15);color:#00d4ff;border:1px solid rgba(0,212,255,0.3);border-radius:5px;padding:5px 12px;cursor:pointer;font-size:11px;font-weight:600;">Edit Claim / Add Crew</button>' : '')
+        + (currentUserCan('claim_create') ? '<button onclick="showClaimPeopleDialogById(' + block.id + ')" style="background:rgba(0,212,255,0.15);color:#00d4ff;border:1px solid rgba(0,212,255,0.3);border-radius:5px;padding:5px 12px;cursor:pointer;font-size:11px;font-weight:600;">Add Claim</button>' : '')
         + (currentUserCan('claim_delete') ? '<button onclick="claimBlock(' + block.id + ',\'unclaim\')" style="background:rgba(255,76,106,0.1);color:#ff4c6a;border:1px solid rgba(255,76,106,0.3);border-radius:5px;padding:5px 12px;cursor:pointer;font-size:11px;font-weight:600;">Release Claim</button>' : '')
         + '</div>';
     }
   } else {
     if (currentUserCan('claim_create')) {
       actionButtons = '<div style="margin-top:8px;">'
-        + '<button onclick="showClaimPeopleDialogById(' + block.id + ')" style="background:rgba(0,232,122,0.15);color:#00e87a;border:1px solid rgba(0,232,122,0.3);border-radius:5px;padding:5px 12px;cursor:pointer;font-size:11px;font-weight:700;">Claim Block / Add Crew</button>'
+        + '<button onclick="showClaimPeopleDialogById(' + block.id + ')" style="background:rgba(0,232,122,0.15);color:#00e87a;border:1px solid rgba(0,232,122,0.3);border-radius:5px;padding:5px 12px;cursor:pointer;font-size:11px;font-weight:700;">Add Claim</button>'
         + '</div>';
     }
   }
@@ -4253,14 +4272,14 @@ function showPBPanel(pb) {
       mapClaimBanner = `<div style="margin-bottom:8px;padding:8px 10px;background:rgba(21,101,192,0.1);border:1px solid rgba(21,101,192,0.2);border-radius:6px;">
         <div style="font-size:12px;color:#8adfff;">&#128204; Claimed by <strong>${_escapeHtml(claimedLabel || 'Crew')}</strong></div>
         <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
-          ${currentUserCan('claim_edit') ? `<button onclick="showClaimPeopleDialogById(${pb.id})" style="background:rgba(0,212,255,0.15);color:#00d4ff;border:1px solid rgba(0,212,255,0.3);border-radius:4px;padding:3px 10px;cursor:pointer;font-size:10px;font-weight:600;">Edit Claim / Add Crew</button>` : ''}
+          ${currentUserCan('claim_create') ? `<button onclick="showClaimPeopleDialogById(${pb.id})" style="background:rgba(0,212,255,0.15);color:#00d4ff;border:1px solid rgba(0,212,255,0.3);border-radius:4px;padding:3px 10px;cursor:pointer;font-size:10px;font-weight:600;">Add Claim</button>` : ''}
           ${currentUserCan('claim_delete') ? `<button onclick="claimBlock(${pb.id},'unclaim').then(()=>{const r=mapPBs.find(b=>b.id===${pb.id});if(r){r.claimed_by=null;r.claimed_people=[];r.claim_assignments={};r.claimed_label='';showPBPanel(r);}})" style="background:rgba(255,76,106,0.1);color:#ff4c6a;border:1px solid rgba(255,76,106,0.3);border-radius:4px;padding:3px 10px;cursor:pointer;font-size:10px;font-weight:600;">Release</button>` : ''}
         </div>
       </div>`;
     } else if (currentUserCan('claim_create')) {
       mapClaimBanner = `<div style="margin-bottom:8px;padding:8px 10px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:6px;">
         <div style="margin-top:6px;">
-          <button onclick="showClaimPeopleDialogById(${pb.id})" style="background:rgba(0,232,122,0.15);color:#00e87a;border:1px solid rgba(0,232,122,0.3);border-radius:4px;padding:3px 10px;cursor:pointer;font-size:10px;font-weight:700;">Claim Block / Add Crew</button>
+          <button onclick="showClaimPeopleDialogById(${pb.id})" style="background:rgba(0,232,122,0.15);color:#00e87a;border:1px solid rgba(0,232,122,0.3);border-radius:4px;padding:3px 10px;cursor:pointer;font-size:10px;font-weight:700;">Add Claim</button>
         </div>
       </div>`;
     }
@@ -4874,6 +4893,7 @@ let claimPageState = {
   scanDraft: null,
   scanFileName: '',
   scanCrewText: '',
+  scanWorkDate: todayIsoDate(),
   loading: false,
   scanLoading: false,
   scanSubmitting: false,
@@ -5116,6 +5136,7 @@ async function showBulkClaimDialog() {
   const blockNames = blocks.map((block) => String(block.name || '').trim()).filter(Boolean);
   const totalItems = blocks.reduce((sum, block) => sum + Number(block.lbd_count || 0), 0);
   const defaultPeople = currentUser?.name ? [currentUser.name] : [];
+  const defaultWorkDate = todayIsoDate();
   const statusHeaderButtons = LBD_STATUS_TYPES.map((statusType) => {
     const label = _escapeHtml(STATUS_LABELS[statusType] || statusType.replace(/_/g, ' '));
     return `<button type="button" class="btn btn-secondary bulk-claim-apply-status" data-status-type="${_escapeHtml(statusType)}" style="padding:6px 10px;font-size:11px;">Apply ${label} To All</button>`;
@@ -5184,7 +5205,12 @@ async function showBulkClaimDialog() {
           </div>
           <div style="margin-top:12px;">
             <label style="display:block;color:#cbd5e1;font-size:13px;font-weight:600;margin-bottom:6px;">Add extra crew names</label>
-            <textarea id="bulk-claim-extra-names" class="claim-modal-textarea" rows="2" placeholder="Type names separated by commas or new lines" style="width:100%;resize:vertical;font-size:14px;padding:10px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#eef2ff;">${_escapeHtml(defaultPeople.join(', '))}</textarea>
+            <textarea id="bulk-claim-extra-names" class="claim-modal-textarea" rows="2" placeholder="Type names separated by commas or new lines" style="width:100%;resize:vertical;font-size:14px;padding:10px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#eef2ff;"></textarea>
+          </div>
+          <div style="margin-top:12px;">
+            <label style="display:block;color:#cbd5e1;font-size:13px;font-weight:600;margin-bottom:6px;">Claim Date</label>
+            <input id="bulk-claim-work-date" type="date" value="${_escapeHtml(defaultWorkDate)}" style="width:100%;min-height:42px;padding:10px 12px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#eef2ff;" />
+            <div style="margin-top:6px;color:#94a3b8;font-size:11px;">Use a past date when you need to catch up old claims.</div>
           </div>
         </div>
         <div style="margin-top:18px;">
@@ -5381,6 +5407,7 @@ async function showBulkClaimDialog() {
       .map((input) => String(input.value || '').trim())
       .filter(Boolean);
     const extraPeople = claimParseCrewNames(overlay.querySelector('#bulk-claim-extra-names')?.value || '');
+    const workDate = String(overlay.querySelector('#bulk-claim-work-date')?.value || todayIsoDate());
     const assignmentsByBlock = {};
     const statusTypeSet = new Set();
     blocks.forEach((block) => {
@@ -5397,6 +5424,7 @@ async function showBulkClaimDialog() {
       people: _dedupeClaimNames([...checkedPeople, ...extraPeople]),
       assignmentsByBlock,
       statusTypes: Array.from(statusTypeSet),
+      workDate,
     };
   };
 
@@ -5496,6 +5524,10 @@ async function showBulkClaimDialog() {
           <div style="margin-top:8px;display:grid;gap:8px;">${perBlockRows}</div>
         </div>
         <div>
+          <div style="font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:0.7px;text-transform:uppercase;">Claim Date</div>
+          <div style="margin-top:6px;color:#eef2ff;font-size:14px;">${_escapeHtml(draft.workDate)}</div>
+        </div>
+        <div>
           <div style="font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:0.7px;text-transform:uppercase;">Selected Blocks</div>
           <div style="margin-top:6px;color:#eef2ff;font-size:14px;">${blockNames.map(_escapeHtml).join(', ')}</div>
         </div>
@@ -5521,7 +5553,7 @@ async function showBulkClaimDialog() {
     submitBtn.disabled = true;
     submitBtn.textContent = 'Submitting...';
     try {
-      await api.bulkClaimBlocks(blocks.map((block) => block.id), 'claim', draft.people, draft.assignmentsByBlock, draft.statusTypes);
+      await api.bulkClaimBlocks(blocks.map((block) => block.id), 'claim', draft.people, draft.assignmentsByBlock, draft.statusTypes, draft.workDate);
       close();
       await loadClaimPage();
       if (document.getElementById('blocks-list')) {
@@ -5537,6 +5569,10 @@ async function showBulkClaimDialog() {
 
 function claimSetScanCrewText(value) {
   claimPageState.scanCrewText = String(value || '');
+}
+
+function claimSetScanWorkDate(value) {
+  claimPageState.scanWorkDate = String(value || todayIsoDate());
 }
 
 function claimAppendCrewName(name) {
@@ -5628,6 +5664,7 @@ async function claimSubmitScanDraft() {
       power_block_id: block.id,
       tracker_id: currentTracker ? currentTracker.id : null,
       people,
+      work_date: claimPageState.scanWorkDate,
       assignments: draft.assignments || {},
       draft,
     });
@@ -5750,13 +5787,13 @@ function renderClaimPage() {
     return `<button type="button" class="claim-crew-chip" onclick="claimAppendCrewName(decodeURIComponent('${encodedName}'))">${_escapeHtml(name)}</button>`;
   }).join('');
   const canClaimSelection = selectedBlocks.length > 1
-    ? (selectedBlocks.some(block => blockHasClaim(block)) ? currentUserCan('claim_edit') : currentUserCan('claim_create'))
-    : (selectedBlock ? (blockHasClaim(selectedBlock) ? currentUserCan('claim_edit') : currentUserCan('claim_create')) : false);
+    ? currentUserCan('claim_create')
+    : (selectedBlock ? currentUserCan('claim_create') : false);
   const claimActionButton = selectedBlocks.length > 1
-    ? `<button class="btn btn-primary" ${canClaimSelection ? `onclick="showBulkClaimDialog()"` : 'disabled'}>Claim ${selectedBlocks.length} Blocks</button>`
+    ? `<button class="btn btn-primary" ${canClaimSelection ? `onclick="showBulkClaimDialog()"` : 'disabled'}>Add Claim To ${selectedBlocks.length} Blocks</button>`
     : (selectedBlock
-      ? `<button class="btn btn-primary" ${canClaimSelection ? `onclick="showClaimPeopleDialogById(${selectedBlock.id})"` : 'disabled'}>${blockHasClaim(selectedBlock) ? 'Edit Claim' : 'Claim Block'}</button>`
-      : '<button class="btn btn-primary" disabled>Claim Block</button>');
+      ? `<button class="btn btn-primary" ${canClaimSelection ? `onclick="showClaimPeopleDialogById(${selectedBlock.id})"` : 'disabled'}>Add Claim</button>`
+      : '<button class="btn btn-primary" disabled>Add Claim</button>');
   const releaseButton = selectedBlock && canReleaseClaim(selectedBlock)
     ? `<button class="btn btn-danger" onclick="claimReleaseSelectedBlock()">Release Claim</button>`
     : '';
@@ -5878,6 +5915,11 @@ function renderClaimPage() {
             </div>
             <div class="claim-scan-status${claimPageState.scanLoading ? ' is-loading' : ''}">${scanStatusCopy}</div>
             <div class="claim-field-group">
+              <div class="claim-card-label">Claim Date</div>
+              <input type="date" class="claim-modal-textarea" value="${_escapeHtml(claimPageState.scanWorkDate)}" oninput="claimSetScanWorkDate(this.value)" style="min-height:42px;resize:none;" />
+              <div class="claim-muted-copy">Use a past date if this scan is being submitted after the work was done.</div>
+            </div>
+            <div class="claim-field-group">
               <div class="claim-card-label">Crew For This Scan</div>
               <textarea class="claim-modal-textarea claim-scan-textarea" oninput="claimSetScanCrewText(this.value)" placeholder="Add crew names separated by commas or new lines">${_escapeHtml(claimPageState.scanCrewText)}</textarea>
               <div class="claim-crew-chip-row">${suggestionButtons || '<span class="claim-muted-copy">No saved crew suggestions yet.</span>'}</div>
@@ -5904,9 +5946,11 @@ function renderClaimPage() {
 // ============================================================
 // REPORTS PAGE
 // ============================================================
-let rp_viewMode = 'list';  // 'list' | 'calendar'
+let rp_viewMode = 'calendar';
 let rp_reportsCache = [];
-let rp_selectedDate = null;
+let rp_selectedDate = todayIsoDate();
+let rp_calendarYear = new Date().getFullYear();
+let rp_calendarMonth = new Date().getMonth();
 
 function rp_formatDate(dateStr, options = { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) {
   const parsed = new Date(`${dateStr}T12:00:00`);
@@ -5914,11 +5958,45 @@ function rp_formatDate(dateStr, options = { weekday: 'short', month: 'short', da
   return parsed.toLocaleDateString('en-US', options);
 }
 
+function rp_syncCalendarFromDate(dateStr) {
+  const parsed = new Date(`${dateStr}T12:00:00`);
+  if (Number.isNaN(parsed.getTime())) return;
+  rp_calendarYear = parsed.getFullYear();
+  rp_calendarMonth = parsed.getMonth();
+}
+
+function rp_reportSummaryMap() {
+  return new Map(rp_reportsCache.map((report) => [report.report_date, report]));
+}
+
+function rp_reportPdfUrl(dateStr, download = false) {
+  const params = new URLSearchParams();
+  if (currentTracker) params.set('tracker_id', currentTracker.id);
+  if (download) params.set('download', '1');
+  const query = params.toString();
+  return `/api/reports/date/${encodeURIComponent(dateStr)}/pdf${query ? `?${query}` : ''}`;
+}
+
+function rp_openPdf(download = false) {
+  if (!rp_selectedDate) return;
+  const url = rp_reportPdfUrl(rp_selectedDate, download);
+  if (download) {
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = '';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    return;
+  }
+  window.open(url, '_blank', 'noopener');
+}
+
 async function rp_fetchReports(force = false) {
   if (!force && rp_reportsCache.length) return rp_reportsCache;
-  const r = await api.call(api._tq('/reports'));
-  const reports = Array.isArray(r.data) ? r.data : [];
-  reports.sort((a, b) => b.report_date.localeCompare(a.report_date));
+  const response = await api.call(api._tq('/reports'));
+  const reports = Array.isArray(response.data) ? response.data : [];
+  reports.sort((a, b) => String(b.report_date || '').localeCompare(String(a.report_date || '')));
   rp_reportsCache = reports;
   return reports;
 }
@@ -5934,7 +6012,7 @@ function rp_renderSummary(reports) {
   const totalReports = reports.length;
   const totalEntries = reports.reduce((sum, report) => sum + Number(report.total_entries || 0), 0);
   const totalScans = reports.reduce((sum, report) => sum + Number(report.claim_scan_count || 0), 0);
-  const workersTouched = new Set(reports.flatMap(report => report.workers || [])).size;
+  const workersTouched = new Set(reports.flatMap((report) => report.workers || [])).size;
   const latestReport = reports[0];
 
   const cards = [
@@ -5944,7 +6022,7 @@ function rp_renderSummary(reports) {
     { kicker: 'Claim Scans', value: `${totalScans}`, meta: latestReport ? `Latest report: ${rp_formatDate(latestReport.report_date, { month: 'short', day: 'numeric', year: 'numeric' })}` : 'No reports yet', tone: 'amber' },
   ];
 
-  summary.innerHTML = cards.map(card => `
+  summary.innerHTML = cards.map((card) => `
     <article class="reports-summary-card reports-tone-${card.tone}">
       <div class="reports-summary-kicker">${card.kicker}</div>
       <div class="reports-summary-value">${card.value}</div>
@@ -5966,15 +6044,19 @@ async function loadReportsPage() {
   const el = document.getElementById('reports-content');
   if (!el) return;
 
+  rp_syncCalendarFromDate(rp_selectedDate || todayIsoDate());
   el.innerHTML = `
     <section class="reports-shell">
       <div class="reports-toolbar">
         <div class="reports-toolbar-tabs">
-          <button id="rp-tab-list" class="reports-tab-btn" onclick="rp_switchView('list')">List</button>
           <button id="rp-tab-calendar" class="reports-tab-btn" onclick="rp_switchView('calendar')">Calendar</button>
+          <button id="rp-tab-list" class="reports-tab-btn" onclick="rp_switchView('list')">List</button>
         </div>
-        <div class="reports-toolbar-actions">
-          <button class="reports-generate-btn" onclick="rp_generate()">Generate Today's Report</button>
+        <div class="reports-toolbar-actions" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+          <input id="rp-selected-date" type="date" value="${_escapeHtml(rp_selectedDate || todayIsoDate())}" onchange="rp_pickDate(this.value)" style="min-height:40px;padding:8px 12px;border-radius:10px;border:1px solid rgba(15,23,42,0.12);background:#fff;color:#0f172a;" />
+          <button class="reports-generate-btn" onclick="rp_generate()">Generate Selected Day</button>
+          <button class="btn btn-secondary" onclick="rp_openPdf(false)">View PDF</button>
+          <button class="btn btn-secondary" onclick="rp_openPdf(true)">Download PDF</button>
         </div>
       </div>
       <div id="rp-summary" class="reports-summary-grid"></div>
@@ -5988,193 +6070,255 @@ async function loadReportsPage() {
 
 async function rp_switchView(mode) {
   rp_viewMode = mode;
-  ['list', 'calendar'].forEach(m => {
-    const btn = document.getElementById('rp-tab-' + m);
-    if (btn) btn.classList.toggle('active', m === mode);
+  ['calendar', 'list'].forEach((value) => {
+    const btn = document.getElementById(`rp-tab-${value}`);
+    if (btn) btn.classList.toggle('active', value === mode);
   });
-  if (mode === 'list') await rp_loadList();
-  else await rp_loadCalendar();
+  if (mode === 'list') {
+    await rp_loadList();
+    return;
+  }
+  await rp_loadCalendar();
 }
 
-async function rp_generate() {
+async function rp_generate(dateStr = null) {
+  const targetDate = String(dateStr || document.getElementById('rp-selected-date')?.value || rp_selectedDate || todayIsoDate());
   try {
-    const body = {};
+    const body = { date: targetDate };
     if (currentTracker) body.tracker_id = currentTracker.id;
     await api.call('/reports/generate', { method: 'POST', body: JSON.stringify(body) });
     await rp_fetchReports(true);
     rp_renderSummary(rp_reportsCache);
-    await rp_switchView(rp_viewMode);
+    await rp_showDetail(targetDate, true, false);
   } catch (e) {
     alert('Error: ' + e.message);
   }
 }
 
-async function rp_loadList() {
+function rp_pickDate(value) {
+  rp_selectedDate = String(value || todayIsoDate());
+  rp_syncCalendarFromDate(rp_selectedDate);
+  rp_showDetail(rp_selectedDate, true, true);
+}
+
+function rp_changeMonth(delta) {
+  const next = new Date(rp_calendarYear, rp_calendarMonth + delta, 1);
+  rp_calendarYear = next.getFullYear();
+  rp_calendarMonth = next.getMonth();
+  rp_loadCalendar(true);
+}
+
+async function rp_loadList(skipDetailLoad = false) {
   const el = document.getElementById('rp-body');
   if (!el) return;
   el.innerHTML = '<div class="reports-empty-copy">Loading reports…</div>';
   try {
     const reports = await rp_fetchReports();
-    if (reports.length === 0) {
-      rp_renderEmpty(el, 'No reports generated yet.', 'Use Generate Today\'s Report to create the first daily snapshot.');
+    if (!reports.length) {
+      rp_renderEmpty(el, 'No reports generated yet.', 'Choose any day above to generate or inspect a daily report.');
       return;
     }
     if (!rp_selectedDate) rp_selectedDate = reports[0].report_date;
     el.innerHTML = `
       <div class="reports-list-layout">
         <div class="reports-list-panel">
-          ${reports.map(rpt => {
-            const workers = Array.isArray(rpt.workers) ? rpt.workers.length : 0;
-            const entries = Number(rpt.total_entries || 0);
-            const scans = Number(rpt.claim_scan_count || 0);
-            const isActive = rpt.report_date === rp_selectedDate;
+          ${reports.map((report) => {
+            const workers = Array.isArray(report.workers) ? report.workers.length : 0;
+            const entries = Number(report.total_entries || 0);
+            const scans = Number(report.claim_scan_count || 0);
+            const active = report.report_date === rp_selectedDate;
             return `
-              <button type="button" class="reports-list-card${isActive ? ' active' : ''}" onclick="rp_showDetail('${rpt.report_date}', true)">
+              <button type="button" class="reports-list-card${active ? ' active' : ''}" data-report-date="${report.report_date}" onclick="rp_showDetail('${report.report_date}', true, true)">
                 <div class="reports-list-card-main">
-                  <div class="reports-list-card-date">${rp_formatDate(rpt.report_date)}</div>
+                  <div class="reports-list-card-date">${rp_formatDate(report.report_date)}</div>
                   <div class="reports-list-card-meta">${workers} worker${workers === 1 ? '' : 's'} • ${entries} entries • ${scans} claim scan${scans === 1 ? '' : 's'}</div>
                 </div>
-                ${rpt.latest_claim_scan_image_url ? `<img class="reports-list-thumb" src="${rpt.latest_claim_scan_image_url}" alt="Latest claim scan">` : '<div class="reports-list-thumb reports-list-thumb-empty">No scan</div>'}
+                ${report.latest_claim_scan_image_url ? `<img class="reports-list-thumb" src="${report.latest_claim_scan_image_url}" alt="Latest claim scan">` : '<div class="reports-list-thumb reports-list-thumb-empty">No scan</div>'}
               </button>`;
           }).join('')}
         </div>
         <div id="rp-detail" class="reports-detail-shell"></div>
       </div>`;
-    await rp_showDetail(rp_selectedDate, false);
+    if (!skipDetailLoad && rp_selectedDate) {
+      await rp_showDetail(rp_selectedDate, false, true);
+    }
   } catch (e) {
     el.innerHTML = `<p style="color:#ff4c6a;">Error: ${_escapeHtml(e.message)}</p>`;
   }
 }
 
-async function rp_loadCalendar() {
+async function rp_loadCalendar(skipDetailLoad = false) {
   const el = document.getElementById('rp-body');
   if (!el) return;
   el.innerHTML = '<div class="reports-empty-copy">Loading calendar…</div>';
   try {
     const reports = await rp_fetchReports();
-    const reportDates = new Set(reports.map(rp => rp.report_date));
+    const reportMap = new Map(reports.map((report) => [report.report_date, report]));
+    const firstDay = new Date(rp_calendarYear, rp_calendarMonth, 1).getDay();
+    const daysInMonth = new Date(rp_calendarYear, rp_calendarMonth + 1, 0).getDate();
+    const monthTitle = new Date(rp_calendarYear, rp_calendarMonth, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    const today = todayIsoDate();
 
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth();
-    const firstDay = new Date(year, month, 1).getDay();
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const monthName = now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-
-    let html = `<div class="reports-calendar-shell"><div><div class="reports-calendar-title">${monthName}</div>`;
-    html += '<div class="reports-calendar-grid">';
-    ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].forEach(d => {
-      html += `<div class="reports-calendar-dow">${d}</div>`;
+    let html = `
+      <div class="reports-calendar-shell">
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
+            <div class="reports-calendar-title">${monthTitle}</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button type="button" class="btn btn-secondary" onclick="rp_changeMonth(-1)">Previous Month</button>
+              <button type="button" class="btn btn-secondary" onclick="rp_changeMonth(1)">Next Month</button>
+            </div>
+          </div>
+          <div class="reports-calendar-grid">`;
+    ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].forEach((day) => {
+      html += `<div class="reports-calendar-dow">${day}</div>`;
     });
-
-    for (let i = 0; i < firstDay; i++) html += '<div class="reports-calendar-spacer"></div>';
-    for (let day = 1; day <= daysInMonth; day++) {
-      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-      const hasReport = reportDates.has(dateStr);
-      const isToday = day === now.getDate();
+    for (let index = 0; index < firstDay; index += 1) {
+      html += '<div class="reports-calendar-spacer"></div>';
+    }
+    for (let day = 1; day <= daysInMonth; day += 1) {
+      const dateStr = `${rp_calendarYear}-${String(rp_calendarMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const summary = reportMap.get(dateStr) || null;
       const classes = ['reports-calendar-day'];
-      if (isToday) classes.push('today');
-      if (hasReport) classes.push('has-report');
-      html += `<button type="button" class="${classes.join(' ')}" ${hasReport ? `onclick="rp_showDetail('${dateStr}', true)"` : 'disabled'}>
-        <span>${day}</span>
-        ${hasReport ? '<span class="reports-calendar-dot"></span>' : ''}
-      </button>`;
+      if (dateStr === today) classes.push('today');
+      if (dateStr === rp_selectedDate) classes.push('active');
+      if (summary) classes.push('has-report');
+      html += `
+        <button type="button" class="${classes.join(' ')}" onclick="rp_showDetail('${dateStr}', true, true)">
+          <span>${day}</span>
+          ${summary ? `<span class="reports-calendar-dot"></span><small style="display:block;font-size:10px;color:#64748b;margin-top:4px;">${Number(summary.total_entries || 0)} entries</small>` : '<small style="display:block;font-size:10px;color:#94a3b8;margin-top:4px;">Open day</small>'}
+        </button>`;
     }
     html += '</div></div><div id="rp-detail" class="reports-detail-shell"></div></div>';
     el.innerHTML = html;
-    if (!rp_selectedDate && reports[0]) rp_selectedDate = reports[0].report_date;
-    if (rp_selectedDate && reportDates.has(rp_selectedDate)) {
-      await rp_showDetail(rp_selectedDate, false);
+    if (!skipDetailLoad && rp_selectedDate) {
+      await rp_showDetail(rp_selectedDate, false, true);
     }
   } catch (e) {
     el.innerHTML = `<p style="color:#ff4c6a;">Error: ${_escapeHtml(e.message)}</p>`;
   }
 }
 
-async function rp_showDetail(dateStr, syncSelection = true) {
+async function rp_showDetail(dateStr, syncSelection = true, ensure = true) {
   if (syncSelection) {
-    rp_selectedDate = dateStr;
-    document.querySelectorAll('.reports-list-card').forEach(card => {
-      card.classList.toggle('active', card.getAttribute('onclick')?.includes(`'${dateStr}'`));
+    rp_selectedDate = String(dateStr || todayIsoDate());
+    rp_syncCalendarFromDate(rp_selectedDate);
+    const dateInput = document.getElementById('rp-selected-date');
+    if (dateInput) dateInput.value = rp_selectedDate;
+    document.querySelectorAll('.reports-list-card').forEach((card) => {
+      card.classList.toggle('active', card.dataset.reportDate === rp_selectedDate);
     });
   }
+
   const detailEl = document.getElementById('rp-detail');
   if (!detailEl) return;
   detailEl.innerHTML = '<div class="reports-empty-copy">Loading report…</div>';
+
   try {
-    const r = await api.call(api._tq(`/reports/date/${dateStr}`));
-    const rpt = r.data;
-    if (!rpt) {
-      detailEl.innerHTML = '<div class="reports-empty-copy">No report for this date.</div>';
+    const endpoint = ensure ? api._tq(`/reports/date/${dateStr}?ensure=1`) : api._tq(`/reports/date/${dateStr}`);
+    const response = await api.call(endpoint);
+    const report = response.data;
+    if (!report) {
+      detailEl.innerHTML = '<div class="reports-empty-copy">No report is available for this date yet.</div>';
       return;
     }
 
-    const data = rpt.data || {};
-    const dateTitle = rp_formatDate(dateStr, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
-    const workers = data.worker_names || [];
-    const scans = data.claim_scans || [];
+    await rp_fetchReports(true);
+    rp_renderSummary(rp_reportsCache);
+
+    const data = report.data || {};
+    const workers = Array.isArray(data.worker_names) ? data.worker_names : [];
+    const scans = Array.isArray(data.claim_scans) ? data.claim_scans : [];
     const byWorker = data.by_worker || {};
     const byTask = data.by_task || {};
+    const byPowerBlock = data.by_power_block || {};
+    const rawEntries = Array.isArray(data.raw_entries) ? data.raw_entries : [];
+    const dateTitle = rp_formatDate(dateStr, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 
-    let html = `<div class="reports-detail-card">
-      <div class="reports-detail-head">
-        <div>
-          <div class="reports-detail-kicker">Daily Report</div>
-          <h3 class="reports-detail-title">${dateTitle}</h3>
-        </div>
-        <div class="reports-detail-stat-row">
-          <div class="reports-detail-stat"><span>${data.total_entries || 0}</span><small>Entries</small></div>
-          <div class="reports-detail-stat"><span>${workers.length}</span><small>Workers</small></div>
-          <div class="reports-detail-stat"><span>${Object.keys(byTask).length}</span><small>Tasks</small></div>
-          <div class="reports-detail-stat"><span>${scans.length}</span><small>Claim Scans</small></div>
-        </div>
-      </div>`;
+    const renderLineItems = (items, formatter) => Object.entries(items).map(([key, value]) => formatter(key, value)).join('');
 
-    if (scans.length > 0) {
-      html += `<div class="reports-detail-section"><div class="reports-detail-section-title">Claim Scans</div><div class="reports-scan-grid">${scans.map(scan => `
-        <article class="reports-scan-card">
-          ${scan.image_url ? `<img src="${scan.image_url}" alt="Claim scan for ${scan.power_block_name || 'report'}">` : '<div class="reports-scan-empty">No image</div>'}
-          <div class="reports-scan-meta">${_escapeHtml(scan.power_block_name || 'Power Block')} • ${_escapeHtml(scan.claimed_label || 'No crew listed')}</div>
-        </article>
-      `).join('')}</div></div>`;
+    let html = `
+      <div class="reports-detail-card">
+        <div class="reports-detail-head">
+          <div>
+            <div class="reports-detail-kicker">Daily Report</div>
+            <h3 class="reports-detail-title">${dateTitle}</h3>
+            <div class="reports-detail-meta">Generated ${report.generated_at ? new Date(report.generated_at).toLocaleString() : 'just now'}</div>
+          </div>
+          <div class="reports-detail-stat-row">
+            <div class="reports-detail-stat"><span>${Number(data.total_entries || 0)}</span><small>Entries</small></div>
+            <div class="reports-detail-stat"><span>${workers.length}</span><small>Workers</small></div>
+            <div class="reports-detail-stat"><span>${Object.keys(byPowerBlock).length}</span><small>Blocks</small></div>
+            <div class="reports-detail-stat"><span>${scans.length}</span><small>Claim Scans</small></div>
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;">
+          <button class="btn btn-primary" onclick="rp_generate('${dateStr}')">Refresh This Day</button>
+          <button class="btn btn-secondary" onclick="rp_openPdf(false)">View PDF</button>
+          <button class="btn btn-secondary" onclick="rp_openPdf(true)">Download PDF</button>
+        </div>`;
+
+    if (Object.keys(byPowerBlock).length > 0) {
+      html += '<div class="reports-detail-section"><div class="reports-detail-section-title">By Power Block</div><div class="reports-detail-stack">';
+      html += renderLineItems(byPowerBlock, (powerBlock, taskMap) => {
+        const lines = Object.entries(taskMap || {}).map(([task, workersForTask]) => {
+          const label = STATUS_LABELS[task] || task;
+          const workerList = Array.isArray(workersForTask) ? workersForTask.join(', ') : String(workersForTask || '');
+          return `<div class="reports-line-item"><span class="reports-line-label">${_escapeHtml(label)}:</span><span class="reports-line-copy">${_escapeHtml(workerList)}</span></div>`;
+        }).join('');
+        return `<div class="reports-line-card"><div class="reports-line-card-title">${_escapeHtml(powerBlock)}</div>${lines || '<div class="reports-line-copy">No task rows</div>'}</div>`;
+      });
+      html += '</div></div>';
     }
 
     if (Object.keys(byWorker).length > 0) {
       html += '<div class="reports-detail-section"><div class="reports-detail-section-title">By Worker</div><div class="reports-detail-stack">';
-      for (const [worker, tasks] of Object.entries(byWorker)) {
-        html += `<div class="reports-line-card"><div class="reports-line-card-title">${_escapeHtml(worker)}</div>`;
-        if (typeof tasks === 'object') {
-          for (const [task, blocks] of Object.entries(tasks)) {
-            const color = STATUS_COLORS[task] || '#888';
-            const label = STATUS_LABELS[task] || task;
-            const blockList = Array.isArray(blocks) ? blocks.join(', ') : blocks;
-            html += `<div class="reports-line-item">
-              <span class="reports-line-dot" style="background:${color}"></span>
-              <span class="reports-line-label">${_escapeHtml(label)}:</span>
-              <span class="reports-line-copy">${_escapeHtml(blockList)}</span>
-            </div>`;
-          }
-        }
-        html += '</div>';
-      }
+      html += renderLineItems(byWorker, (worker, taskMap) => {
+        const lines = Object.entries(taskMap || {}).map(([task, blocks]) => {
+          const color = STATUS_COLORS[task] || '#888';
+          const label = STATUS_LABELS[task] || task;
+          const blockList = Array.isArray(blocks) ? blocks.join(', ') : String(blocks || '');
+          return `<div class="reports-line-item"><span class="reports-line-dot" style="background:${color}"></span><span class="reports-line-label">${_escapeHtml(label)}:</span><span class="reports-line-copy">${_escapeHtml(blockList)}</span></div>`;
+        }).join('');
+        return `<div class="reports-line-card"><div class="reports-line-card-title">${_escapeHtml(worker)}</div>${lines}</div>`;
+      });
       html += '</div></div>';
     }
 
     if (Object.keys(byTask).length > 0) {
       html += '<div class="reports-detail-section"><div class="reports-detail-section-title">By Task</div><div class="reports-detail-stack">';
-      for (const [task, workersByTask] of Object.entries(byTask)) {
+      html += renderLineItems(byTask, (task, workersByTask) => {
         const color = STATUS_COLORS[task] || '#888';
         const label = STATUS_LABELS[task] || task;
-        html += `<div class="reports-line-card"><div class="reports-line-card-title"><span class="reports-line-dot" style="background:${color}"></span>${_escapeHtml(label)}</div>`;
-        if (typeof workersByTask === 'object') {
-          for (const [workerName, blocks] of Object.entries(workersByTask)) {
-            const blockList = Array.isArray(blocks) ? blocks.join(', ') : blocks;
-            html += `<div class="reports-line-item reports-line-item-indent"><span class="reports-line-label">${_escapeHtml(workerName)}:</span><span class="reports-line-copy">${_escapeHtml(blockList)}</span></div>`;
-          }
-        }
-        html += '</div>';
-      }
+        const lines = Object.entries(workersByTask || {}).map(([workerName, blocks]) => {
+          const blockList = Array.isArray(blocks) ? blocks.join(', ') : String(blocks || '');
+          return `<div class="reports-line-item reports-line-item-indent"><span class="reports-line-label">${_escapeHtml(workerName)}:</span><span class="reports-line-copy">${_escapeHtml(blockList)}</span></div>`;
+        }).join('');
+        return `<div class="reports-line-card"><div class="reports-line-card-title"><span class="reports-line-dot" style="background:${color}"></span>${_escapeHtml(label)}</div>${lines}</div>`;
+      });
       html += '</div></div>';
+    }
+
+    if (scans.length > 0) {
+      html += `<div class="reports-detail-section"><div class="reports-detail-section-title">Claim Scans</div><div class="reports-scan-grid">${scans.map((scan) => {
+        const assignmentSummary = scan.assignment_summary || {};
+        const summaryText = Object.entries(assignmentSummary).map(([task, count]) => `${STATUS_LABELS[task] || task}: ${count}`).join(' • ');
+        return `
+          <article class="reports-scan-card">
+            ${scan.image_url ? `<img src="${scan.image_url}" alt="Claim scan for ${scan.power_block_name || 'report'}">` : '<div class="reports-scan-empty">No image</div>'}
+            <div class="reports-scan-meta">${_escapeHtml(scan.power_block_name || 'Power Block')} • ${_escapeHtml((scan.people || []).join(', ') || 'No crew listed')}</div>
+            <div class="reports-line-copy" style="margin-top:6px;">${_escapeHtml(summaryText || 'No assignment summary')}</div>
+          </article>`;
+      }).join('')}</div></div>`;
+    }
+
+    if (rawEntries.length > 0) {
+      html += `<div class="reports-detail-section"><div class="reports-detail-section-title">Detailed Log</div><div style="overflow:auto;"><table class="lbd-tbl" style="min-width:700px;"><thead><tr><th class="lbd-tbl-th">Worker</th><th class="lbd-tbl-th">Task</th><th class="lbd-tbl-th">Power Block</th><th class="lbd-tbl-th">Date</th><th class="lbd-tbl-th">Logged By</th></tr></thead><tbody>${rawEntries.map((entry) => `
+        <tr class="lbd-tbl-row"><td class="lbd-tbl-name">${_escapeHtml(entry.worker_name || '')}</td><td class="lbd-tbl-td">${_escapeHtml(STATUS_LABELS[entry.task_type] || entry.task_type || '')}</td><td class="lbd-tbl-td">${_escapeHtml(entry.power_block_name || '')}</td><td class="lbd-tbl-td">${_escapeHtml(entry.work_date || '')}</td><td class="lbd-tbl-td">${_escapeHtml(entry.logged_by || '')}</td></tr>`).join('')}</tbody></table></div></div>`;
+    }
+
+    if (!Number(data.total_entries || 0) && scans.length === 0) {
+      html += '<div class="reports-empty-copy">No work was logged for this day.</div>';
     }
 
     html += '</div>';

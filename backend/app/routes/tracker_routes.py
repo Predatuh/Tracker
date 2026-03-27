@@ -7,11 +7,15 @@ from app.models import PowerBlock, LBD, LBDStatus
 from app.models.tracker import Tracker
 from app.models.site_area import SiteArea
 from app.models.user import User, is_claim_eligible_role
-from app.models.worker import Worker
+from app.models.worker import Worker, WorkEntry
 from app.models.admin_settings import AdminSettings
-from datetime import datetime
+from datetime import date, datetime
+import pytz
 import re
 from app.utils.tracker_access import allowed_tracker_ids, current_session_user, guest_session_active, resolve_accessible_tracker
+
+
+CST = pytz.timezone('America/Chicago')
 
 
 def _get_socketio():
@@ -33,6 +37,10 @@ def _is_admin_user(user=None):
     return bool(user and (user.is_admin or user.normalized_role() == 'admin'))
 
 
+def _cst_today():
+    return datetime.now(CST).date()
+
+
 def _block_has_claim(block):
     if not block:
         return False
@@ -43,8 +51,6 @@ def _claim_permission_for_action(action, block=None):
     normalized_action = str(action or 'claim').strip().lower() or 'claim'
     if normalized_action == 'unclaim':
         return 'claim_delete'
-    if normalized_action == 'claim' and _block_has_claim(block):
-        return 'claim_edit'
     return 'claim_create'
 
 
@@ -156,6 +162,50 @@ def _normalize_people(people):
     return normalized
 
 
+def _merge_claim_people(*name_lists):
+    merged = []
+    for name_list in name_lists:
+        merged.extend(name_list or [])
+    return _normalize_people(merged)
+
+
+def _parse_claim_work_date(raw_value):
+    if isinstance(raw_value, date):
+        return raw_value
+
+    raw = str(raw_value or '').strip()
+    if not raw:
+        return _cst_today()
+
+    try:
+        return date.fromisoformat(raw)
+    except ValueError as exc:
+        raise ValueError('Invalid work_date, use YYYY-MM-DD') from exc
+
+
+def _resolve_claim_tracker_for_block(block, requested_tracker_id=None, user=None):
+    user = user or current_session_user()
+    if requested_tracker_id:
+        tracker = resolve_accessible_tracker(requested_tracker_id, user=user)
+        if not tracker:
+            return None
+        block_tracker_ids = {lbd.tracker_id for lbd in block.lbds if lbd.tracker_id}
+        if not block_tracker_ids or tracker.id in block_tracker_ids or _is_admin_user(user):
+            return tracker
+        return None
+    return _resolve_tracker()
+
+
+def _block_accessible_lbd_ids(block, tracker=None, user=None):
+    user = user or current_session_user()
+    if tracker:
+        return [lbd.id for lbd in block.lbds if lbd.tracker_id == tracker.id or lbd.tracker_id is None]
+    if _is_admin_user(user):
+        return [lbd.id for lbd in block.lbds]
+    allowed_ids = _allowed_tracker_id_set()
+    return [lbd.id for lbd in block.lbds if lbd.tracker_id in allowed_ids or lbd.tracker_id is None]
+
+
 def _claim_payload(block):
     claimed_people = block.get_claimed_people()
     return {
@@ -253,18 +303,61 @@ def _ensure_claim_workers(names):
         for (name,) in db.session.query(Worker.name).all()
         if name
     }
-    existing_users = {
-        name.casefold()
-        for (name,) in db.session.query(User.name).all()
-        if name
-    }
 
     for name in normalized:
         folded = name.casefold()
-        if folded in existing_workers or folded in existing_users:
+        if folded in existing_workers:
             continue
         db.session.add(Worker(name=name, is_active=True))
         existing_workers.add(folded)
+
+
+def _record_claim_work_entries(block, people, assignments, work_date, actor=None, tracker=None):
+    normalized_people = _normalize_people(people)
+    normalized_assignments = _normalize_claim_assignments(assignments)
+    if not block or not normalized_people or not normalized_assignments:
+        return {'created': 0, 'skipped': 0}
+
+    _ensure_claim_workers(normalized_people)
+    db.session.flush()
+
+    workers_by_name = {
+        worker.name.casefold(): worker
+        for worker in Worker.query.filter(Worker.name.in_(normalized_people)).all()
+    }
+
+    tracker_id = tracker.id if tracker else None
+    created = 0
+    skipped = 0
+
+    for status_type, lbd_ids in normalized_assignments.items():
+        if not lbd_ids:
+            continue
+        for person in normalized_people:
+            worker = workers_by_name.get(person.casefold())
+            if not worker:
+                continue
+            exists = WorkEntry.query.filter_by(
+                worker_id=worker.id,
+                power_block_id=block.id,
+                tracker_id=tracker_id,
+                task_type=status_type,
+                work_date=work_date,
+            ).first()
+            if exists:
+                skipped += 1
+                continue
+            db.session.add(WorkEntry(
+                worker_id=worker.id,
+                power_block_id=block.id,
+                tracker_id=tracker_id,
+                task_type=status_type,
+                work_date=work_date,
+                logged_by=actor,
+            ))
+            created += 1
+
+    return {'created': created, 'skipped': skipped}
 
 
 def _apply_claim_assignments_to_statuses(block, assignments, actor=None):
@@ -355,7 +448,7 @@ def _resolve_bulk_claim_assignments(block, data):
     }
 
 
-def _apply_block_claim(block, action, actor, requested_people=None, assignments=None):
+def _apply_block_claim(block, action, actor, requested_people=None, assignments=None, tracker=None):
     requested_people = requested_people or []
     if not isinstance(requested_people, list):
         requested_people = [requested_people]
@@ -372,15 +465,21 @@ def _apply_block_claim(block, action, actor, requested_people=None, assignments=
 
     _validate_claim_people(people, extra_names=block.get_claimed_people())
 
-    valid_lbd_ids = [lbd.id for lbd in block.lbds if _lbd_is_accessible(lbd)]
+    valid_lbd_ids = _block_accessible_lbd_ids(block, tracker=tracker)
     normalized_assignments = _normalize_claim_assignments(assignments or {}, valid_lbd_ids)
     completed_assignments = _completed_claim_assignments(block, valid_lbd_ids)
-    merged_assignments = _merge_claim_assignments(completed_assignments, normalized_assignments)
+    merged_assignments = _merge_claim_assignments(block.get_claim_assignments(), completed_assignments, normalized_assignments)
+    merged_people = _merge_claim_people(block.get_claimed_people(), people)
     block.claimed_by = actor or people[0]
-    block.set_claim_state(people, merged_assignments)
+    block.set_claim_state(merged_people, merged_assignments)
     block.claimed_at = datetime.utcnow()
     _ensure_claim_workers(people)
-    return _apply_claim_assignments_to_statuses(block, normalized_assignments, actor)
+    return {
+        'merged_people': merged_people,
+        'normalized_assignments': normalized_assignments,
+        'merged_assignments': merged_assignments,
+        'status_updates': _apply_claim_assignments_to_statuses(block, normalized_assignments, actor),
+    }
 
 
 def _emit_claim_updates(block_payloads, status_updates):
@@ -740,21 +839,48 @@ def claim_power_block(block_id):
         if not _can_manage_claim(action, block):
             return jsonify({'error': 'Permission denied'}), 403
         actor  = _current_user_name() or str(data.get('actor_name') or '').strip() or None
-        status_updates = _apply_block_claim(
+        tracker = _resolve_claim_tracker_for_block(block, data.get('tracker_id'))
+        if data.get('tracker_id') and not tracker and not _is_admin_user():
+            return jsonify({'error': 'That tracker is not accessible for this power block'}), 403
+        work_date = _parse_claim_work_date(data.get('work_date'))
+        claim_result = _apply_block_claim(
             block,
             action,
             actor,
             requested_people=data.get('people') or [],
             assignments=data.get('assignments') or {},
+            tracker=tracker,
         )
+
+        work_entries = {'created': 0, 'skipped': 0}
+        if action != 'unclaim':
+            work_entries = _record_claim_work_entries(
+                block,
+                data.get('people') or [],
+                claim_result['normalized_assignments'],
+                work_date,
+                actor=actor,
+                tracker=tracker,
+            )
 
         db.session.commit()
         payload = _claim_payload(block)
-        _emit_claim_updates([(block_id, payload)], status_updates)
+        _emit_claim_updates([(block_id, payload)], claim_result['status_updates'])
+
+        if action != 'unclaim' and claim_result['normalized_assignments']:
+            try:
+                from app.routes.report_routes import _get_or_generate_report
+                _get_or_generate_report(work_date, tracker.id if tracker else None)
+            except Exception:
+                pass
 
         return jsonify({
             'success': True,
-            'data': payload
+            'data': {
+                **payload,
+                'work_date': work_date.isoformat(),
+                'work_entries': work_entries,
+            }
         }), 200
     except ValueError as exc:
         db.session.rollback()
@@ -804,42 +930,71 @@ def bulk_claim_power_blocks():
             return jsonify({'error': f'Power block not found: {missing_ids[0]}'}), 404
         if inaccessible_ids:
             return jsonify({'error': 'One or more selected power blocks are not accessible for your job site'}), 403
-        required_permission = 'claim_delete' if action == 'unclaim' else ('claim_edit' if any(_block_has_claim(blocks_by_id[block_id]) for block_id in block_ids) else 'claim_create')
+        required_permission = 'claim_delete' if action == 'unclaim' else 'claim_create'
         user = current_session_user()
         if not (user and (_is_admin_user(user) or user.has_permission(required_permission))):
             return jsonify({'error': 'Permission denied'}), 403
 
         requested_people = data.get('people') or []
+        tracker = resolve_accessible_tracker(data.get('tracker_id'), user=user) if data.get('tracker_id') else _resolve_tracker()
+        if data.get('tracker_id') and not tracker and not _is_admin_user(user):
+            return jsonify({'error': 'That tracker is not accessible for this request'}), 403
+        work_date = _parse_claim_work_date(data.get('work_date'))
         claimed_blocks = []
         claim_payloads = []
         all_status_updates = []
+        total_created = 0
+        total_skipped = 0
 
         for block_id in block_ids:
             block = blocks_by_id[block_id]
             assignments = _resolve_bulk_claim_assignments(block, data)
-            status_updates = _apply_block_claim(
+            claim_result = _apply_block_claim(
                 block,
                 action,
                 actor,
                 requested_people=requested_people,
                 assignments=assignments,
+                tracker=tracker,
             )
+            work_entries = {'created': 0, 'skipped': 0}
+            if action != 'unclaim':
+                work_entries = _record_claim_work_entries(
+                    block,
+                    requested_people,
+                    claim_result['normalized_assignments'],
+                    work_date,
+                    actor=actor,
+                    tracker=tracker,
+                )
             payload = _claim_payload(block)
             claim_payloads.append((block.id, payload))
             claimed_blocks.append({
                 'id': block.id,
                 'name': block.name,
+                'work_entries': work_entries,
                 **payload,
             })
-            all_status_updates.extend(status_updates)
+            all_status_updates.extend(claim_result['status_updates'])
+            total_created += work_entries['created']
+            total_skipped += work_entries['skipped']
 
         db.session.commit()
         _emit_claim_updates(claim_payloads, all_status_updates)
+
+        if action != 'unclaim' and any(block['work_entries']['created'] or block['work_entries']['skipped'] for block in claimed_blocks):
+            try:
+                from app.routes.report_routes import _get_or_generate_report
+                _get_or_generate_report(work_date, tracker.id if tracker else None)
+            except Exception:
+                pass
 
         return jsonify({
             'success': True,
             'data': {
                 'count': len(claimed_blocks),
+                'work_date': work_date.isoformat(),
+                'work_entries': {'created': total_created, 'skipped': total_skipped},
                 'blocks': claimed_blocks,
             }
         }), 200
