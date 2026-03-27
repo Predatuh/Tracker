@@ -106,8 +106,10 @@ const api = {
     return this.call(this._tq('/tracker/power-blocks'));
   },
 
-  getPowerBlock(id) {
-    return this.call(`/tracker/power-blocks/${id}`);
+  getPowerBlock(id, trackerId = null) {
+    const resolvedTrackerId = trackerId ?? currentTracker?.id ?? null;
+    const query = resolvedTrackerId ? `?tracker_id=${encodeURIComponent(resolvedTrackerId)}` : '';
+    return this.call(`/tracker/power-blocks/${id}${query}`);
   },
 
   createLBD(data) {

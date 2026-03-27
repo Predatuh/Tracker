@@ -123,15 +123,25 @@ def _block_is_accessible(block):
     return bool(block_tracker_ids & allowed_ids) or has_unassigned
 
 
-def _serialize_accessible_block(block):
+def _serialize_accessible_block(block, tracker=None):
     user = current_session_user()
-    if _is_admin_user(user):
-        return block.to_dict()
-    allowed_ids = _allowed_tracker_id_set()
     payload = block.to_dict()
-    visible_lbds = [lbd for lbd in payload.get('lbds', []) if lbd.get('tracker_id') in allowed_ids or lbd.get('tracker_id') is None]
+    if tracker:
+        visible_lbds = [
+            lbd for lbd in payload.get('lbds', [])
+            if lbd.get('tracker_id') == tracker.id or lbd.get('tracker_id') is None
+        ]
+    elif _is_admin_user(user):
+        visible_lbds = list(payload.get('lbds', []))
+    else:
+        allowed_ids = _allowed_tracker_id_set()
+        visible_lbds = [
+            lbd for lbd in payload.get('lbds', [])
+            if lbd.get('tracker_id') in allowed_ids or lbd.get('tracker_id') is None
+        ]
     payload['lbds'] = visible_lbds
     payload['lbd_count'] = len(visible_lbds)
+    payload.update(_claim_payload(block, [lbd.get('id') for lbd in visible_lbds]))
 
     summary = {'total': len(visible_lbds)}
     for col in AdminSettings.all_column_keys():
@@ -207,14 +217,18 @@ def _block_accessible_lbd_ids(block, tracker=None, user=None):
     return [lbd.id for lbd in block.lbds if lbd.tracker_id in allowed_ids or lbd.tracker_id is None]
 
 
-def _claim_payload(block):
-    claimed_people = block.get_claimed_people()
+def _claim_payload(block, visible_lbd_ids=None):
+    assignments = block.get_claim_assignments()
+    if visible_lbd_ids is not None:
+        assignments = _normalize_claim_assignments(assignments, visible_lbd_ids)
+    claimed_people = block.get_claimed_people() if assignments else []
+    claimed_by = block.claimed_by if assignments else None
     return {
-        'claimed_by': block.claimed_by,
+        'claimed_by': claimed_by,
         'claimed_people': claimed_people,
-        'claim_assignments': block.get_claim_assignments(),
+        'claim_assignments': assignments,
         'claimed_label': ', '.join(claimed_people),
-        'claimed_at': block.claimed_at.isoformat() if block.claimed_at else None,
+        'claimed_at': block.claimed_at.isoformat() if assignments and block.claimed_at else None,
     }
 
 
@@ -615,11 +629,7 @@ def get_power_blocks():
                 'ifc_filename': b.ifc_pdf_filename if can_view_ifc else None,
                 'ifc_url': f'/api/tracker/power-blocks/{b.id}/ifc' if can_view_ifc and b.ifc_pdf_data else None,
                 'is_completed': b.is_completed,
-                'claimed_by': b.claimed_by,
-                'claimed_people': b.get_claimed_people(),
-                'claim_assignments': b.get_claim_assignments(),
-                'claimed_label': ', '.join(b.get_claimed_people()),
-                'claimed_at': b.claimed_at.isoformat() if b.claimed_at else None,
+                **_claim_payload(b, [lbd['id'] for lbd in pb_lbds]),
                 'last_updated_by': b.last_updated_by,
                 'last_updated_at': b.last_updated_at.isoformat() if b.last_updated_at else None,
                 'lbd_count': lbd_count,
@@ -639,6 +649,7 @@ def get_power_blocks():
 def get_power_block(block_id):
     """Get specific power block with all LBDs"""
     try:
+        tracker = _resolve_tracker()
         block = PowerBlock.query.options(
             subqueryload(PowerBlock.lbds).subqueryload(LBD.statuses)
         ).get_or_404(block_id)
@@ -646,7 +657,7 @@ def get_power_block(block_id):
             return jsonify({'error': 'That power block is not accessible for your job site'}), 403
         return jsonify({
             'success': True,
-            'data': _serialize_accessible_block(block)
+            'data': _serialize_accessible_block(block, tracker=tracker)
         }), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500

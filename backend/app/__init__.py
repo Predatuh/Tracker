@@ -601,9 +601,9 @@ def _seed_trackers(app):
         inv_tracker = Tracker(
             name='Inverter DC Landing',
             slug='inverter-dc',
-            item_name_singular='Inverter',
-            item_name_plural='Inverters',
-            stat_label='Inverters Landed',
+            item_name_singular='LBD',
+            item_name_plural='LBDs',
+            stat_label='Total LBDs',
             job_site_name=job_site['name'],
             icon='⚡',
             sort_order=1,
@@ -617,5 +617,19 @@ def _seed_trackers(app):
     elif inv_tracker.job_site_name != job_site['name']:
         inv_tracker.job_site_name = job_site['name']
         db.session.commit()
+
+    inv_tracker_changed = False
+    if inv_tracker.item_name_singular != 'LBD':
+        inv_tracker.item_name_singular = 'LBD'
+        inv_tracker_changed = True
+    if inv_tracker.item_name_plural != 'LBDs':
+        inv_tracker.item_name_plural = 'LBDs'
+        inv_tracker_changed = True
+    if inv_tracker.stat_label != 'Total LBDs':
+        inv_tracker.stat_label = 'Total LBDs'
+        inv_tracker_changed = True
+    if inv_tracker_changed:
+        db.session.commit()
+        app.logger.info(f'Updated Inverter DC Landing tracker labels (id={inv_tracker.id})')
 
 
