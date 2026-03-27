@@ -662,6 +662,29 @@ body::after {
   box-shadow: 0 0 0 2px rgba(0,212,255,0.12), inset 0 0 0 1px rgba(0,232,122,0.22);
 }
 
+.claim-block-tile.is-partially-claimed {
+  border-color: rgba(0,232,122,0.22);
+  background: linear-gradient(180deg, rgba(0,232,122,0.08), rgba(255,255,255,0.03));
+  box-shadow: 0 0 0 1px rgba(0,232,122,0.08), 0 18px 38px rgba(0,0,0,0.22);
+}
+
+.claim-block-tile.is-fully-claimed {
+  border-color: rgba(0,232,122,0.42);
+  background: linear-gradient(180deg, rgba(0,232,122,0.16), rgba(0,232,122,0.06));
+  box-shadow: 0 0 0 1px rgba(0,232,122,0.18), 0 0 28px rgba(0,232,122,0.16), 0 20px 42px rgba(0,0,0,0.24);
+}
+
+.claim-block-tile.is-fully-claimed:hover {
+  border-color: rgba(0,232,122,0.52);
+  box-shadow: 0 0 0 1px rgba(0,232,122,0.2), 0 0 34px rgba(0,232,122,0.22), 0 22px 44px rgba(0,0,0,0.26);
+}
+
+.claim-block-tile.is-selected.is-fully-claimed {
+  border-color: rgba(0,232,122,0.52);
+  background: linear-gradient(180deg, rgba(0,232,122,0.18), rgba(0,232,122,0.08));
+  box-shadow: 0 0 0 2px rgba(0,232,122,0.18), 0 0 34px rgba(0,232,122,0.2), 0 20px 42px rgba(0,0,0,0.24);
+}
+
 .claim-block-tile-top,
 .claim-block-meta-row,
 .claim-block-tile-controls,
@@ -714,6 +737,15 @@ body::after {
 
 .claim-block-status.is-claimed {
   color: #8adfff;
+}
+
+.claim-block-claim-copy {
+  font-size: 11px;
+  color: rgba(238,242,255,0.6);
+}
+
+.claim-block-claim-copy.is-fully-claimed {
+  color: #7ef7b2;
 }
 
 .claim-block-count {

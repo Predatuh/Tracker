@@ -4937,6 +4937,30 @@ function blockHasClaim(block) {
   return Boolean(block.claimed_by || claimedPeople.length || assignments);
 }
 
+function claimClaimedLbdCount(block) {
+  if (!block || !block.claim_assignments || typeof block.claim_assignments !== 'object') return 0;
+  const claimedIds = new Set();
+  Object.values(block.claim_assignments).forEach((ids) => {
+    if (!Array.isArray(ids)) return;
+    ids.forEach((value) => {
+      const id = Number(value);
+      if (Number.isFinite(id) && id > 0) claimedIds.add(id);
+    });
+  });
+  return claimedIds.size;
+}
+
+function claimBlockClaimProgress(block) {
+  const totalItems = Number(block?.lbd_count || 0);
+  if (!totalItems) return 0;
+  return Math.max(0, Math.min(1, claimClaimedLbdCount(block) / totalItems));
+}
+
+function claimBlockIsFullyClaimed(block) {
+  const totalItems = Number(block?.lbd_count || 0);
+  return totalItems > 0 && claimClaimedLbdCount(block) >= totalItems;
+}
+
 function claimBlockNumber(block) {
   const raw = block.power_block_number || block.name || '';
   const match = String(raw).match(/\d+/);
@@ -4994,8 +5018,6 @@ function claimFilteredBlocks() {
 
   if (claimPageState.statusFilter === 'unclaimed') {
     filtered = filtered.filter((block) => !blockHasClaim(block));
-    
-    const claimed = blockHasClaim(block) ? `<span class="pb-claimed-pill">👥 ${_escapeHtml(block.claimed_label || (Array.isArray(block.claimed_people) ? block.claimed_people.join(', ') : '') || block.claimed_by || 'Crew')}</span>` : '';
   } else if (claimPageState.statusFilter === 'recently_claimed') {
     filtered = filtered.filter((block) => !!block.claimed_at);
   } else if (claimPageState.statusFilter === 'in_progress') {
@@ -5737,14 +5759,22 @@ function renderClaimPage() {
   const blockTiles = filtered.map((block) => {
     const selected = selectedBlock && Number(selectedBlock.id) === Number(block.id);
     const checked = selectedBlockIds.has(Number(block.id));
+    const claimedLbdCount = claimClaimedLbdCount(block);
+    const claimProgress = claimBlockClaimProgress(block);
+    const fullyClaimed = claimBlockIsFullyClaimed(block);
     const claimLabel = blockHasClaim(block)
       ? `Claimed by ${_escapeHtml(block.claimed_label || (Array.isArray(block.claimed_people) ? block.claimed_people.join(', ') : '') || block.claimed_by || 'Crew')}`
       : 'Ready to claim';
+    const claimProgressLabel = fullyClaimed
+      ? `All ${block.lbd_count || 0} ${getPowerBlockCountLabel(block.lbd_count || 0)} claimed`
+      : (claimedLbdCount > 0
+        ? `${claimedLbdCount}/${block.lbd_count || 0} ${getPowerBlockCountLabel(block.lbd_count || 0)} claimed`
+        : 'No live claim on this block');
     const zoneText = block.zone ? _escapeHtml(block.zone) : 'Unzoned';
     const progressSteps = Number(block.lbd_count || 0) * LBD_STATUS_TYPES.length;
     const completedSteps = claimCompletedSteps(block);
     const progressPct = progressSteps > 0 ? Math.round((completedSteps / progressSteps) * 100) : 0;
-    return `<button type="button" class="claim-block-tile${selected ? ' is-selected' : ''}${checked ? ' is-checked' : ''}" onclick="claimSelectBlock(${block.id})">
+    return `<button type="button" class="claim-block-tile${selected ? ' is-selected' : ''}${checked ? ' is-checked' : ''}${fullyClaimed ? ' is-fully-claimed' : ''}${claimProgress > 0 && !fullyClaimed ? ' is-partially-claimed' : ''}" onclick="claimSelectBlock(${block.id})">
       <div class="claim-block-tile-top">
         <span class="claim-block-name">${_escapeHtml(block.name)}</span>
         <span class="claim-block-zone">${zoneText}</span>
@@ -5756,6 +5786,7 @@ function renderClaimPage() {
         </label>
       </div>
       <div class="claim-block-status${blockHasClaim(block) ? ' is-claimed' : ''}">${claimLabel}</div>
+      <div class="claim-block-claim-copy${fullyClaimed ? ' is-fully-claimed' : ''}">${_escapeHtml(claimProgressLabel)}</div>
       <div class="claim-block-meta-row">
         <span class="claim-block-count">${block.lbd_count || 0} ${getPowerBlockCountLabel(block.lbd_count || 0)}</span>
         <span class="claim-block-progress">${progressPct}% complete</span>
