@@ -2277,22 +2277,8 @@ function _setLoginButtonLabel(text) {
 async function _finalizeAuthenticatedSession(user) {
   currentUser = user;
   assignSessionCrown(true);
-  _applyRoleUI();
-  _initSocket();
-  setAppShellVisible(true);
-  hideLoginModal();
-  showPage('dashboard');
-
-  try {
-    await loadTrackers();
-    syncActiveTracker(true);
-    await loadAdminSettings();
-    if (document.getElementById('page-dashboard')?.classList.contains('active')) {
-      await loadDashboard();
-    }
-  } catch (e) {
-    console.warn('Failed to refresh post-auth data:', e);
-  }
+  try { sessionStorage.removeItem(SESSION_CROWN_KEY); } catch (e) {}
+  window.location.reload();
 }
 
 async function submitLogin() {
