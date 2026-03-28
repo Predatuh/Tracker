@@ -175,7 +175,10 @@ def _resolve_block_tracker(block, requested_tracker_id=None, user=None):
 
 def _block_accessible_lbd_ids(block, tracker=None):
     if tracker:
-        return [lbd.id for lbd in block.lbds if lbd.tracker_id == tracker.id]
+        exact_ids = [lbd.id for lbd in block.lbds if lbd.tracker_id == tracker.id]
+        if exact_ids:
+            return exact_ids
+        return [lbd.id for lbd in block.lbds if lbd.tracker_id is None]
     if _is_admin_user():
         return [lbd.id for lbd in block.lbds]
     allowed_ids = _allowed_tracker_id_set()

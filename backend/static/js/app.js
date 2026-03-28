@@ -2723,7 +2723,12 @@ function getMapPBVisualState(pb) {
   const completedTypes = [];
   const partialTypes = [];
 
-  for (const st of LBD_STATUS_TYPES) {
+  // When a tracker is active, evaluate completion only against its status types
+  const effectiveStatusTypes = (currentTracker && Array.isArray(currentTracker.status_types) && currentTracker.status_types.length)
+    ? currentTracker.status_types
+    : LBD_STATUS_TYPES;
+
+  for (const st of effectiveStatusTypes) {
     const done = Number(summary[st] || 0);
     if (total > 0 && done >= total) {
       completedTypes.push(st);
@@ -2732,7 +2737,8 @@ function getMapPBVisualState(pb) {
     }
   }
 
-  const allDone = total > 0 && lbds.filter((lbd) => isLBDComplete(lbd)).length === total;
+  // A block is fully done when every tracker status type is 100% completed
+  const allDone = total > 0 && completedTypes.length === effectiveStatusTypes.length && completedTypes.length > 0;
   const inProgress = completedTypes.length > 0 || partialTypes.length > 0;
   return { total, summary, completedTypes, partialTypes, allDone, inProgress };
 }

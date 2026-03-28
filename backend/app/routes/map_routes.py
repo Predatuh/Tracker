@@ -539,9 +539,15 @@ def get_map_status(map_id):
     try:
         from app.models import LBD, LBDStatus
         from app.models.admin_settings import AdminSettings
+        from app.models.tracker import LBDTracker
 
         site_map = SiteMap.query.get_or_404(map_id)
         areas = SiteArea.query.filter_by(site_map_id=map_id).all()
+
+        # Optional tracker filter for tracker-aware completion
+        tracker_id = request.args.get('tracker_id', type=int)
+        tracker = LBDTracker.query.get(tracker_id) if tracker_id else None
+        tracker_cols = tracker.all_column_keys() if tracker else None
 
         # Get all power blocks in one query
         pb_ids = [a.power_block_id for a in areas if a.power_block_id]
@@ -551,7 +557,7 @@ def get_map_status(map_id):
             blocks_map = {b.id: b for b in blocks}
 
         # Bulk: LBD count and completed status counts per pb
-        all_cols = AdminSettings.all_column_keys()
+        all_cols = tracker_cols if tracker_cols else AdminSettings.all_column_keys()
         completed_counts = {}
         lbd_counts = {}
         if pb_ids:
@@ -577,14 +583,19 @@ def get_map_status(map_id):
                 pb_completed = completed_counts.get(block.id, {})
                 for col in all_cols:
                     summary[col] = pb_completed.get(col, 0)
+                # Compute tracker-aware completion when tracker is specified
+                if tracker_cols and total > 0:
+                    is_completed = all(summary.get(col, 0) >= total for col in tracker_cols)
+                else:
+                    is_completed = block.is_completed
                 status_data.append({
                     'area_id': area.id,
                     'area_name': area.name,
                     'svg_element_id': area.svg_element_id,
                     'power_block_id': block.id,
                     'block_name': block.name,
-                    'is_completed': block.is_completed,
-                    'completion_color': '#2ecc71' if block.is_completed else '#95a5a6',
+                    'is_completed': is_completed,
+                    'completion_color': '#2ecc71' if is_completed else '#95a5a6',
                     'lbd_summary': summary,
                     'has_ifc': bool(block.ifc_pdf_data),
                     'ifc_url': f'/api/tracker/power-blocks/{block.id}/ifc' if block.ifc_pdf_data else None,
