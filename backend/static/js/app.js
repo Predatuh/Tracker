@@ -6315,7 +6315,155 @@ async function rp_showDetail(dateStr, syncSelection = true, ensure = true) {
     const rawEntries = Array.isArray(data.raw_entries) ? data.raw_entries : [];
     const dateTitle = rp_formatDate(dateStr, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 
+    const uniqueTextValues = (values) => {
+      const seen = new Set();
+      const result = [];
+      (values || []).forEach((value) => {
+        const normalized = String(value || '').trim();
+        if (!normalized) return;
+        const key = normalized.toLowerCase();
+        if (seen.has(key)) return;
+        seen.add(key);
+        result.push(normalized);
+      });
+      return result;
+    };
     const renderLineItems = (items, formatter) => Object.entries(items).map(([key, value]) => formatter(key, value)).join('');
+    const summarizeList = (values, previewCount = 4) => {
+      const normalized = uniqueTextValues(values);
+      if (!normalized.length) return 'None recorded';
+      const preview = normalized.slice(0, previewCount).join(', ');
+      const remaining = normalized.length - previewCount;
+      return remaining > 0 ? `${preview} +${remaining} more` : preview;
+    };
+    const collectTaskBlocks = (taskMap) => {
+      const blocks = [];
+      Object.values(taskMap || {}).forEach((entries) => {
+        if (Array.isArray(entries)) {
+          blocks.push(...entries);
+        } else if (entries) {
+          blocks.push(entries);
+        }
+      });
+      return uniqueTextValues(blocks);
+    };
+    const collectTaskWorkers = (taskMap) => uniqueTextValues(Object.keys(taskMap || {}));
+    const sumTaskAssignments = (taskMap) => Object.values(taskMap || {}).reduce((total, entries) => {
+      if (Array.isArray(entries)) return total + entries.length;
+      return entries ? total + 1 : total;
+    }, 0);
+    const topTaskSnapshot = Object.entries(byTask)
+      .map(([task, workerMap]) => ({
+        task,
+        workerCount: collectTaskWorkers(workerMap).length,
+        blockCount: collectTaskBlocks(workerMap).length,
+        assignmentCount: sumTaskAssignments(workerMap),
+      }))
+      .sort((left, right) => right.assignmentCount - left.assignmentCount)[0];
+    const topBlockSnapshot = Object.entries(byPowerBlock)
+      .map(([powerBlock, taskMap]) => ({
+        powerBlock,
+        taskCount: Object.keys(taskMap || {}).length,
+        assignmentCount: sumTaskAssignments(taskMap),
+      }))
+      .sort((left, right) => right.assignmentCount - left.assignmentCount)[0];
+    const topWorkerSnapshot = Object.entries(byWorker)
+      .map(([worker, taskMap]) => ({
+        worker,
+        taskCount: Object.keys(taskMap || {}).length,
+        blockCount: collectTaskBlocks(taskMap).length,
+        assignmentCount: sumTaskAssignments(taskMap),
+      }))
+      .sort((left, right) => right.assignmentCount - left.assignmentCount)[0];
+
+    const workerCardsHtml = Object.entries(byWorker)
+      .sort((left, right) => sumTaskAssignments(right[1]) - sumTaskAssignments(left[1]))
+      .map(([worker, taskMap]) => {
+        const taskEntries = Object.entries(taskMap || {});
+        const blockNames = collectTaskBlocks(taskMap);
+        const totalAssignments = sumTaskAssignments(taskMap);
+        const pills = taskEntries.map(([task, blocks]) => {
+          const label = STATUS_LABELS[task] || task;
+          const color = STATUS_COLORS[task] || '#4f8cff';
+          const count = Array.isArray(blocks) ? blocks.length : (blocks ? 1 : 0);
+          return `<span class="reports-status-pill" style="--report-pill:${color}">${_escapeHtml(label)} · ${count}</span>`;
+        }).join('');
+        const lines = taskEntries.map(([task, blocks]) => {
+          const label = STATUS_LABELS[task] || task;
+          const blockList = Array.isArray(blocks) ? blocks : [blocks].filter(Boolean);
+          return `<div class="reports-line-item"><span class="reports-line-dot" style="background:${STATUS_COLORS[task] || '#4f8cff'}"></span><span class="reports-line-label">${_escapeHtml(label)}</span><span class="reports-line-copy">${_escapeHtml(summarizeList(blockList, 5))}</span></div>`;
+        }).join('');
+        return `
+          <article class="reports-insight-card">
+            <div class="reports-insight-card-head">
+              <div>
+                <div class="reports-insight-title">${_escapeHtml(worker)}</div>
+                <div class="reports-insight-meta">${blockNames.length} blocks · ${taskEntries.length} task types</div>
+              </div>
+              <div class="reports-insight-count">${totalAssignments}</div>
+            </div>
+            ${pills ? `<div class="reports-pill-row">${pills}</div>` : ''}
+            <div class="reports-detail-stack reports-detail-stack-compact">${lines}</div>
+          </article>`;
+      }).join('');
+
+    const blockCardsHtml = Object.entries(byPowerBlock)
+      .sort((left, right) => sumTaskAssignments(right[1]) - sumTaskAssignments(left[1]))
+      .map(([powerBlock, taskMap]) => {
+        const taskEntries = Object.entries(taskMap || {});
+        const workerNames = uniqueTextValues(taskEntries.flatMap(([, workersForTask]) => Array.isArray(workersForTask) ? workersForTask : [workersForTask]));
+        const pills = taskEntries.map(([task, workersForTask]) => {
+          const label = STATUS_LABELS[task] || task;
+          const color = STATUS_COLORS[task] || '#4f8cff';
+          const count = Array.isArray(workersForTask) ? workersForTask.length : (workersForTask ? 1 : 0);
+          return `<span class="reports-status-pill" style="--report-pill:${color}">${_escapeHtml(label)} · ${count}</span>`;
+        }).join('');
+        const lines = taskEntries.map(([task, workersForTask]) => {
+          const label = STATUS_LABELS[task] || task;
+          const workerList = Array.isArray(workersForTask) ? workersForTask : [workersForTask].filter(Boolean);
+          return `<div class="reports-line-item"><span class="reports-line-dot" style="background:${STATUS_COLORS[task] || '#4f8cff'}"></span><span class="reports-line-label">${_escapeHtml(label)}</span><span class="reports-line-copy">${_escapeHtml(summarizeList(workerList, 5))}</span></div>`;
+        }).join('');
+        return `
+          <article class="reports-insight-card reports-insight-card-block">
+            <div class="reports-insight-card-head">
+              <div>
+                <div class="reports-insight-title">${_escapeHtml(powerBlock)}</div>
+                <div class="reports-insight-meta">${workerNames.length} crew members involved</div>
+              </div>
+              <div class="reports-insight-count">${sumTaskAssignments(taskMap)}</div>
+            </div>
+            ${pills ? `<div class="reports-pill-row">${pills}</div>` : ''}
+            <div class="reports-detail-stack reports-detail-stack-compact">${lines || '<div class="reports-line-copy">No task rows</div>'}</div>
+          </article>`;
+      }).join('');
+
+    const taskCardsHtml = Object.entries(byTask)
+      .sort((left, right) => sumTaskAssignments(right[1]) - sumTaskAssignments(left[1]))
+      .map(([task, workersByTask]) => {
+        const color = STATUS_COLORS[task] || '#4f8cff';
+        const label = STATUS_LABELS[task] || task;
+        const workerNames = collectTaskWorkers(workersByTask);
+        const blockNames = collectTaskBlocks(workersByTask);
+        const lines = Object.entries(workersByTask || {}).map(([workerName, blocks]) => {
+          const blockList = Array.isArray(blocks) ? blocks : [blocks].filter(Boolean);
+          return `<div class="reports-line-item"><span class="reports-line-label">${_escapeHtml(workerName)}</span><span class="reports-line-copy">${_escapeHtml(summarizeList(blockList, 4))}</span></div>`;
+        }).join('');
+        return `
+          <article class="reports-insight-card">
+            <div class="reports-insight-card-head">
+              <div>
+                <div class="reports-insight-title"><span class="reports-line-dot" style="background:${color}"></span>${_escapeHtml(label)}</div>
+                <div class="reports-insight-meta">${workerNames.length} crew members · ${blockNames.length} blocks</div>
+              </div>
+              <div class="reports-insight-count">${sumTaskAssignments(workersByTask)}</div>
+            </div>
+            <div class="reports-pill-row">
+              <span class="reports-note-pill">Crew: ${_escapeHtml(summarizeList(workerNames, 3))}</span>
+              <span class="reports-note-pill">Blocks: ${_escapeHtml(summarizeList(blockNames, 3))}</span>
+            </div>
+            <div class="reports-detail-stack reports-detail-stack-compact">${lines}</div>
+          </article>`;
+      }).join('');
 
     let html = `
       <div class="reports-detail-card">
@@ -6333,51 +6481,44 @@ async function rp_showDetail(dateStr, syncSelection = true, ensure = true) {
             <div class="reports-detail-stat"><span>${scans.length}</span><small>Claim Scans</small></div>
           </div>
         </div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;">
+        <div class="reports-detail-actions">
           <button class="btn btn-primary" onclick="rp_generate('${dateStr}')">Refresh This Day</button>
           <button class="btn btn-secondary" onclick="rp_openPdf(false)">View PDF</button>
           <button class="btn btn-secondary" onclick="rp_openPdf(true)">Download PDF</button>
+        </div>
+        <div class="reports-snapshot-grid">
+          <article class="reports-snapshot-card">
+            <div class="reports-snapshot-label">Lead Contributor</div>
+            <div class="reports-snapshot-value">${_escapeHtml(topWorkerSnapshot?.worker || 'No entries')}</div>
+            <div class="reports-snapshot-copy">${topWorkerSnapshot ? `${topWorkerSnapshot.blockCount} blocks across ${topWorkerSnapshot.taskCount} task types` : 'No worker activity recorded.'}</div>
+          </article>
+          <article class="reports-snapshot-card">
+            <div class="reports-snapshot-label">Top Task</div>
+            <div class="reports-snapshot-value">${_escapeHtml(topTaskSnapshot ? (STATUS_LABELS[topTaskSnapshot.task] || topTaskSnapshot.task) : 'No task data')}</div>
+            <div class="reports-snapshot-copy">${topTaskSnapshot ? `${topTaskSnapshot.assignmentCount} placements on ${topTaskSnapshot.blockCount} blocks` : 'No task activity recorded.'}</div>
+          </article>
+          <article class="reports-snapshot-card">
+            <div class="reports-snapshot-label">Top Block</div>
+            <div class="reports-snapshot-value">${_escapeHtml(topBlockSnapshot?.powerBlock || 'No block data')}</div>
+            <div class="reports-snapshot-copy">${topBlockSnapshot ? `${topBlockSnapshot.assignmentCount} placements across ${topBlockSnapshot.taskCount} task types` : 'No block activity recorded.'}</div>
+          </article>
+          <article class="reports-snapshot-card">
+            <div class="reports-snapshot-label">Crew Coverage</div>
+            <div class="reports-snapshot-value">${workers.length ? `${workers.length} active` : 'None logged'}</div>
+            <div class="reports-snapshot-copy">${_escapeHtml(summarizeList(workers, 5))}</div>
+          </article>
         </div>`;
 
-    if (Object.keys(byPowerBlock).length > 0) {
-      html += '<div class="reports-detail-section"><div class="reports-detail-section-title">By Power Block</div><div class="reports-detail-stack">';
-      html += renderLineItems(byPowerBlock, (powerBlock, taskMap) => {
-        const lines = Object.entries(taskMap || {}).map(([task, workersForTask]) => {
-          const label = STATUS_LABELS[task] || task;
-          const workerList = Array.isArray(workersForTask) ? workersForTask.join(', ') : String(workersForTask || '');
-          return `<div class="reports-line-item"><span class="reports-line-label">${_escapeHtml(label)}:</span><span class="reports-line-copy">${_escapeHtml(workerList)}</span></div>`;
-        }).join('');
-        return `<div class="reports-line-card"><div class="reports-line-card-title">${_escapeHtml(powerBlock)}</div>${lines || '<div class="reports-line-copy">No task rows</div>'}</div>`;
-      });
-      html += '</div></div>';
+    if (Object.keys(byWorker).length > 0) {
+      html += `<div class="reports-detail-section"><div class="reports-detail-section-head"><div class="reports-detail-section-title">Crew Coverage</div><div class="reports-section-meta">Grouped by crew member for faster review</div></div><div class="reports-insight-grid">${workerCardsHtml}</div></div>`;
     }
 
-    if (Object.keys(byWorker).length > 0) {
-      html += '<div class="reports-detail-section"><div class="reports-detail-section-title">By Worker</div><div class="reports-detail-stack">';
-      html += renderLineItems(byWorker, (worker, taskMap) => {
-        const lines = Object.entries(taskMap || {}).map(([task, blocks]) => {
-          const color = STATUS_COLORS[task] || '#888';
-          const label = STATUS_LABELS[task] || task;
-          const blockList = Array.isArray(blocks) ? blocks.join(', ') : String(blocks || '');
-          return `<div class="reports-line-item"><span class="reports-line-dot" style="background:${color}"></span><span class="reports-line-label">${_escapeHtml(label)}:</span><span class="reports-line-copy">${_escapeHtml(blockList)}</span></div>`;
-        }).join('');
-        return `<div class="reports-line-card"><div class="reports-line-card-title">${_escapeHtml(worker)}</div>${lines}</div>`;
-      });
-      html += '</div></div>';
+    if (Object.keys(byPowerBlock).length > 0) {
+      html += `<div class="reports-detail-section"><div class="reports-detail-section-head"><div class="reports-detail-section-title">Block Coverage</div><div class="reports-section-meta">Each block shows task mix and assigned crew</div></div><div class="reports-insight-grid reports-insight-grid-wide">${blockCardsHtml}</div></div>`;
     }
 
     if (Object.keys(byTask).length > 0) {
-      html += '<div class="reports-detail-section"><div class="reports-detail-section-title">By Task</div><div class="reports-detail-stack">';
-      html += renderLineItems(byTask, (task, workersByTask) => {
-        const color = STATUS_COLORS[task] || '#888';
-        const label = STATUS_LABELS[task] || task;
-        const lines = Object.entries(workersByTask || {}).map(([workerName, blocks]) => {
-          const blockList = Array.isArray(blocks) ? blocks.join(', ') : String(blocks || '');
-          return `<div class="reports-line-item reports-line-item-indent"><span class="reports-line-label">${_escapeHtml(workerName)}:</span><span class="reports-line-copy">${_escapeHtml(blockList)}</span></div>`;
-        }).join('');
-        return `<div class="reports-line-card"><div class="reports-line-card-title"><span class="reports-line-dot" style="background:${color}"></span>${_escapeHtml(label)}</div>${lines}</div>`;
-      });
-      html += '</div></div>';
+      html += `<div class="reports-detail-section"><div class="reports-detail-section-head"><div class="reports-detail-section-title">Task Breakdown</div><div class="reports-section-meta">Organized by work type with crew and block coverage</div></div><div class="reports-insight-grid">${taskCardsHtml}</div></div>`;
     }
 
     if (scans.length > 0) {
@@ -6388,13 +6529,13 @@ async function rp_showDetail(dateStr, syncSelection = true, ensure = true) {
           <article class="reports-scan-card">
             ${scan.image_url ? `<img src="${scan.image_url}" alt="Claim scan for ${scan.power_block_name || 'report'}">` : '<div class="reports-scan-empty">No image</div>'}
             <div class="reports-scan-meta">${_escapeHtml(scan.power_block_name || 'Power Block')} • ${_escapeHtml((scan.people || []).join(', ') || 'No crew listed')}</div>
-            <div class="reports-line-copy" style="margin-top:6px;">${_escapeHtml(summaryText || 'No assignment summary')}</div>
+            <div class="reports-scan-copy">${_escapeHtml(summaryText || 'No assignment summary')}</div>
           </article>`;
       }).join('')}</div></div>`;
     }
 
     if (rawEntries.length > 0) {
-      html += `<div class="reports-detail-section"><div class="reports-detail-section-title">Detailed Log</div><div style="overflow:auto;"><table class="lbd-tbl" style="min-width:760px;"><thead><tr><th class="lbd-tbl-th">Worker</th><th class="lbd-tbl-th">Task</th><th class="lbd-tbl-th">Power Block</th><th class="lbd-tbl-th">LBD Count</th><th class="lbd-tbl-th">Date</th><th class="lbd-tbl-th">Logged By</th></tr></thead><tbody>${rawEntries.map((entry) => `
+      html += `<div class="reports-detail-section"><div class="reports-detail-section-head"><div class="reports-detail-section-title">Detailed Log</div><div class="reports-section-meta">Audit-ready activity list for the day</div></div><div class="reports-table-shell"><table class="lbd-tbl reports-log-table" style="min-width:760px;"><thead><tr><th class="lbd-tbl-th">Worker</th><th class="lbd-tbl-th">Task</th><th class="lbd-tbl-th">Power Block</th><th class="lbd-tbl-th">LBD Count</th><th class="lbd-tbl-th">Date</th><th class="lbd-tbl-th">Logged By</th></tr></thead><tbody>${rawEntries.map((entry) => `
         <tr class="lbd-tbl-row"><td class="lbd-tbl-name">${_escapeHtml(entry.worker_name || '')}</td><td class="lbd-tbl-td">${_escapeHtml(STATUS_LABELS[entry.task_type] || entry.task_type || '')}</td><td class="lbd-tbl-td">${_escapeHtml(entry.power_block_name || '')}</td><td class="lbd-tbl-td">${_escapeHtml(String(entry.assignment_count || 1))}</td><td class="lbd-tbl-td">${_escapeHtml(entry.work_date || '')}</td><td class="lbd-tbl-td">${_escapeHtml(entry.logged_by || '')}</td></tr>`).join('')}</tbody></table></div></div>`;
     }
 
@@ -6448,7 +6589,7 @@ async function rp_openBackfillDialog(preferredBlockId = null) {
     }).join('');
 
     overlay.innerHTML = `
-      <div style="width:min(820px,100%);max-height:90vh;overflow:auto;background:#0f172a;border:1px solid rgba(255,255,255,0.12);border-radius:18px;padding:18px;box-shadow:0 30px 80px rgba(0,0,0,0.45);-webkit-overflow-scrolling:touch;">
+      <div class="reports-backfill-dialog" style="width:min(820px,100%);max-height:90vh;overflow:auto;background:#0f172a;border:1px solid rgba(255,255,255,0.12);border-radius:18px;padding:18px;box-shadow:0 30px 80px rgba(0,0,0,0.45);-webkit-overflow-scrolling:touch;">
         <div style="display:flex;align-items:start;justify-content:space-between;gap:12px;">
           <div>
             <div style="color:#eef2ff;font-size:18px;font-weight:700;">Backfill Missing Claim Activity</div>
@@ -6459,19 +6600,19 @@ async function rp_openBackfillDialog(preferredBlockId = null) {
         <div style="margin-top:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;">
           <div>
             <label style="display:block;color:#cbd5e1;font-size:13px;font-weight:600;margin-bottom:6px;">Power Block</label>
-            <select id="report-backfill-block" style="width:100%;min-height:42px;padding:10px 12px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#eef2ff;">${blocks.map((block) => `<option value="${block.id}"${Number(block.id) === Number(activeBlock.id) ? ' selected' : ''}>${_escapeHtml(block.name)}</option>`).join('')}</select>
+            <select id="report-backfill-block" class="reports-backfill-field" style="width:100%;min-height:42px;padding:10px 12px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#eef2ff;">${blocks.map((block) => `<option value="${block.id}"${Number(block.id) === Number(activeBlock.id) ? ' selected' : ''}>${_escapeHtml(block.name)}</option>`).join('')}</select>
           </div>
           <div>
             <label style="display:block;color:#cbd5e1;font-size:13px;font-weight:600;margin-bottom:6px;">Claim Date</label>
-            <input id="report-backfill-date" type="date" value="${_escapeHtml(rp_selectedDate || todayIsoDate())}" style="width:100%;min-height:42px;padding:10px 12px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#eef2ff;" />
+            <input id="report-backfill-date" class="reports-backfill-field" type="date" value="${_escapeHtml(rp_selectedDate || todayIsoDate())}" style="width:100%;min-height:42px;padding:10px 12px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#eef2ff;" />
           </div>
           <div>
             <label style="display:block;color:#cbd5e1;font-size:13px;font-weight:600;margin-bottom:6px;">Claim Time</label>
-            <input id="report-backfill-time" type="datetime-local" value="${_escapeHtml(rp_defaultBackfillTimestamp(rp_selectedDate || todayIsoDate()))}" style="width:100%;min-height:42px;padding:10px 12px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#eef2ff;" />
+            <input id="report-backfill-time" class="reports-backfill-field" type="datetime-local" value="${_escapeHtml(rp_defaultBackfillTimestamp(rp_selectedDate || todayIsoDate()))}" style="width:100%;min-height:42px;padding:10px 12px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#eef2ff;" />
           </div>
           <div>
             <label style="display:block;color:#cbd5e1;font-size:13px;font-weight:600;margin-bottom:6px;">Logged By</label>
-            <input id="report-backfill-actor" type="text" value="${_escapeHtml(currentUser?.name || '')}" placeholder="Who is entering this backfill" style="width:100%;min-height:42px;padding:10px 12px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#eef2ff;" />
+            <input id="report-backfill-actor" class="reports-backfill-field" type="text" value="${_escapeHtml(currentUser?.name || '')}" placeholder="Who is entering this backfill" style="width:100%;min-height:42px;padding:10px 12px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#eef2ff;" />
           </div>
         </div>
         <div id="report-backfill-current-claim" style="margin-top:16px;"></div>
@@ -6483,7 +6624,7 @@ async function rp_openBackfillDialog(preferredBlockId = null) {
         </div>
         <div style="margin-top:12px;">
           <label style="display:block;color:#cbd5e1;font-size:13px;font-weight:600;margin-bottom:6px;">Add extra crew names</label>
-          <textarea id="claim-extra-names" class="claim-modal-textarea" rows="2" placeholder="Type names separated by commas or new lines" style="width:100%;resize:vertical;font-size:14px;padding:10px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#eef2ff;"></textarea>
+          <textarea id="claim-extra-names" class="claim-modal-textarea reports-backfill-field" rows="2" placeholder="Type names separated by commas or new lines" style="width:100%;resize:vertical;font-size:14px;padding:10px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#eef2ff;"></textarea>
         </div>
         <div style="margin-top:16px;">
           <label style="display:block;color:#cbd5e1;font-size:12px;margin-bottom:6px;">Work types</label>

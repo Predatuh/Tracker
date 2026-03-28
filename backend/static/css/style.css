@@ -2285,6 +2285,19 @@ body::after {
   color: #eef2ff;
 }
 
+.reports-detail-meta {
+  margin-top: 8px;
+  color: rgba(238,242,255,0.58);
+  font-size: 12px;
+}
+
+.reports-detail-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 2px;
+}
+
 .reports-detail-stat-row {
   display: flex;
   gap: 10px;
@@ -2319,6 +2332,14 @@ body::after {
   gap: 12px;
 }
 
+.reports-detail-section-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
 .reports-detail-section-title {
   font-family: 'Orbitron', sans-serif;
   font-size: 11px;
@@ -2327,10 +2348,134 @@ body::after {
   color: rgba(238,242,255,0.55);
 }
 
+.reports-section-meta {
+  color: rgba(238,242,255,0.45);
+  font-size: 12px;
+}
+
 .reports-detail-stack {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.reports-detail-stack-compact {
+  gap: 8px;
+}
+
+.reports-snapshot-grid,
+.reports-insight-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.reports-insight-grid-wide {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.reports-snapshot-card,
+.reports-insight-card,
+.reports-table-shell {
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.025));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+}
+
+.reports-snapshot-card {
+  padding: 16px;
+}
+
+.reports-snapshot-label {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 10px;
+  letter-spacing: 1.1px;
+  text-transform: uppercase;
+  color: rgba(0,212,255,0.78);
+}
+
+.reports-snapshot-value {
+  margin-top: 8px;
+  color: #eef2ff;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.reports-snapshot-copy {
+  margin-top: 6px;
+  color: rgba(238,242,255,0.58);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.reports-insight-card {
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.reports-insight-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.reports-insight-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #eef2ff;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.reports-insight-meta {
+  margin-top: 4px;
+  color: rgba(238,242,255,0.48);
+  font-size: 12px;
+}
+
+.reports-insight-count {
+  min-width: 40px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(0,212,255,0.1);
+  color: #8adfff;
+  text-align: center;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 16px;
+}
+
+.reports-pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.reports-status-pill,
+.reports-note-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.reports-status-pill {
+  border: 1px solid color-mix(in srgb, var(--report-pill, #00d4ff) 35%, transparent);
+  background: color-mix(in srgb, var(--report-pill, #00d4ff) 14%, rgba(255,255,255,0.03));
+  color: #eef2ff;
+}
+
+.reports-note-pill {
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.04);
+  color: rgba(238,242,255,0.72);
 }
 
 .reports-line-card {
@@ -2403,6 +2548,65 @@ body::after {
   padding: 10px 12px;
   font-size: 11px;
   color: rgba(238,242,255,0.6);
+}
+
+.reports-scan-copy {
+  padding: 0 12px 12px;
+  color: rgba(238,242,255,0.72);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.reports-table-shell {
+  overflow: auto;
+  padding: 4px;
+}
+
+.reports-log-table {
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.reports-backfill-dialog {
+  color-scheme: dark;
+}
+
+.reports-backfill-field {
+  color-scheme: dark;
+  accent-color: #00d4ff;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+}
+
+.reports-backfill-dialog input.reports-backfill-field,
+.reports-backfill-dialog select.reports-backfill-field,
+.reports-backfill-dialog textarea.reports-backfill-field {
+  background: linear-gradient(180deg, rgba(11,17,36,0.96), rgba(8,13,28,0.96)) !important;
+  border: 1px solid rgba(0,212,255,0.18) !important;
+  color: #eef2ff !important;
+}
+
+.reports-backfill-dialog input.reports-backfill-field::placeholder,
+.reports-backfill-dialog textarea.reports-backfill-field::placeholder {
+  color: rgba(238,242,255,0.42);
+}
+
+.reports-backfill-dialog select.reports-backfill-field option {
+  background: #0b1327;
+  color: #eef2ff;
+}
+
+.reports-backfill-dialog input.reports-backfill-field::-webkit-calendar-picker-indicator {
+  filter: invert(1) brightness(1.15);
+  opacity: 0.88;
+  cursor: pointer;
+}
+
+.reports-backfill-dialog input.reports-backfill-field:focus,
+.reports-backfill-dialog select.reports-backfill-field:focus,
+.reports-backfill-dialog textarea.reports-backfill-field:focus {
+  outline: none;
+  border-color: rgba(0,212,255,0.42) !important;
+  box-shadow: 0 0 0 3px rgba(0,212,255,0.12), inset 0 1px 0 rgba(255,255,255,0.05);
 }
 
 .reports-calendar-shell > div:first-child {
@@ -2494,6 +2698,11 @@ body::after {
   .reports-detail-head {
     flex-direction: column;
   }
+
+  .reports-detail-section-head,
+  .reports-insight-card-head {
+    flex-direction: column;
+  }
 }
 
 @media (max-width: 720px) {
@@ -2546,6 +2755,12 @@ body::after {
   .reports-detail-stat-row {
     display: grid;
     grid-template-columns: 1fr 1fr;
+  }
+
+  .reports-snapshot-grid,
+  .reports-insight-grid,
+  .reports-insight-grid-wide {
+    grid-template-columns: 1fr;
   }
 
   .reports-detail-stat {
