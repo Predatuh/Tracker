@@ -25,6 +25,7 @@ class Tracker(db.Model):
     _column_order       = db.Column('column_order', db.Text)                  # JSON list (optional)
     is_active           = db.Column(db.Boolean, default=True)
     sort_order          = db.Column(db.Integer, default=0)
+    completion_status_type = db.Column(db.String(50), nullable=True)  # which status_type counts as "done"
     created_at          = db.Column(db.DateTime, default=datetime.utcnow)
 
     # Relationships
@@ -101,5 +102,6 @@ class Tracker(db.Model):
             'column_order':        self.get_column_order(),
             'is_active':           self.is_active,
             'sort_order':          self.sort_order,
+            'completion_status_type': self.completion_status_type,
             'created_at':          self.created_at.isoformat() if self.created_at else None,
         }

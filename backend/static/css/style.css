@@ -2450,6 +2450,30 @@ body::after {
   font-size: 16px;
 }
 
+.reports-crew-lbd-stack {
+  display: grid;
+  gap: 10px;
+  margin-top: 2px;
+}
+
+.reports-crew-lbd-row {
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.03);
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.06);
+}
+
+.reports-crew-lbd-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #eef2ff;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
 .reports-pill-row {
   display: flex;
   flex-wrap: wrap;

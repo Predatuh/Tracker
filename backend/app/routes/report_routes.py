@@ -353,6 +353,94 @@ def _claim_snapshot_rows(target_date, tracker=None, tracker_id=None, user=None, 
     return rows
 
 
+def _lbd_name_to_seq(name):
+    """Extract trailing integer from LBD name string ('LBD 7' → 7, '12' → 12)."""
+    import re as _re
+    m = _re.search(r'(\d+)\s*$', str(name or ''))
+    return int(m.group(1)) if m else None
+
+
+def _compress_lbd_range(seq_nums):
+    """Compress a sorted list of ints into a human-readable range string.
+    [1,2,3,4,5,6,7,8] → '1-8', [1,2,5] → '1-2, 5', [5] → '5'."""
+    if not seq_nums:
+        return ''
+    nums = sorted(set(int(n) for n in seq_nums if n is not None))
+    if not nums:
+        return ''
+    groups = []
+    start = prev = nums[0]
+    for n in nums[1:]:
+        if n == prev + 1:
+            prev = n
+        else:
+            groups.append((start, prev))
+            start = prev = n
+    groups.append((start, prev))
+    parts = []
+    for s, e in groups:
+        parts.append(str(s) if s == e else f'{s}-{e}')
+    return ', '.join(parts)
+
+
+def _build_crew_lbd_groups(target_date, tracker_id=None, user=None):
+    """Build per-activity grouped rows: each ClaimActivity becomes one or more rows
+    with crew_label, power_block_name, and tasks showing LBD ranges."""
+    user = user or _current_user()
+    query = _scope_query_to_accessible_trackers(
+        ClaimActivity.query.options(
+            subqueryload(ClaimActivity.power_block).subqueryload(PowerBlock.lbds)
+        ).filter_by(work_date=target_date),
+        ClaimActivity.tracker_id,
+        tracker_id=tracker_id,
+        user=user,
+    ).order_by(ClaimActivity.claimed_at.asc(), ClaimActivity.id.asc())
+
+    groups = []
+    for activity in query.all():
+        people = activity.get_people()
+        assignments = activity.get_assignments()
+        if not people or not assignments:
+            continue
+
+        block = activity.power_block
+        pb_name = block.name if block else f'Block {activity.power_block_id}'
+
+        # Build lbd_id → seq_num lookup from the block's LBDs
+        lbd_seq = {}
+        if block:
+            for lbd in block.lbds:
+                seq = _lbd_name_to_seq(lbd.name) or _lbd_name_to_seq(lbd.identifier)
+                lbd_seq[lbd.id] = seq if seq is not None else lbd.id
+
+        is_crew = len(people) > 1
+        crew_label = f"Crew: {', '.join(people)}" if is_crew else people[0]
+
+        task_rows = []
+        for task, lbd_ids in assignments.items():
+            seqs = [lbd_seq.get(lid) for lid in (lbd_ids or []) if lbd_seq.get(lid) is not None]
+            # Fallback: use lbd_id order numbers when name seq unavailable
+            if not seqs:
+                seqs = list(range(1, len(lbd_ids) + 1))
+            lbd_range = _compress_lbd_range(seqs)
+            task_rows.append({
+                'task': task,
+                'lbd_range': f'LBDs ({lbd_range})' if lbd_range else f'{len(lbd_ids)} LBDs',
+                'lbd_count': len(lbd_ids),
+            })
+
+        groups.append({
+            'power_block_name': pb_name,
+            'crew_label': crew_label,
+            'is_crew': is_crew,
+            'people': people,
+            'tasks': task_rows,
+            'claimed_at': activity.claimed_at.isoformat() if activity.claimed_at else None,
+        })
+
+    return groups
+
+
 def _build_report_data(target_date, tracker_id=None, existing_data=None):
     """Aggregate claim activity for *target_date*, with legacy fallbacks."""
     user = _current_user()
@@ -415,6 +503,7 @@ def _build_report_data(target_date, tracker_id=None, existing_data=None):
         'task_labels':   col_names,
         'raw_entries': raw_entries,
         'claim_scans': list(existing_data.get('claim_scans') or []),
+        'crew_lbd_groups': _build_crew_lbd_groups(target_date, tracker_id=tracker_id, user=user),
     }
 
 
@@ -541,33 +630,33 @@ def _report_pdf_bytes(report):
     ]))
     story.extend([stats, Spacer(1, 14)])
 
-    if by_power_block:
+    crew_lbd_groups = payload.get('crew_lbd_groups') or []
+
+    if crew_lbd_groups:
+        story.append(_paragraph('Per-LBD Activity', section_style))
+        # Group by power block
+        pb_buckets = {}
+        for g in crew_lbd_groups:
+            pb = g.get('power_block_name') or '?'
+            pb_buckets.setdefault(pb, []).append(g)
+        for pb_name, pb_groups in pb_buckets.items():
+            story.append(_paragraph(pb_name, ParagraphStyle('BlockName', parent=body_style, fontName='Helvetica-Bold', fontSize=11)))
+            rows = [['Worker / Crew', 'Tasks', 'LBDs']]
+            for g in pb_groups:
+                crew_label = g.get('crew_label') or '?'
+                task_list = g.get('tasks') or []
+                tasks_text = ', '.join(t.get('task', '').replace('_', ' ').title() for t in task_list)
+                lbd_text = ' | '.join(t.get('lbd_range', '') for t in task_list)
+                rows.append([crew_label, tasks_text, lbd_text])
+            story.append(_kv_table(rows, column_widths=[160, 160, 160], header=True))
+            story.append(Spacer(1, 8))
+    elif by_power_block:
         story.append(_paragraph('Work By Power Block', section_style))
         for power_block, task_map in by_power_block.items():
             rows = [['Task', 'Workers']]
             for task, workers in (task_map or {}).items():
                 rows.append([str(task), ', '.join(str(worker) for worker in (workers or [])) or 'None'])
             story.append(_paragraph(power_block, ParagraphStyle('BlockName', parent=body_style, fontName='Helvetica-Bold', fontSize=11)))
-            story.append(_kv_table(rows, column_widths=[140, 340], header=True))
-            story.append(Spacer(1, 8))
-
-    if by_task:
-        story.append(_paragraph('Task Breakdown', section_style))
-        for task, worker_map in by_task.items():
-            rows = [['Worker', 'Power Blocks']]
-            for worker, blocks in (worker_map or {}).items():
-                rows.append([str(worker), ', '.join(str(block) for block in (blocks or [])) or 'None'])
-            story.append(_paragraph(task, ParagraphStyle('TaskName', parent=body_style, fontName='Helvetica-Bold', fontSize=11)))
-            story.append(_kv_table(rows, column_widths=[140, 340], header=True))
-            story.append(Spacer(1, 8))
-
-    if by_worker:
-        story.append(_paragraph('Worker Summary', section_style))
-        for worker, task_map in by_worker.items():
-            rows = [['Task', 'Power Blocks']]
-            for task, blocks in (task_map or {}).items():
-                rows.append([str(task), ', '.join(str(block) for block in (blocks or [])) or 'None'])
-            story.append(_paragraph(worker, ParagraphStyle('WorkerName', parent=body_style, fontName='Helvetica-Bold', fontSize=11)))
             story.append(_kv_table(rows, column_widths=[140, 340], header=True))
             story.append(Spacer(1, 8))
 
@@ -2132,7 +2221,7 @@ def submit_claim_scan():
         claimed_at=datetime.utcnow(),
     )
     block.claimed_at = datetime.utcnow()
-    status_updates = _apply_claim_assignments_to_statuses(block, assignments, actor or (people[0] if people else None))
+    status_updates = _apply_claim_assignments_to_statuses(block, assignments, actor or (people[0] if people else None), tracker=tracker)
 
     report = _get_or_generate_report(target, tracker_id)
     if not report:
@@ -2265,6 +2354,7 @@ def backfill_claim_activity():
         block,
         assignments,
         actor=live_claimed_by,
+        tracker=tracker,
     )
 
     activity = _record_claim_activity(

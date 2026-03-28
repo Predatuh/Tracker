@@ -264,6 +264,8 @@ def _migrate_generic(app):
         ('trackers', 'dashboard_blocks_label', "VARCHAR(100) DEFAULT 'Power Blocks'"),
         ('trackers', 'dashboard_open_label', "VARCHAR(100) DEFAULT 'Open Tracker'"),
         ('trackers', 'job_site_name', 'VARCHAR(120)'),
+        ('trackers', 'completion_status_type', 'VARCHAR(50)'),
+        ('power_blocks', 'notes', 'TEXT'),
         ('review_entries', 'lbd_id', 'INTEGER'),
     ]
     for table, col, dtype in migrations:
@@ -325,6 +327,8 @@ def _migrate_sqlite(app, db_uri):
     _add_col(cur, 'trackers', 'dashboard_blocks_label', "VARCHAR(100) DEFAULT 'Power Blocks'")
     _add_col(cur, 'trackers', 'dashboard_open_label', "VARCHAR(100) DEFAULT 'Open Tracker'")
     _add_col(cur, 'trackers', 'job_site_name', 'VARCHAR(120)')
+    _add_col(cur, 'trackers', 'completion_status_type', 'VARCHAR(50)')
+    _add_col(cur, 'power_blocks', 'notes', 'TEXT')
     _add_col(cur, 'review_entries', 'lbd_id', 'INTEGER')
     conn.commit()
     conn.close()
@@ -597,6 +601,14 @@ def _seed_trackers(app):
             db.session.commit()
             app.logger.info(f'Removed deprecated LBD tracker statuses from tracker id={lbd_tracker.id}')
 
+    # Sync completion_status_type for LBD tracker
+    lbd_types = lbd_tracker.get_status_types()
+    desired_lbd_cst = 'term' if 'term' in lbd_types else (lbd_types[-1] if lbd_types else None)
+    if desired_lbd_cst and lbd_tracker.completion_status_type != desired_lbd_cst:
+        lbd_tracker.completion_status_type = desired_lbd_cst
+        db.session.commit()
+        app.logger.info(f'Set LBD tracker completion_status_type={desired_lbd_cst}')
+
     # --- Inverter DC Landing Tracker ---
     inv_tracker = Tracker.query.filter_by(slug='inverter-dc').first()
     if not inv_tracker:
@@ -633,5 +645,13 @@ def _seed_trackers(app):
     if inv_tracker_changed:
         db.session.commit()
         app.logger.info(f'Updated Inverter DC Landing tracker labels (id={inv_tracker.id})')
+
+    # Sync completion_status_type for Inverter DC tracker
+    inv_types = inv_tracker.get_status_types()
+    desired_inv_cst = 'dc_landing' if 'dc_landing' in inv_types else (inv_types[-1] if inv_types else None)
+    if desired_inv_cst and inv_tracker.completion_status_type != desired_inv_cst:
+        inv_tracker.completion_status_type = desired_inv_cst
+        db.session.commit()
+        app.logger.info(f'Set Inverter DC tracker completion_status_type={desired_inv_cst}')
 
 

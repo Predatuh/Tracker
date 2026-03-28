@@ -398,7 +398,7 @@ def _record_claim_activity(block, people, assignments, work_date, actor=None, tr
     return activity
 
 
-def _apply_claim_assignments_to_statuses(block, assignments, actor=None):
+def _apply_claim_assignments_to_statuses(block, assignments, actor=None, tracker=None):
     if not block or not isinstance(assignments, dict):
         return []
 
@@ -448,6 +448,23 @@ def _apply_claim_assignments_to_statuses(block, assignments, actor=None):
     if actor and changed:
         block.last_updated_by = actor
         block.last_updated_at = now
+
+    # Auto-complete the block when all LBDs have their primary status done
+    if tracker and not block.is_completed:
+        cst = tracker.completion_status_type
+        if cst:
+            target_lbd_ids = {lbd.id for lbd in block.lbds if lbd.tracker_id == tracker.id}
+            if not target_lbd_ids:
+                target_lbd_ids = {lbd.id for lbd in block.lbds}
+            if target_lbd_ids:
+                lbd_map = {lbd.id: lbd for lbd in block.lbds}
+                all_done = target_lbd_ids and all(
+                    any(s.status_type == cst and s.is_completed for s in lbd_map[lid].statuses)
+                    for lid in target_lbd_ids if lid in lbd_map
+                )
+                if all_done:
+                    block.is_completed = True
+                    block.last_updated_at = now
 
     return changed
 
@@ -526,7 +543,7 @@ def _apply_block_claim(block, action, actor, requested_people=None, assignments=
         'merged_people': merged_people,
         'normalized_assignments': normalized_assignments,
         'merged_assignments': merged_assignments,
-        'status_updates': _apply_claim_assignments_to_statuses(block, normalized_assignments, actor),
+        'status_updates': _apply_claim_assignments_to_statuses(block, normalized_assignments, actor, tracker=tracker),
     }
 
 
@@ -715,6 +732,8 @@ def update_power_block(block_id):
             block.description = data['description']
         if 'is_completed' in data:
             block.is_completed = data['is_completed']
+        if 'notes' in data:
+            block.notes = (data['notes'] or '').strip() or None
         
         db.session.commit()
         
@@ -726,9 +745,27 @@ def update_power_block(block_id):
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
+@bp.route('/power-blocks/<int:block_id>/note', methods=['POST'])
+def add_block_note(block_id):
+    """Add or update the freeform note on a power block without touching claim state."""
+    try:
+        block = PowerBlock.query.get_or_404(block_id)
+        if not _block_is_accessible(block):
+            return jsonify({'error': 'That power block is not accessible for your job site'}), 403
+        data = request.get_json() or {}
+        note_text = str(data.get('note') or '').strip()
+        block.notes = note_text or None
+        block.last_updated_by = _current_user_name() or block.last_updated_by
+        block.last_updated_at = datetime.utcnow()
+        db.session.commit()
+        return jsonify({'success': True, 'data': {'notes': block.notes}}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
 @bp.route('/lbds', methods=['POST'])
 def create_lbd():
-    """Create a new LBD in a power block (tracker-aware)"""
     try:
         data = request.get_json()
         tracker_id = data.get('tracker_id')

@@ -1274,15 +1274,15 @@ function renderDashboardOverview(cards) {
   const featured = ranked[0] || cards[0];
   const activeTrackers = cards.filter(card => card.activeClaims > 0 || card.updatedToday > 0).length;
 
-  // Deduplicate blocks across trackers to avoid double-counting shared/unassigned LBDs
-  const _seenIds = new Set();
+  // Sum LBD progress across trackers (each card already uses its own completion_status_type)
   let totalItems = 0, termedItems = 0, updatedToday = 0, claimedToday = 0;
+  const _seenIds = new Set();
   cards.forEach(card => {
+    termedItems += (card.termedItems || 0);
+    totalItems += (card.totalItems || 0);
     (card._blocks || []).forEach(b => {
       if (_seenIds.has(b.id)) return;
       _seenIds.add(b.id);
-      totalItems += (b.lbd_count || 0);
-      termedItems += ((b.lbd_summary && b.lbd_summary['term']) || 0);
       if (isDateToday(b.last_updated_at)) updatedToday++;
       if (isDateToday(b.claimed_at)) claimedToday++;
     });
@@ -1371,9 +1371,9 @@ async function loadDashboard() {
       const totalBlocks = blocks.length;
       const completedBlocks = blocks.filter(b => b.is_completed).length;
       const totalItems = blocks.reduce((s, b) => s + (b.lbd_count || 0), 0);
-      // % based on the tracker's own primary status type
+      // % based on the tracker's own completion_status_type (falls back to last in array)
       const _statusTypes = t.status_types || [];
-      const _primaryStatus = _statusTypes.length ? _statusTypes[_statusTypes.length - 1] : 'term';
+      const _primaryStatus = t.completion_status_type || (_statusTypes.length ? _statusTypes[_statusTypes.length - 1] : 'term');
       const termedItems = blocks.reduce((s, b) => s + ((b.lbd_summary && b.lbd_summary[_primaryStatus]) || 0), 0);
       const pct = totalItems > 0 ? Math.round((termedItems / totalItems) * 100) : 0;
       const activeClaims = blocks.filter(b => (Array.isArray(b.claimed_people) && b.claimed_people.length > 0) || !!b.claimed_by).length;
@@ -6392,36 +6392,37 @@ async function rp_showDetail(dateStr, syncSelection = true, ensure = true) {
       }))
       .sort((left, right) => right.assignmentCount - left.assignmentCount)[0];
 
-    const workerCardsHtml = Object.entries(byWorker)
-      .sort((left, right) => sumTaskAssignments(right[1]) - sumTaskAssignments(left[1]))
-      .map(([worker, taskMap]) => {
-        const taskEntries = Object.entries(taskMap || {});
-        const blockNames = collectTaskBlocks(taskMap);
-        const totalAssignments = sumTaskAssignments(taskMap);
-        const pills = taskEntries.map(([task, blocks]) => {
-          const label = STATUS_LABELS[task] || task;
-          const color = STATUS_COLORS[task] || '#4f8cff';
-          const count = Array.isArray(blocks) ? blocks.length : (blocks ? 1 : 0);
-          return `<span class="reports-status-pill" style="--report-pill:${color}">${_escapeHtml(label)} · ${count}</span>`;
+    const crewLbdGroups = Array.isArray(data.crew_lbd_groups) ? data.crew_lbd_groups : [];
+    // Group crew_lbd_groups by power block for rendering
+    const crewByBlock = {};
+    crewLbdGroups.forEach(g => {
+      const pb = g.power_block_name || '?';
+      if (!crewByBlock[pb]) crewByBlock[pb] = [];
+      crewByBlock[pb].push(g);
+    });
+    const crewLbdGroupsHtml = Object.entries(crewByBlock).map(([pbName, groups]) => {
+      const totalLbds = groups.reduce((s, g2) => s + (g2.tasks || []).reduce((ts, t) => ts + (t.lbd_count || 0), 0), 0);
+      const rowsHtml = groups.map(g2 => {
+        const crewBadge = g2.is_crew ? '<span class="reports-note-pill" style="background:rgba(99,102,241,0.15);color:#a5b4fc;border-radius:6px;padding:2px 7px;font-size:11px;font-weight:600;margin-right:6px;">Crew</span>' : '';
+        const pills = (g2.tasks || []).map(t => {
+          const label = STATUS_LABELS[t.task] || t.task;
+          const color = STATUS_COLORS[t.task] || '#4f8cff';
+          return `<span class="reports-status-pill" style="--report-pill:${color}">${_escapeHtml(label)} · ${_escapeHtml(t.lbd_range || '')}</span>`;
         }).join('');
-        const lines = taskEntries.map(([task, blocks]) => {
-          const label = STATUS_LABELS[task] || task;
-          const blockList = Array.isArray(blocks) ? blocks : [blocks].filter(Boolean);
-          return `<div class="reports-line-item"><span class="reports-line-dot" style="background:${STATUS_COLORS[task] || '#4f8cff'}"></span><span class="reports-line-label">${_escapeHtml(label)}</span><span class="reports-line-copy">${_escapeHtml(summarizeList(blockList, 5))}</span></div>`;
-        }).join('');
-        return `
-          <article class="reports-insight-card">
-            <div class="reports-insight-card-head">
-              <div>
-                <div class="reports-insight-title">${_escapeHtml(worker)}</div>
-                <div class="reports-insight-meta">${blockNames.length} blocks · ${taskEntries.length} task types</div>
-              </div>
-              <div class="reports-insight-count">${totalAssignments}</div>
-            </div>
-            ${pills ? `<div class="reports-pill-row">${pills}</div>` : ''}
-            <div class="reports-detail-stack reports-detail-stack-compact">${lines}</div>
-          </article>`;
+        return `<div class="reports-crew-lbd-row"><div class="reports-crew-lbd-name">${crewBadge}${_escapeHtml(g2.crew_label)}</div><div class="reports-pill-row" style="margin-top:4px;">${pills}</div></div>`;
       }).join('');
+      return `
+        <article class="reports-insight-card reports-insight-card-block">
+          <div class="reports-insight-card-head">
+            <div>
+              <div class="reports-insight-title">${_escapeHtml(pbName)}</div>
+              <div class="reports-insight-meta">${groups.length} ${groups.length === 1 ? 'entry' : 'entries'} · ${totalLbds} LBDs</div>
+            </div>
+            <div class="reports-insight-count">${totalLbds}</div>
+          </div>
+          <div class="reports-crew-lbd-stack">${rowsHtml}</div>
+        </article>`;
+    }).join('');
 
     const blockCardsHtml = Object.entries(byPowerBlock)
       .sort((left, right) => sumTaskAssignments(right[1]) - sumTaskAssignments(left[1]))
@@ -6450,34 +6451,6 @@ async function rp_showDetail(dateStr, syncSelection = true, ensure = true) {
             </div>
             ${pills ? `<div class="reports-pill-row">${pills}</div>` : ''}
             <div class="reports-detail-stack reports-detail-stack-compact">${lines || '<div class="reports-line-copy">No task rows</div>'}</div>
-          </article>`;
-      }).join('');
-
-    const taskCardsHtml = Object.entries(byTask)
-      .sort((left, right) => sumTaskAssignments(right[1]) - sumTaskAssignments(left[1]))
-      .map(([task, workersByTask]) => {
-        const color = STATUS_COLORS[task] || '#4f8cff';
-        const label = STATUS_LABELS[task] || task;
-        const workerNames = collectTaskWorkers(workersByTask);
-        const blockNames = collectTaskBlocks(workersByTask);
-        const lines = Object.entries(workersByTask || {}).map(([workerName, blocks]) => {
-          const blockList = Array.isArray(blocks) ? blocks : [blocks].filter(Boolean);
-          return `<div class="reports-line-item"><span class="reports-line-label">${_escapeHtml(workerName)}</span><span class="reports-line-copy">${_escapeHtml(summarizeList(blockList, 4))}</span></div>`;
-        }).join('');
-        return `
-          <article class="reports-insight-card">
-            <div class="reports-insight-card-head">
-              <div>
-                <div class="reports-insight-title"><span class="reports-line-dot" style="background:${color}"></span>${_escapeHtml(label)}</div>
-                <div class="reports-insight-meta">${workerNames.length} crew members · ${blockNames.length} blocks</div>
-              </div>
-              <div class="reports-insight-count">${sumTaskAssignments(workersByTask)}</div>
-            </div>
-            <div class="reports-pill-row">
-              <span class="reports-note-pill">Crew: ${_escapeHtml(summarizeList(workerNames, 3))}</span>
-              <span class="reports-note-pill">Blocks: ${_escapeHtml(summarizeList(blockNames, 3))}</span>
-            </div>
-            <div class="reports-detail-stack reports-detail-stack-compact">${lines}</div>
           </article>`;
       }).join('');
 
@@ -6525,16 +6498,12 @@ async function rp_showDetail(dateStr, syncSelection = true, ensure = true) {
           </article>
         </div>`;
 
-    if (Object.keys(byWorker).length > 0) {
-      html += `<div class="reports-detail-section"><div class="reports-detail-section-head"><div class="reports-detail-section-title">Crew Coverage</div><div class="reports-section-meta">Grouped by crew member for faster review</div></div><div class="reports-insight-grid">${workerCardsHtml}</div></div>`;
+    if (crewLbdGroups.length > 0) {
+      html += `<div class="reports-detail-section"><div class="reports-detail-section-head"><div class="reports-detail-section-title">Per-LBD Activity</div><div class="reports-section-meta">Exactly who did what and which LBDs they covered</div></div><div class="reports-insight-grid reports-insight-grid-wide">${crewLbdGroupsHtml}</div></div>`;
     }
 
     if (Object.keys(byPowerBlock).length > 0) {
       html += `<div class="reports-detail-section"><div class="reports-detail-section-head"><div class="reports-detail-section-title">Block Coverage</div><div class="reports-section-meta">Each block shows task mix and assigned crew</div></div><div class="reports-insight-grid reports-insight-grid-wide">${blockCardsHtml}</div></div>`;
-    }
-
-    if (Object.keys(byTask).length > 0) {
-      html += `<div class="reports-detail-section"><div class="reports-detail-section-head"><div class="reports-detail-section-title">Task Breakdown</div><div class="reports-section-meta">Organized by work type with crew and block coverage</div></div><div class="reports-insight-grid">${taskCardsHtml}</div></div>`;
     }
 
     if (scans.length > 0) {

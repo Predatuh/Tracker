@@ -27,6 +27,7 @@ class PowerBlock(db.Model):
     claimed_at = db.Column(db.DateTime)
     last_updated_by = db.Column(db.String(100))
     last_updated_at = db.Column(db.DateTime)
+    notes = db.Column(db.Text)  # freeform block note visible in reports
 
     # Relationships
     lbds = db.relationship('LBD', backref='power_block', lazy=True, cascade='all, delete-orphan')
@@ -54,6 +55,7 @@ class PowerBlock(db.Model):
             'claimed_at': self.claimed_at.isoformat() if self.claimed_at else None,
             'last_updated_by': self.last_updated_by,
             'last_updated_at': self.last_updated_at.isoformat() if self.last_updated_at else None,
+            'notes': self.notes,
             'lbd_count': len(self.lbds),
             'lbds': [lbd.to_dict() for lbd in self.lbds],
             'lbd_summary': self._get_lbd_summary()
