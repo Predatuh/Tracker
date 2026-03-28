@@ -834,6 +834,11 @@ function _renderClaimAssignmentSections(overlay, block, suggestions = []) {
   }).join('');
 }
 
+function claimStatusTypesForCurrentTracker() {
+  const types = Array.isArray(currentTracker?.status_types) ? currentTracker.status_types.map((value) => String(value || '').trim()).filter(Boolean) : [];
+  return types.length ? types : LBD_STATUS_TYPES;
+}
+
 async function claimBlock(blockId, action, people = [], assignments = {}, workDate = null) {
   try {
     const response = await api.claimBlock(blockId, action, people, assignments, workDate);
@@ -6573,6 +6578,7 @@ async function rp_openBackfillDialog(preferredBlockId = null) {
     }
     const suggestions = _dedupeClaimNames(Array.isArray(peopleResponse.data) ? peopleResponse.data : []);
     claimPageState.peopleSuggestions = suggestions;
+    const backfillStatusTypes = claimStatusTypesForCurrentTracker();
 
     let activeBlock = blocks.find((block) => Number(block.id) === Number(preferredBlockId)) || blocks[0];
     const overlay = document.createElement('div');
@@ -6629,7 +6635,7 @@ async function rp_openBackfillDialog(preferredBlockId = null) {
         <div style="margin-top:16px;">
           <label style="display:block;color:#cbd5e1;font-size:12px;margin-bottom:6px;">Work types</label>
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;">
-            ${LBD_STATUS_TYPES.map(statusType => {
+            ${backfillStatusTypes.map(statusType => {
               const label = _escapeHtml(STATUS_LABELS[statusType] || statusType.replace(/_/g, ' '));
               return `<label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid rgba(255,255,255,0.08);border-radius:10px;background:rgba(255,255,255,0.03);cursor:pointer;">
                 <input type="checkbox" class="claim-status-type" value="${_escapeHtml(statusType)}" />

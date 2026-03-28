@@ -743,6 +743,40 @@ def _normalize_claim_assignments(assignments, valid_lbd_ids=None):
     return normalized
 
 
+def _align_assignments_to_tracker_columns(tracker, assignments):
+    normalized_assignments = _normalize_claim_assignments(assignments)
+    if not tracker or not normalized_assignments:
+        return normalized_assignments
+
+    tracker_columns = [str(column or '').strip() for column in tracker.all_column_keys() if str(column or '').strip()]
+    if not tracker_columns:
+        return normalized_assignments
+
+    tracker_column_set = set(tracker_columns)
+    if set(normalized_assignments.keys()).issubset(tracker_column_set):
+        return normalized_assignments
+
+    # Single-column trackers such as inverter landing should treat any submitted
+    # assignment selection as work for that tracker column.
+    if len(tracker_columns) == 1:
+        merged_ids = []
+        seen_ids = set()
+        for lbd_ids in normalized_assignments.values():
+            for lbd_id in lbd_ids:
+                if lbd_id in seen_ids:
+                    continue
+                seen_ids.add(lbd_id)
+                merged_ids.append(lbd_id)
+        if merged_ids:
+            return {tracker_columns[0]: merged_ids}
+
+    return {
+        status_type: lbd_ids
+        for status_type, lbd_ids in normalized_assignments.items()
+        if status_type in tracker_column_set
+    }
+
+
 def _ensure_claim_workers(names):
     normalized = _normalize_people(names)
     if not normalized:
@@ -2187,7 +2221,10 @@ def backfill_claim_activity():
     work_date = _parse_claim_work_date(data.get('work_date') or data.get('date'))
     claimed_at = _parse_claim_activity_timestamp(data.get('claimed_at'), work_date)
     valid_lbd_ids = _block_accessible_lbd_ids(block, tracker=tracker)
-    assignments = _normalize_claim_assignments(data.get('assignments') or {}, valid_lbd_ids)
+    assignments = _align_assignments_to_tracker_columns(
+        tracker,
+        _normalize_claim_assignments(data.get('assignments') or {}, valid_lbd_ids),
+    )
     if not assignments:
         return jsonify({'error': 'Select at least one LBD assignment before backfilling'}), 400
 
@@ -2199,6 +2236,7 @@ def backfill_claim_activity():
         completed_assignments,
         assignments,
     )
+    merged_assignments = _align_assignments_to_tracker_columns(tracker, merged_assignments)
     merged_people = _merge_claim_people(block.get_claimed_people(tracker_id=tracker_id), people)
     live_claimed_by = actor or people[0]
 
