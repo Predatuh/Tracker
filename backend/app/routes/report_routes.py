@@ -28,6 +28,8 @@ from datetime import date, datetime, timedelta
 from sqlalchemy.orm import subqueryload
 from sqlalchemy import or_
 from io import BytesIO
+import csv
+import io as _io
 import pytz
 import base64
 import os
@@ -431,6 +433,7 @@ def _build_crew_lbd_groups(target_date, tracker_id=None, user=None):
 
         groups.append({
             'power_block_name': pb_name,
+            'block_notes': block.notes if block else None,
             'crew_label': crew_label,
             'is_crew': is_crew,
             'people': people,
@@ -641,6 +644,11 @@ def _report_pdf_bytes(report):
             pb_buckets.setdefault(pb, []).append(g)
         for pb_name, pb_groups in pb_buckets.items():
             story.append(_paragraph(pb_name, ParagraphStyle('BlockName', parent=body_style, fontName='Helvetica-Bold', fontSize=11)))
+            pb_notes = (pb_groups[0] if pb_groups else {}).get('block_notes')
+            if pb_notes:
+                note_style = ParagraphStyle('BlockNote', parent=body_style, fontSize=9,
+                                            textColor=colors.HexColor('#6366f1'), leftIndent=8)
+                story.append(_paragraph(f'Note: {pb_notes}', note_style))
             rows = [['Worker / Crew', 'Tasks', 'LBDs']]
             for g in pb_groups:
                 crew_label = g.get('crew_label') or '?'
@@ -2433,6 +2441,88 @@ def get_report_pdf_by_date(date_str):
     )
 
 
+@bp.route('/reports/date/<date_str>/export', methods=['GET'])
+def export_report_by_date(date_str):
+    """Export report data as CSV or XLSX. ?format=csv (default) or ?format=xlsx"""
+    try:
+        target = date.fromisoformat(date_str)
+    except ValueError:
+        return jsonify({'error': 'Invalid date, use YYYY-MM-DD'}), 400
+
+    fmt = str(request.args.get('format') or 'csv').strip().lower()
+    if fmt not in ('csv', 'xlsx'):
+        return jsonify({'error': 'format must be csv or xlsx'}), 400
+
+    tracker_id = _resolve_tracker_id()
+    groups = _build_crew_lbd_groups(target, tracker_id=tracker_id)
+
+    # Build flat rows: one row per crew × task combination
+    rows = []
+    for g in groups:
+        pb = g.get('power_block_name') or ''
+        notes = g.get('block_notes') or ''
+        crew = g.get('crew_label') or ''
+        for t in (g.get('tasks') or []):
+            task_name = (t.get('task') or '').replace('_', ' ').title()
+            rows.append([target.isoformat(), pb, notes, crew, task_name,
+                         t.get('lbd_range') or '', t.get('lbd_count') or 0])
+
+    headers = ['Date', 'Power Block', 'Block Notes', 'Worker / Crew', 'Task', 'LBD Range', 'LBD Count']
+
+    if fmt == 'csv':
+        out = _io.StringIO()
+        writer = csv.writer(out)
+        writer.writerow(headers)
+        writer.writerows(rows)
+        csv_bytes = out.getvalue().encode('utf-8-sig')  # BOM for Excel compatibility
+        filename = f'princess-trackers-{target.isoformat()}.csv'
+        return send_file(
+            BytesIO(csv_bytes),
+            mimetype='text/csv',
+            download_name=filename,
+            as_attachment=True,
+            max_age=0,
+        )
+    else:  # xlsx
+        try:
+            import openpyxl
+            from openpyxl.styles import Font, PatternFill, Alignment
+        except ImportError:
+            return jsonify({'error': 'openpyxl not installed; CSV export is available instead'}), 500
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = f'Report {target.isoformat()}'
+
+        header_font = Font(bold=True, color='FFFFFF')
+        header_fill = PatternFill(fill_type='solid', fgColor='4F46E5')
+        ws.append(headers)
+        for cell in ws[1]:
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal='center')
+
+        for row in rows:
+            ws.append(row)
+
+        # Auto-size columns (approx)
+        for col in ws.columns:
+            max_len = max((len(str(c.value or '')) for c in col), default=10)
+            ws.column_dimensions[col[0].column_letter].width = min(max_len + 4, 50)
+
+        buf = BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        filename = f'princess-trackers-{target.isoformat()}.xlsx'
+        return send_file(
+            buf,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            download_name=filename,
+            as_attachment=True,
+            max_age=0,
+        )
+
+
 @bp.route('/reports/generate', methods=['POST'])
 def generate_report():
     """Manually generate/refresh a report for a given date (default: CST today)."""
@@ -2669,6 +2759,46 @@ def generate_review_report():
     return jsonify({'success': True, 'data': report.to_dict()}), 200
 
 
+@bp.route('/reports/velocity', methods=['GET'])
+def get_velocity():
+    """Daily LBD throughput for the last N days. ?days=7&tracker_id=X"""
+    try:
+        days = max(1, min(int(request.args.get('days') or 7), 90))
+    except (TypeError, ValueError):
+        days = 7
+
+    tracker_id = _resolve_tracker_id()
+    user = _current_user()
+
+    today = _cst_today()
+    start_date = today - timedelta(days=days - 1)
+
+    query = _scope_query_to_accessible_trackers(
+        ClaimActivity.query.filter(
+            ClaimActivity.work_date >= start_date,
+            ClaimActivity.work_date <= today,
+        ),
+        ClaimActivity.tracker_id,
+        tracker_id=tracker_id,
+        user=user,
+    )
+
+    daily = {(start_date + timedelta(days=i)).isoformat(): 0 for i in range(days)}
+    for activity in query.all():
+        assignments = activity.get_assignments() or {}
+        lbd_count = sum(len(v) for v in assignments.values())
+        day_key = activity.work_date.isoformat() if activity.work_date else None
+        if day_key and day_key in daily:
+            daily[day_key] += lbd_count
+
+    dates = list(daily.keys())
+    counts = [daily[d] for d in dates]
+    return jsonify({
+        'success': True,
+        'data': {'dates': dates, 'counts': counts, 'total': sum(counts), 'days': days},
+    }), 200
+
+
 @bp.route('/reports/range', methods=['GET'])
 def get_reports_range():
     """
@@ -2712,3 +2842,62 @@ def get_reports_range():
         'range':   {'start': start.isoformat(), 'end': end.isoformat()},
         'data':    [r.to_dict() for r in reports],
     }), 200
+
+
+@bp.route('/reports/leaderboard', methods=['GET'])
+def get_leaderboard():
+    """Crew leaderboard by LBD count over last N days. ?days=30&tracker_id=X"""
+    user = _current_user()
+    if not user:
+        return jsonify({'success': False, 'error': 'Auth required'}), 401
+
+    try:
+        days = max(1, min(int(request.args.get('days') or 30), 365))
+    except (TypeError, ValueError):
+        days = 30
+
+    tracker_id = _resolve_tracker_id()
+    today = _cst_today()
+    start_date = today - timedelta(days=days - 1)
+
+    query = _scope_query_to_accessible_trackers(
+        ClaimActivity.query.filter(
+            ClaimActivity.work_date >= start_date,
+            ClaimActivity.work_date <= today,
+        ),
+        ClaimActivity.tracker_id,
+        tracker_id=tracker_id,
+        user=user,
+    )
+
+    from collections import defaultdict
+    person_stats = defaultdict(lambda: {'lbd_count': 0, 'block_ids': set(), 'dates': set()})
+
+    for act in query.all():
+        people = act.get_people()
+        try:
+            assignments = json.loads(act.assignments_json or '{}')
+        except Exception:
+            assignments = {}
+        lbd_count = sum(len(v) for v in assignments.values()) if isinstance(assignments, dict) else 0
+        for person in people:
+            person_stats[person]['lbd_count'] += lbd_count
+            person_stats[person]['block_ids'].add(act.power_block_id)
+            person_stats[person]['dates'].add(str(act.work_date))
+
+    ranked = sorted(
+        [
+            {
+                'name': name,
+                'lbd_count': stats['lbd_count'],
+                'block_count': len(stats['block_ids']),
+                'days_active': len(stats['dates']),
+            }
+            for name, stats in person_stats.items()
+        ],
+        key=lambda x: (-x['lbd_count'], -x['block_count'], x['name'].casefold()),
+    )
+    for i, item in enumerate(ranked):
+        item['rank'] = i + 1
+
+    return jsonify({'success': True, 'data': ranked, 'days': days}), 200

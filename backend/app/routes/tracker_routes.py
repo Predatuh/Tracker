@@ -552,11 +552,24 @@ def _emit_claim_updates(block_payloads, status_updates):
     if not sio:
         return
 
+    from datetime import datetime as _dt
+    from app.models.power_block import PowerBlock as _PB
     for block_id, payload in block_payloads:
         sio.emit('claim_update', {
             'pb_id': block_id,
             **payload,
         })
+        try:
+            blk = _PB.query.get(block_id)
+            sio.emit('live_activity', {
+                'type': 'claim',
+                'block_id': block_id,
+                'block_name': blk.name if blk else f'Block {block_id}',
+                'actor': payload.get('claimed_by') or (payload.get('claimed_label') or '').split(',')[0].strip() or 'Crew',
+                'ts': _dt.utcnow().isoformat() + 'Z',
+            })
+        except Exception:
+            pass
     for update in status_updates:
         sio.emit('status_update', update)
 
@@ -762,6 +775,40 @@ def add_block_note(block_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/power-blocks/<int:block_id>/history', methods=['GET'])
+def get_block_history(block_id):
+    """Return claim activity history for a power block (up to 50 entries)."""
+    block = PowerBlock.query.get_or_404(block_id)
+    if not _block_is_accessible(block):
+        return jsonify({'error': 'That power block is not accessible for your job site'}), 403
+
+    activities = (
+        ClaimActivity.query
+        .filter_by(power_block_id=block_id)
+        .order_by(ClaimActivity.claimed_at.desc(), ClaimActivity.id.desc())
+        .limit(50)
+        .all()
+    )
+    history = []
+    for act in activities:
+        people = act.get_people() or []
+        assignments = act.get_assignments() or {}
+        task_summary = ', '.join(
+            k.replace('_', ' ').title() + (f' ({len(v)} LBDs)' if v else '')
+            for k, v in assignments.items()
+        )
+        history.append({
+            'id': act.id,
+            'work_date': act.work_date.isoformat() if act.work_date else None,
+            'claimed_at': act.claimed_at.isoformat() if act.claimed_at else None,
+            'people': people,
+            'crew_label': ', '.join(people) if people else 'Unknown',
+            'task_summary': task_summary,
+            'source': act.source or 'manual',
+        })
+    return jsonify({'success': True, 'data': history}), 200
 
 
 @bp.route('/lbds', methods=['POST'])

@@ -1249,6 +1249,7 @@ function renderDashboardSpotlight(cards) {
         </div>
         <div class="dashboard-spotlight-score" style="color:${featuredTone}">${featured.pct}%</div>
         <div class="dashboard-spotlight-score-label">Tracker completion</div>
+        <div id="dash-velocity-chart" class="dashboard-spotlight-velocity" style="margin:8px 0 6px;"></div>
         <div class="dashboard-spotlight-bar"><div class="dashboard-spotlight-bar-fill" style="width:${featured.pct}%;background:${featuredTone};"></div></div>
         <button type="button" class="dashboard-spotlight-btn" onclick="event.stopPropagation(); openTracker(${featured.id}); return false;">Open Tracker →</button>
       </div>
@@ -1256,6 +1257,60 @@ function renderDashboardSpotlight(cards) {
   `;
 
   return ranked;
+}
+
+async function loadVelocitySparkline(trackerId, days = 7) {
+  const el = document.getElementById('dash-velocity-chart');
+  if (!el) return;
+  try {
+    const url = `/api/reports/velocity?days=${days}${trackerId ? '&tracker_id=' + trackerId : ''}`;
+    const r = await fetch(url, { credentials: 'include' });
+    if (!r.ok) return;
+    const j = await r.json();
+    const d = j.data || {};
+    const counts = d.counts || [];
+    const dates = d.dates || [];
+    if (!counts.length) return;
+
+    const W = 140, H = 38, barW = Math.floor((W - 2) / counts.length) - 2;
+    const maxV = Math.max(...counts, 1);
+    const bars = counts.map((v, i) => {
+      const bh = Math.max(3, Math.round((v / maxV) * (H - 8)));
+      const x = i * (barW + 2) + 1;
+      const y = H - bh - 2;
+      const alpha = 0.35 + 0.65 * (v / maxV);
+      const label = dates[i] ? dates[i].slice(5) : '';
+      return `<rect x="${x}" y="${y}" width="${barW}" height="${bh}" rx="2" fill="rgba(0,212,255,${alpha.toFixed(2)})" title="${label}: ${v} LBDs"/>`;
+    }).join('');
+
+    el.innerHTML = `
+      <div style="font-size:10px;color:rgba(238,242,255,0.38);margin-bottom:3px;">7-day LBD throughput · ${d.total || 0} total</div>
+      <svg width="${W}" height="${H}" style="display:block;">${bars}</svg>`;
+  } catch (e) { /* silently ignored */ }
+}
+
+const _liveFeedEvents = [];
+function pushLiveActivityEvent(ev) {
+  _liveFeedEvents.unshift(ev);
+  if (_liveFeedEvents.length > 5) _liveFeedEvents.length = 5;
+  _renderLiveFeed();
+}
+
+function _renderLiveFeed() {
+  const el = document.getElementById('live-activity-feed');
+  if (!el) return;
+  if (!_liveFeedEvents.length) { el.style.display = 'none'; return; }
+  el.style.display = '';
+  const items = _liveFeedEvents.map(ev => {
+    const t = ev.ts ? new Date(ev.ts) : null;
+    const timeStr = t ? t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+    return `<div class="live-feed-item">
+      <span class="live-feed-dot"></span>
+      <span class="live-feed-text"><strong>${_escapeHtml(ev.actor || 'Crew')}</strong> claimed <strong>${_escapeHtml(ev.block_name || 'a block')}</strong></span>
+      <span class="live-feed-time">${timeStr}</span>
+    </div>`;
+  }).join('');
+  el.innerHTML = `<div class="live-feed-header"><span class="live-feed-pulse"></span>Live Activity</div>${items}`;
 }
 
 function renderDashboardOverview(cards) {
@@ -1396,6 +1451,7 @@ async function loadDashboard() {
   renderDashboardOverview(cards);
   const rankedCards = renderDashboardSpotlight(cards);
   const featuredTrackerId = rankedCards[0] ? rankedCards[0].id : null;
+  loadVelocitySparkline(featuredTrackerId);
   if (countBadge) countBadge.textContent = formatDashboardCount(rankedCards.length, 'tracker');
 
   grid.innerHTML = rankedCards.map(t => {
@@ -2429,6 +2485,10 @@ function _initSocket() {
         showPBPanel(nextBlock);
       }
     }).catch(() => {});
+  });
+
+  _socket.on('live_activity', function(data) {
+    pushLiveActivityEvent(data);
   });
 }
 
@@ -3766,6 +3826,11 @@ function renderPBMarkers() {
           showPBPanel(pb); // fallback to cached
         }
       });
+      m.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        const fresh = mapPBs.find(p => p.id === pb.id) || pb;
+        showMapQuickPopover(fresh, e.clientX, e.clientY);
+      });
     }
 
     container.appendChild(m);
@@ -4261,6 +4326,72 @@ function renderTextLabels() {
   });
 }
 
+function showMapQuickPopover(pb, clientX, clientY) {
+  const popover = document.getElementById('map-quick-popover');
+  if (!popover) return;
+
+  const statusTypes = (currentTracker?.status_types || LBD_STATUS_TYPES).slice();
+  const summary = pb.lbd_summary || {};
+  const total = pb.lbd_count || 0;
+
+  const rows = statusTypes.map(st => {
+    const done = summary[st] || 0;
+    const allDone = total > 0 && done >= total;
+    const label = STATUS_LABELS[st] || st.replace(/_/g, ' ');
+    const color = STATUS_COLORS[st] || '#4f8cff';
+    return `<div class="map-qp-row">
+      <span class="map-qp-label" style="color:${color}">${_escapeHtml(label)}</span>
+      <span class="map-qp-count">${done}/${total}</span>
+      <button class="map-qp-btn${allDone ? ' is-done' : ''}"
+        onclick="mapQuickMarkAll(${pb.id}, '${st}', ${!allDone})"
+        style="border-color:${color}20;color:${allDone ? color : 'rgba(238,242,255,0.55)'}">
+        ${allDone ? '✓ Done' : 'Mark all'}
+      </button>
+    </div>`;
+  }).join('');
+
+  popover.innerHTML = `
+    <div class="map-qp-header">
+      <span class="map-qp-name">${_escapeHtml(pb.name)}</span>
+      <button class="map-qp-close" onclick="document.getElementById('map-quick-popover').style.display='none'">✕</button>
+    </div>
+    ${rows}
+    <div class="map-qp-footer"><button class="map-qp-open" onclick="document.getElementById('map-quick-popover').style.display='none';showPBPanel(mapPBs.find(b=>b.id===${pb.id})||${JSON.stringify({id:pb.id,name:pb.name})})">Open full panel →</button></div>
+  `;
+
+  // Position near cursor (keep within viewport)
+  const W = 240, vw = window.innerWidth, vh = window.innerHeight;
+  const left = Math.min(clientX + 8, vw - W - 10);
+  const top = Math.min(clientY + 8, vh - 280);
+  popover.style.left = left + 'px';
+  popover.style.top = top + 'px';
+  popover.style.display = 'block';
+}
+
+async function mapQuickMarkAll(blockId, statusType, complete) {
+  try {
+    await api.bulkComplete(blockId, [statusType], complete);
+    const r = await api.getPowerBlock(blockId);
+    const i = mapPBs.findIndex(p => p.id === blockId);
+    if (i >= 0) { mapPBs[i] = r.data; _updateMarkerColor(r.data); }
+    // Refresh popover if still open for this block
+    const popover = document.getElementById('map-quick-popover');
+    if (popover && popover.style.display !== 'none') {
+      const pb = mapPBs.find(b => b.id === blockId) || r.data;
+      const rect = popover.getBoundingClientRect();
+      showMapQuickPopover(pb, rect.left - 8, rect.top - 8);
+    }
+  } catch(e) { /* ignore */ }
+}
+
+// Close map popover when clicking outside
+document.addEventListener('click', (e) => {
+  const pop = document.getElementById('map-quick-popover');
+  if (pop && pop.style.display !== 'none' && !pop.contains(e.target)) {
+    pop.style.display = 'none';
+  }
+});
+
 function showPBPanel(pb) {
   activePBId = pb.id;
   if (!currentTracker) {
@@ -4314,8 +4445,12 @@ function showPBPanel(pb) {
   }
 
   const headerEl = document.getElementById('lbd-grid-header');
+  const mapNoteHtml = pb.notes
+    ? `<div style="margin-bottom:6px;padding:6px 10px;background:rgba(165,180,252,0.07);border:1px solid rgba(165,180,252,0.15);border-radius:7px;font-size:11px;color:#c4b5fd;font-style:italic;">&#128203; ${_escapeHtml(pb.notes)}</div>`
+    : '';
   headerEl.innerHTML = `
     ${buildPBIfcActionMarkup(pb, true)}
+    ${mapNoteHtml}
     ${mapClaimBanner}
     <div style="display:grid;grid-template-columns:${gridCols};gap:3px;align-items:end;margin-bottom:4px;">
       <div style="font-size:10px;color:#4a5568;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">LBD</div>
@@ -4925,6 +5060,9 @@ let claimPageState = {
   loading: false,
   scanLoading: false,
   scanSubmitting: false,
+  blockHistory: {},       // { [blockId]: { loading: bool, data: [] } }
+  historyOpen: {},        // { [blockId]: bool }
+  noteEditing: null,      // blockId currently in edit mode
 };
 
 function claimSelectedBlock() {
@@ -5758,6 +5896,58 @@ async function claimSubmitScanDraft() {
   }
 }
 
+async function claimToggleHistory(blockId) {
+  const id = Number(blockId);
+  claimPageState.historyOpen[id] = !claimPageState.historyOpen[id];
+  if (claimPageState.historyOpen[id] && !claimPageState.blockHistory[id]) {
+    claimPageState.blockHistory[id] = { loading: true, data: [] };
+    renderClaimPage();
+    try {
+      const r = await fetch(`/api/tracker/power-blocks/${id}/history`, { credentials: 'include' });
+      const j = await r.json();
+      claimPageState.blockHistory[id] = { loading: false, data: j.data || [] };
+    } catch (e) {
+      claimPageState.blockHistory[id] = { loading: false, data: [] };
+    }
+  }
+  renderClaimPage();
+}
+
+function claimStartNoteEdit(blockId) {
+  claimPageState.noteEditing = Number(blockId);
+  renderClaimPage();
+  // Focus the textarea after render
+  requestAnimationFrame(() => {
+    const ta = document.getElementById(`claim-note-textarea-${blockId}`);
+    if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+  });
+}
+
+function claimCancelNoteEdit(blockId) {
+  claimPageState.noteEditing = null;
+  renderClaimPage();
+}
+
+async function claimSaveNote(blockId) {
+  const id = Number(blockId);
+  const ta = document.getElementById(`claim-note-textarea-${id}`);
+  const noteText = ta ? ta.value.trim() : '';
+  try {
+    await api.call(`/tracker/power-blocks/${id}/note`, {
+      method: 'POST',
+      body: JSON.stringify({ note: noteText }),
+    });
+    // Update cached block
+    const block = claimPageState.blocks.find(b => b.id === id);
+    if (block) block.notes = noteText || null;
+    if (_blocksCache[id]) _blocksCache[id].notes = noteText || null;
+    claimPageState.noteEditing = null;
+    renderClaimPage();
+  } catch (e) {
+    alert('Failed to save note: ' + e.message);
+  }
+}
+
 async function loadClaimPage() {
   const el = document.getElementById('claim-content');
   if (!el || claimPageState.loading) return;
@@ -5812,7 +6002,10 @@ function renderClaimPage() {
       <div class="claim-summary-meta">${meta}</div>
     </article>`;
 
-  const blockTiles = filtered.map((block) => {
+  // Zone-grouped block tile rendering
+  const _claimStatusTypes = currentTracker?.status_types || [];
+  const _claimPrimaryStatus = currentTracker?.completion_status_type || (_claimStatusTypes.length ? _claimStatusTypes[_claimStatusTypes.length - 1] : 'term');
+  const _renderBlockTile = (block) => {
     const selected = selectedBlock && Number(selectedBlock.id) === Number(block.id);
     const checked = selectedBlockIds.has(Number(block.id));
     const claimedLbdCount = claimClaimedLbdCount(block);
@@ -5830,7 +6023,7 @@ function renderClaimPage() {
       : (hasClaim && claimedLbdCount > 0
         ? `${claimedLbdCount}/${block.lbd_count || 0} ${getPowerBlockCountLabel(block.lbd_count || 0)} claimed`
         : (visualState.complete || visualState.inProgress)
-          ? `${completedSteps}/${progressSteps} parts complete • ${progressPctLabel}`
+          ? `${completedSteps}/${progressSteps} parts complete \u2022 ${progressPctLabel}`
           : 'No live claim on this block');
     const zoneText = block.zone ? _escapeHtml(block.zone) : 'Unzoned';
     return `<button type="button" class="claim-block-tile${selected ? ' is-selected' : ''}${checked ? ' is-checked' : ''}${visualState.complete ? ' is-fully-claimed' : ''}${visualState.inProgress ? ' is-partially-claimed' : ''}" onclick="claimSelectBlock(${block.id})">
@@ -5851,6 +6044,20 @@ function renderClaimPage() {
         <span class="claim-block-progress">${progressPctLabel} complete</span>
       </div>
     </button>`;
+  };
+  // Group blocks by zone and build HTML with zone summary headers
+  const _UNZONED = '\u2014 Unzoned';
+  const _zoneGroups = {};
+  filtered.forEach(b => { const z = b.zone || _UNZONED; (_zoneGroups[z] = _zoneGroups[z] || []).push(b); });
+  const _zoneKeys = Object.keys(_zoneGroups).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const blockTiles = _zoneKeys.map(zName => {
+    const zBlocks = _zoneGroups[zName];
+    const zTotal = zBlocks.reduce((s, b) => s + (b.lbd_count || 0), 0);
+    const zDone = zBlocks.reduce((s, b) => s + ((b.lbd_summary && b.lbd_summary[_claimPrimaryStatus]) || 0), 0);
+    const zPct = zTotal > 0 ? Math.round((zDone / zTotal) * 100) : 0;
+    const zSummary = `${zBlocks.length} block${zBlocks.length === 1 ? '' : 's'} \u00b7 ${zDone}/${zTotal} LBDs done \u00b7 ${zPct}%`;
+    const hdr = `<div class="claim-zone-header"><span class="claim-zone-header-name">${_escapeHtml(zName)}</span><span class="claim-zone-header-summary">${zSummary}</span></div>`;
+    return hdr + zBlocks.map(_renderBlockTile).join('');
   }).join('');
 
   const selectedAssignments = selectedBlock ? _buildClaimAssignmentSummary(selectedBlock) : '';
@@ -5992,6 +6199,47 @@ function renderClaimPage() {
             <div class="claim-card-meta">${selectedClaimedPeople || 'No crew assigned yet.'}</div>
             ${selectedAssignments || ''}
           </div>
+          ${selectedBlock ? (() => {
+            const note = selectedBlock.notes || '';
+            const editState = claimPageState.noteEditing === selectedBlock.id;
+            return `<div class="claim-note-card" id="claim-note-card-${selectedBlock.id}">
+              <div class="claim-note-header">
+                <span class="claim-card-label">Block Note</span>
+                ${!editState ? `<button class="claim-note-edit-btn" onclick="claimStartNoteEdit(${selectedBlock.id})">✏ ${note ? 'Edit' : 'Add note'}</button>` : ''}
+              </div>
+              ${editState
+                ? `<textarea id="claim-note-textarea-${selectedBlock.id}" class="claim-note-textarea" rows="3" placeholder="Add a note about this block…">${_escapeHtml(note)}</textarea>
+                   <div class="claim-note-actions">
+                     <button class="btn btn-primary btn-sm" onclick="claimSaveNote(${selectedBlock.id})">Save</button>
+                     <button class="btn btn-secondary btn-sm" onclick="claimCancelNoteEdit(${selectedBlock.id})">Cancel</button>
+                   </div>`
+                : (note ? `<div class="claim-note-text">${_escapeHtml(note)}</div>` : '<div class="claim-muted-copy" style="font-size:12px;">No note added yet.</div>')
+              }
+            </div>`;
+          })() : ''}
+          ${(() => {
+            if (!selectedBlock) return '';
+            const bhState = claimPageState.blockHistory[selectedBlock.id];
+            const isOpen = claimPageState.historyOpen[selectedBlock.id];
+            const historyItems = (!bhState || bhState.loading) ? '' : (bhState.data || []).map(h => {
+              const dateStr = h.work_date || '';
+              const atStr = h.claimed_at ? new Date(h.claimed_at).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '';
+              return `<div class="block-history-row">
+                <span class="block-history-bullet"></span>
+                <div class="block-history-body">
+                  <div class="block-history-crew">${_escapeHtml(h.crew_label)}</div>
+                  <div class="block-history-meta">${_escapeHtml(h.task_summary || 'No tasks')} &middot; ${_escapeHtml(dateStr)}</div>
+                  ${atStr ? `<div class="block-history-ts">${atStr}</div>` : ''}
+                </div>
+              </div>`;
+            }).join('') || '<div class="claim-muted-copy" style="padding:6px 0;">No claim history for this block.</div>';
+            return `<div class="claim-history-section">
+              <button class="claim-history-toggle" onclick="claimToggleHistory(${selectedBlock.id})">
+                Activity History ${isOpen ? '▲' : '▼'}
+              </button>
+              ${isOpen ? `<div class="claim-history-body">${bhState && bhState.loading ? '<div class="claim-muted-copy">Loading...</div>' : historyItems}</div>` : ''}
+            </div>`;
+          })()}
           <div class="claim-info-card claim-info-card-accent">
             <div class="claim-card-label claim-card-label-accent">Safeguards</div>
             <div class="claim-card-copy">Every manual claim now goes through a review step before submit. Claim scans below also require a preview plus crew confirmation before they are committed.</div>
@@ -6146,6 +6394,7 @@ async function loadReportsPage() {
         <div class="reports-toolbar-tabs">
           <button id="rp-tab-calendar" class="reports-tab-btn" onclick="rp_switchView('calendar')">Calendar</button>
           <button id="rp-tab-list" class="reports-tab-btn" onclick="rp_switchView('list')">List</button>
+          <button id="rp-tab-leaderboard" class="reports-tab-btn" onclick="rp_switchView('leaderboard')">Leaderboard</button>
         </div>
         <div class="reports-toolbar-actions" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
           <input id="rp-selected-date" type="date" value="${_escapeHtml(rp_selectedDate || todayIsoDate())}" onchange="rp_pickDate(this.value)" style="min-height:40px;padding:8px 12px;border-radius:10px;border:1px solid rgba(15,23,42,0.12);background:#fff;color:#0f172a;" />
@@ -6166,12 +6415,16 @@ async function loadReportsPage() {
 
 async function rp_switchView(mode) {
   rp_viewMode = mode;
-  ['calendar', 'list'].forEach((value) => {
+  ['calendar', 'list', 'leaderboard'].forEach((value) => {
     const btn = document.getElementById(`rp-tab-${value}`);
     if (btn) btn.classList.toggle('active', value === mode);
   });
   if (mode === 'list') {
     await rp_loadList();
+    return;
+  }
+  if (mode === 'leaderboard') {
+    await rp_loadLeaderboard();
     return;
   }
   await rp_loadCalendar();
@@ -6202,6 +6455,47 @@ function rp_changeMonth(delta) {
   rp_calendarYear = next.getFullYear();
   rp_calendarMonth = next.getMonth();
   rp_loadCalendar(true);
+}
+
+async function rp_loadLeaderboard() {
+  const el = document.getElementById('rp-body');
+  if (!el) return;
+  el.innerHTML = '<div class="reports-empty-copy">Loading leaderboard…</div>';
+  try {
+    const params = new URLSearchParams({ days: 30 });
+    if (currentTracker) params.set('tracker_id', currentTracker.id);
+    const res = await api.call(`/reports/leaderboard?${params}`);
+    const people = Array.isArray(res.data) ? res.data : [];
+    if (!people.length) {
+      el.innerHTML = '<div class="reports-empty-copy">No claim activity logged yet. Start claiming power blocks to see crew stats here.</div>';
+      return;
+    }
+    const medals = ['🥇', '🥈', '🥉'];
+    el.innerHTML = `
+      <div class="rp-leaderboard-shell">
+        <div class="rp-leaderboard-header">
+          <div class="rp-leaderboard-title">Crew Leaderboard</div>
+          <div class="rp-leaderboard-subtitle">LBDs worked — last 30 days</div>
+        </div>
+        <div class="rp-leaderboard-grid">
+          ${people.map((p) => {
+            const medal = medals[p.rank - 1] || `#${p.rank}`;
+            const pct   = people[0].lbd_count > 0 ? Math.round((p.lbd_count / people[0].lbd_count) * 100) : 0;
+            return `<div class="rp-lb-card${p.rank <= 3 ? ' rp-lb-top' : ''}">
+              <div class="rp-lb-rank">${medal}</div>
+              <div class="rp-lb-body">
+                <div class="rp-lb-name">${_escapeHtml(p.name)}</div>
+                <div class="rp-lb-stats">${p.lbd_count} LBDs &nbsp;·&nbsp; ${p.block_count} blocks &nbsp;·&nbsp; ${p.days_active} day${p.days_active === 1 ? '' : 's'}</div>
+                <div class="rp-lb-bar-track"><div class="rp-lb-bar-fill" style="width:${pct}%"></div></div>
+              </div>
+              <div class="rp-lb-count">${p.lbd_count}</div>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>`;
+  } catch (e) {
+    el.innerHTML = `<p style="color:#ff4c6a;">Error loading leaderboard: ${_escapeHtml(e.message)}</p>`;
+  }
 }
 
 async function rp_loadList(skipDetailLoad = false) {
@@ -6402,6 +6696,8 @@ async function rp_showDetail(dateStr, syncSelection = true, ensure = true) {
     });
     const crewLbdGroupsHtml = Object.entries(crewByBlock).map(([pbName, groups]) => {
       const totalLbds = groups.reduce((s, g2) => s + (g2.tasks || []).reduce((ts, t) => ts + (t.lbd_count || 0), 0), 0);
+      const blockNotes = (groups[0] || {}).block_notes;
+      const noteLineHtml = blockNotes ? `<div class="reports-insight-note">${_escapeHtml(blockNotes)}</div>` : '';
       const rowsHtml = groups.map(g2 => {
         const crewBadge = g2.is_crew ? '<span class="reports-note-pill" style="background:rgba(99,102,241,0.15);color:#a5b4fc;border-radius:6px;padding:2px 7px;font-size:11px;font-weight:600;margin-right:6px;">Crew</span>' : '';
         const pills = (g2.tasks || []).map(t => {
@@ -6417,6 +6713,7 @@ async function rp_showDetail(dateStr, syncSelection = true, ensure = true) {
             <div>
               <div class="reports-insight-title">${_escapeHtml(pbName)}</div>
               <div class="reports-insight-meta">${groups.length} ${groups.length === 1 ? 'entry' : 'entries'} · ${totalLbds} LBDs</div>
+              ${noteLineHtml}
             </div>
             <div class="reports-insight-count">${totalLbds}</div>
           </div>
@@ -6474,6 +6771,8 @@ async function rp_showDetail(dateStr, syncSelection = true, ensure = true) {
           <button class="btn btn-primary" onclick="rp_generate('${dateStr}')">Refresh This Day</button>
           <button class="btn btn-secondary" onclick="rp_openPdf(false)">View PDF</button>
           <button class="btn btn-secondary" onclick="rp_openPdf(true)">Download PDF</button>
+          <a class="btn btn-secondary" href="/api/reports/date/${dateStr}/export?format=csv${currentTracker ? '&tracker_id=' + currentTracker.id : ''}" download>⬇ CSV</a>
+          <a class="btn btn-secondary" href="/api/reports/date/${dateStr}/export?format=xlsx${currentTracker ? '&tracker_id=' + currentTracker.id : ''}" download>⬇ XLSX</a>
         </div>
         <div class="reports-snapshot-grid">
           <article class="reports-snapshot-card">

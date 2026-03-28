@@ -127,6 +127,7 @@
                     <div id="dashboard-overview-grid" class="dashboard-overview-grid"></div>
                     <div id="dashboard-activity-strip" class="dashboard-activity-strip"></div>
                   </div>
+                  <div id="live-activity-feed" class="live-activity-feed" style="display:none;"></div>
                   <div class="dashboard-main-layout">
                     <section class="dashboard-trackers-panel">
                       <div class="dashboard-panel-head">
@@ -823,6 +824,9 @@
             <div id="modal-body"></div>
         </div>
     </div>
+
+    <!-- Map inline status popover -->
+    <div id="map-quick-popover" style="display:none;position:fixed;z-index:9999;"></div>
 
     <script src="{{ url_for('static', filename='js/app.js') }}?v={{ range(10000,99999) | random }}"></script>
 <script>
