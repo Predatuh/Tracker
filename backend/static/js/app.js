@@ -5149,7 +5149,6 @@ function claimSelectRange() {
   }
 
   const lower = Math.min(start, end);
-      completionRatio: claimCompletionRatio(block),
   const upper = Math.max(start, end);
   const matchingBlocks = claimFilteredBlocks().filter((block) => {
     const blockNumber = claimBlockNumber(block);
