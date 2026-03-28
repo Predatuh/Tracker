@@ -636,11 +636,20 @@ async function bulkCompleteAll(blockId, complete) {
   } catch(e) { alert('Error: ' + e.message); }
 }
 
-function _getClaimAssignments(block) {
+function _normalizeAllowedClaimStatusTypes(allowedStatusTypes = null) {
+  const source = Array.isArray(allowedStatusTypes) && allowedStatusTypes.length
+    ? allowedStatusTypes
+    : claimStatusTypesForCurrentTracker();
+  return new Set((source || []).map((statusType) => String(statusType || '').trim()).filter(Boolean));
+}
+
+function _getClaimAssignments(block, allowedStatusTypes = null) {
   const merged = {};
+  const allowedTypes = _normalizeAllowedClaimStatusTypes(allowedStatusTypes);
   const pushIds = (statusType, lbdIds) => {
     const key = String(statusType || '').trim();
     if (!key || !Array.isArray(lbdIds)) return;
+    if (allowedTypes.size && !allowedTypes.has(key)) return;
     if (!merged[key]) merged[key] = [];
     const seen = new Set(merged[key]);
     lbdIds.forEach((lbdId) => {
@@ -667,8 +676,8 @@ function _getClaimAssignments(block) {
   return merged;
 }
 
-function _buildClaimAssignmentSummary(block) {
-  const assignments = _getClaimAssignments(block);
+function _buildClaimAssignmentSummary(block, allowedStatusTypes = null) {
+  const assignments = _getClaimAssignments(block, allowedStatusTypes);
   const summary = Object.entries(assignments)
     .map(([statusType, lbdIds]) => {
       const count = Array.isArray(lbdIds) ? lbdIds.length : 0;
@@ -776,7 +785,7 @@ function _renderClaimAssignmentSections(overlay, block, suggestions = []) {
   }
 
   const draft = _collectClaimAssignmentDraft(overlay, block);
-  const existingAssignments = _getClaimAssignments(block);
+  const existingAssignments = _getClaimAssignments(block, selectedTypes);
   const lbds = Array.isArray(block.lbds) ? [...block.lbds] : [];
   lbds.sort((left, right) => String(left.identifier || left.name || '').localeCompare(String(right.identifier || right.name || '')));
 
@@ -6666,7 +6675,7 @@ async function rp_openBackfillDialog(preferredBlockId = null) {
     const renderCurrentClaimSummary = () => {
       const target = overlay.querySelector('#report-backfill-current-claim');
       if (!target || !activeBlock) return;
-      const assignments = _getClaimAssignments(activeBlock);
+      const assignments = _getClaimAssignments(activeBlock, backfillStatusTypes);
       const claimedPeople = Array.isArray(activeBlock.claimed_people) ? activeBlock.claimed_people.filter(Boolean) : [];
       const claimedLabel = activeBlock.claimed_label || claimedPeople.join(', ') || activeBlock.claimed_by || '';
       const lines = Object.entries(assignments)
