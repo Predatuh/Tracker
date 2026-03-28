@@ -383,6 +383,7 @@ const ADMIN_TAB_PERMISSIONS = {
   maplabels: ['manage_ui'],
   zones: ['edit_map'],
   claimcrew: ['manage_workers'],
+  claimhistory: ['admin_settings'],
   users: null,
   audit: null,
   appearance: ['manage_ui'],
@@ -430,7 +431,7 @@ function adminTabVisible(tabKey) {
 }
 
 function adminDefaultTabKey() {
-  const orderedTabs = ['trackers', 'names', 'columns', 'claimcrew', 'zones', 'colors', 'appearance', 'uilabels', 'users', 'audit', 'updates'];
+  const orderedTabs = ['trackers', 'names', 'columns', 'claimcrew', 'claimhistory', 'zones', 'colors', 'appearance', 'uilabels', 'users', 'audit', 'updates'];
   return orderedTabs.find(tabKey => adminTabVisible(tabKey)) || 'trackers';
 }
 
@@ -5866,6 +5867,9 @@ function renderClaimPage() {
     : (selectedBlock
       ? `<button class="btn btn-primary" ${canClaimSelection ? `onclick="showClaimPeopleDialogById(${selectedBlock.id})"` : 'disabled'}>Add Claim</button>`
       : '<button class="btn btn-primary" disabled>Add Claim</button>');
+  const historyButton = selectedBlock && currentUserCan('admin_settings')
+    ? `<button class="btn btn-secondary" onclick="rp_openBackfillDialog(${selectedBlock.id})">Historical Claim</button>`
+    : '';
   const releaseButton = selectedBlock && canReleaseClaim(selectedBlock)
     ? `<button class="btn btn-danger" onclick="claimReleaseSelectedBlock()">Release Claim</button>`
     : '';
@@ -5964,7 +5968,7 @@ function renderClaimPage() {
             <div class="claim-selected-name">${selectedBlock ? _escapeHtml(selectedBlock.name) : 'None selected'}</div>
             <div class="claim-selected-meta">${selectedBlock ? `${selectedBlock.lbd_count || 0} ${getPowerBlockCountLabel(selectedBlock.lbd_count || 0)} in the active tracker` : selectedRangeCopy}</div>
           </div>
-          <div class="claim-action-row">${claimActionButton}${releaseButton}${detailsButton}</div>
+          <div class="claim-action-row">${claimActionButton}${historyButton}${releaseButton}${detailsButton}</div>
           ${bulkSelectionCard}
           <div class="claim-info-card">
             <div class="claim-card-label">Claim Status</div>
@@ -6410,7 +6414,7 @@ function rp_defaultBackfillTimestamp(dateStr) {
   return `${date}T12:00`;
 }
 
-async function rp_openBackfillDialog() {
+async function rp_openBackfillDialog(preferredBlockId = null) {
   if (!currentUserCan('admin_settings')) {
     alert('Only admin users can backfill missing claims.');
     return;
@@ -6429,7 +6433,7 @@ async function rp_openBackfillDialog() {
     const suggestions = _dedupeClaimNames(Array.isArray(peopleResponse.data) ? peopleResponse.data : []);
     claimPageState.peopleSuggestions = suggestions;
 
-    let activeBlock = blocks[0];
+    let activeBlock = blocks.find((block) => Number(block.id) === Number(preferredBlockId)) || blocks[0];
     const overlay = document.createElement('div');
     overlay.id = 'claim-people-overlay';
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(3,8,20,0.7);backdrop-filter:blur(6px);z-index:10000;display:flex;align-items:flex-start;justify-content:center;padding:10px;overflow-y:auto;-webkit-overflow-scrolling:touch;';
@@ -6455,7 +6459,7 @@ async function rp_openBackfillDialog() {
         <div style="margin-top:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;">
           <div>
             <label style="display:block;color:#cbd5e1;font-size:13px;font-weight:600;margin-bottom:6px;">Power Block</label>
-            <select id="report-backfill-block" style="width:100%;min-height:42px;padding:10px 12px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#eef2ff;">${blocks.map((block) => `<option value="${block.id}">${_escapeHtml(block.name)}</option>`).join('')}</select>
+            <select id="report-backfill-block" style="width:100%;min-height:42px;padding:10px 12px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#eef2ff;">${blocks.map((block) => `<option value="${block.id}"${Number(block.id) === Number(activeBlock.id) ? ' selected' : ''}>${_escapeHtml(block.name)}</option>`).join('')}</select>
           </div>
           <div>
             <label style="display:block;color:#cbd5e1;font-size:13px;font-weight:600;margin-bottom:6px;">Claim Date</label>
@@ -6470,6 +6474,7 @@ async function rp_openBackfillDialog() {
             <input id="report-backfill-actor" type="text" value="${_escapeHtml(currentUser?.name || '')}" placeholder="Who is entering this backfill" style="width:100%;min-height:42px;padding:10px 12px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#eef2ff;" />
           </div>
         </div>
+        <div id="report-backfill-current-claim" style="margin-top:16px;"></div>
         <div style="margin-top:16px;">
           <label style="display:block;color:#cbd5e1;font-size:13px;font-weight:600;margin-bottom:6px;">Shared crew on this claim</label>
         </div>
@@ -6500,18 +6505,47 @@ async function rp_openBackfillDialog() {
           <div style="font-size:12px;font-weight:700;color:#8adfff;letter-spacing:0.7px;text-transform:uppercase;">Review Backfill</div>
           <div id="report-backfill-review-content" style="margin-top:12px;"></div>
         </div>
-        <div style="margin-top:18px;display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;">
+        <div style="position:sticky;bottom:-18px;margin:18px -18px -18px;padding:14px 18px;display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;background:linear-gradient(180deg, rgba(15,23,42,0.82), rgba(15,23,42,0.98));border-top:1px solid rgba(255,255,255,0.08);backdrop-filter:blur(8px);">
           <button type="button" id="report-backfill-cancel" class="btn btn-secondary" style="min-height:44px;padding:10px 20px;font-size:14px;">Cancel</button>
           <button type="button" id="report-backfill-back" class="btn btn-secondary" style="display:none;min-height:44px;padding:10px 20px;font-size:14px;">Back</button>
           <button type="button" id="report-backfill-review-btn" class="btn btn-primary" style="min-height:44px;padding:10px 20px;font-size:14px;">Review Backfill</button>
-          <button type="button" id="report-backfill-submit" class="btn btn-success" style="display:none;min-height:44px;padding:10px 20px;font-size:14px;">Save Backfill</button>
+          <button type="button" id="report-backfill-submit" class="btn btn-success" style="min-height:44px;padding:10px 20px;font-size:14px;opacity:0.55;" disabled>Save Backfill</button>
         </div>
       </div>`;
 
     document.body.appendChild(overlay);
 
     const close = () => overlay.remove();
-    const renderAssignments = () => _renderClaimAssignmentSections(overlay, activeBlock, suggestions);
+    const renderCurrentClaimSummary = () => {
+      const target = overlay.querySelector('#report-backfill-current-claim');
+      if (!target || !activeBlock) return;
+      const assignments = _getClaimAssignments(activeBlock);
+      const claimedPeople = Array.isArray(activeBlock.claimed_people) ? activeBlock.claimed_people.filter(Boolean) : [];
+      const claimedLabel = activeBlock.claimed_label || claimedPeople.join(', ') || activeBlock.claimed_by || '';
+      const lines = Object.entries(assignments)
+        .map(([statusType, ids]) => {
+          const count = Array.isArray(ids) ? ids.length : 0;
+          if (!count) return '';
+          const label = STATUS_LABELS[statusType] || statusType.replace(/_/g, ' ');
+          return `<div style="font-size:12px;color:#cbd5e1;">${_escapeHtml(label)}: ${count} already claimed live</div>`;
+        })
+        .filter(Boolean)
+        .join('');
+      if (!blockHasClaim(activeBlock)) {
+        target.innerHTML = '<div style="padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.03);color:#94a3b8;font-size:12px;">This block does not have a live claim right now.</div>';
+        return;
+      }
+      target.innerHTML = `
+        <div style="padding:12px;border-radius:12px;border:1px solid rgba(250,204,21,0.22);background:rgba(250,204,21,0.08);">
+          <div style="font-size:12px;font-weight:700;color:#facc15;letter-spacing:0.6px;text-transform:uppercase;">Current Live Claim</div>
+          <div style="margin-top:6px;color:#eef2ff;font-size:13px;">${claimedLabel ? `Crew: ${_escapeHtml(claimedLabel)}` : 'This block already has live claim assignments.'}</div>
+          ${lines ? `<div style="margin-top:8px;display:grid;gap:4px;">${lines}</div>` : ''}
+        </div>`;
+    };
+    const renderAssignments = () => {
+      renderCurrentClaimSummary();
+      _renderClaimAssignmentSections(overlay, activeBlock, suggestions);
+    };
     renderAssignments();
 
     overlay.addEventListener('click', (event) => {
@@ -6613,7 +6647,8 @@ async function rp_openBackfillDialog() {
       reviewPanel.style.display = 'block';
       reviewBtn.style.display = 'none';
       backBtn.style.display = 'inline-flex';
-      submitBtn.style.display = 'inline-flex';
+      submitBtn.disabled = false;
+      submitBtn.style.opacity = '1';
       submitBtn._draft = draft;
     });
 
@@ -6622,7 +6657,8 @@ async function rp_openBackfillDialog() {
       reviewPanel.style.display = 'none';
       reviewBtn.style.display = 'inline-flex';
       backBtn.style.display = 'none';
-      submitBtn.style.display = 'none';
+      submitBtn.disabled = true;
+      submitBtn.style.opacity = '0.55';
     });
 
     submitBtn.addEventListener('click', async () => {
@@ -7443,6 +7479,7 @@ function switchAdminTab(tabKey) {
   if (tabKey === 'maplabels') loadMapLabelsTab();
   if (tabKey === 'zones') loadZonesTab();
   if (tabKey === 'claimcrew') loadClaimCrewTab();
+  if (tabKey === 'claimhistory') loadClaimHistoryTab();
   if (tabKey === 'appearance') loadAppearanceTab();
   if (tabKey === 'uilabels') loadUILabelsTab();
   if (tabKey === 'audit') loadAuditLogsTab();
@@ -7451,6 +7488,16 @@ function switchAdminTab(tabKey) {
 function loadClaimCrewTab() {
   const claimPeople = Array.isArray(adminSettings?.claim_people) ? adminSettings.claim_people : [];
   adminSetClaimCrew(claimPeople);
+}
+
+function loadClaimHistoryTab() {
+  const trackerCopy = document.getElementById('admin-claimhistory-tracker-copy');
+  if (!trackerCopy) return;
+  if (currentTracker) {
+    trackerCopy.textContent = `Active tracker: ${getTrackerDisplayName(currentTracker)}. Historical claims will be added against this tracker.`;
+    return;
+  }
+  trackerCopy.textContent = 'Choose a tracker in the header first, then open the historical claim backfill dialog.';
 }
 
 function formatAdminAuditTimestamp(value) {
