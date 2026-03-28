@@ -6593,7 +6593,7 @@ async function rp_openBackfillDialog(preferredBlockId = null) {
         <div style="display:flex;align-items:start;justify-content:space-between;gap:12px;">
           <div>
             <div style="color:#eef2ff;font-size:18px;font-weight:700;">Backfill Missing Claim Activity</div>
-            <div style="color:#94a3b8;font-size:12px;margin-top:4px;">This adds historical claim events to the report timeline without changing the block's current claim state.</div>
+            <div style="color:#94a3b8;font-size:12px;margin-top:4px;">This logs the claim on the correct past date and also updates the block's live claim state, tracker view, and map progress.</div>
           </div>
           <button type="button" id="report-backfill-close" style="background:transparent;border:none;color:#94a3b8;font-size:24px;cursor:pointer;padding:4px 8px;">×</button>
         </div>
@@ -6804,7 +6804,7 @@ async function rp_openBackfillDialog(preferredBlockId = null) {
 
     submitBtn.addEventListener('click', async () => {
       const draft = submitBtn._draft || buildDraft();
-      await api.backfillClaimActivity({
+      const response = await api.backfillClaimActivity({
         power_block_id: draft.powerBlockId,
         tracker_id: currentTracker ? currentTracker.id : undefined,
         people: draft.people,
@@ -6813,6 +6813,31 @@ async function rp_openBackfillDialog(preferredBlockId = null) {
         claimed_at: draft.claimedAt,
         claimed_by: draft.claimedBy,
       });
+      const nextClaim = response && response.claim ? response.claim : null;
+      if (nextClaim) {
+        const selectedId = Number(draft.powerBlockId);
+        const patchBlock = (block) => {
+          if (!block || Number(block.id) !== selectedId) {
+            return block;
+          }
+          return {
+            ...block,
+            ...nextClaim,
+          };
+        };
+        claimPageState.blocks = claimPageState.blocks.map(patchBlock);
+        mapPBs = mapPBs.map(patchBlock);
+        _allBlocksData = _allBlocksData.map(patchBlock);
+        if (_blocksCache[selectedId]) {
+          _blocksCache[selectedId] = patchBlock(_blocksCache[selectedId]);
+        }
+        if (pageName === 'claim') {
+          renderClaimPage();
+        }
+        if (activePBId === selectedId) {
+          showPBPanel(patchBlock(mapPBs.find((block) => Number(block.id) === selectedId) || claimPageState.blocks.find((block) => Number(block.id) === selectedId) || _blocksCache[selectedId]));
+        }
+      }
       close();
       await rp_fetchReports(true);
       rp_renderSummary(rp_reportsCache);

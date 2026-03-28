@@ -2164,7 +2164,20 @@ def backfill_claim_activity():
     if data.get('tracker_id') and not tracker and not _is_admin_user(user):
         return jsonify({'error': 'That tracker is not accessible for this power block'}), 403
 
-    from app.routes.tracker_routes import _normalize_people, _normalize_claim_assignments, _parse_claim_work_date, _record_claim_activity, _validate_claim_people
+    from app.routes.tracker_routes import (
+        _apply_claim_assignments_to_statuses,
+        _claim_payload,
+        _completed_claim_assignments,
+        _emit_claim_updates,
+        _merge_claim_assignments,
+        _merge_claim_people,
+        _normalize_claim_assignments,
+        _normalize_people,
+        _parse_claim_work_date,
+        _record_claim_activity,
+        _record_claim_work_entries,
+        _validate_claim_people,
+    )
 
     people = _normalize_people(data.get('people') or [])
     if not people:
@@ -2179,6 +2192,40 @@ def backfill_claim_activity():
         return jsonify({'error': 'Select at least one LBD assignment before backfilling'}), 400
 
     actor = str(data.get('claimed_by') or _current_user_name()).strip() or None
+    tracker_id = tracker.id if tracker else None
+    completed_assignments = _completed_claim_assignments(block, valid_lbd_ids)
+    merged_assignments = _merge_claim_assignments(
+        block.get_claim_assignments(tracker_id=tracker_id),
+        completed_assignments,
+        assignments,
+    )
+    merged_people = _merge_claim_people(block.get_claimed_people(tracker_id=tracker_id), people)
+    live_claimed_by = actor or people[0]
+
+    block.claimed_by = live_claimed_by
+    block.claimed_at = claimed_at
+    block.set_claim_state(
+        merged_people,
+        merged_assignments,
+        tracker_id=tracker_id,
+        claimed_by=live_claimed_by,
+        claimed_at=claimed_at,
+    )
+
+    work_entries = _record_claim_work_entries(
+        block,
+        people,
+        assignments,
+        work_date,
+        actor=actor,
+        tracker=tracker,
+    )
+    status_updates = _apply_claim_assignments_to_statuses(
+        block,
+        assignments,
+        actor=live_claimed_by,
+    )
+
     activity = _record_claim_activity(
         block,
         people,
@@ -2194,11 +2241,16 @@ def backfill_claim_activity():
         db.session.rollback()
         return jsonify({'error': 'No accessible tracker is available for this request'}), 403
 
+    db.session.commit()
+    _emit_claim_updates([(block.id, _claim_payload(block, tracker=tracker))], status_updates)
+
     return jsonify({
         'success': True,
         'data': {
             'activity': activity.to_dict() if activity else None,
             'report_id': report.id,
+            'work_entries': work_entries,
+            'claim': _claim_payload(block, tracker=tracker),
         }
     }), 201
 
