@@ -2164,6 +2164,29 @@ function resetLoginLogoAnimation() {
   }
 }
 
+function setAppShellVisible(isVisible) {
+  const app = document.getElementById('app');
+  if (!app) return;
+  app.style.display = isVisible ? '' : 'none';
+}
+
+function hideLoginModal() {
+  const overlay = document.getElementById('login-overlay');
+  if (overlay) {
+    overlay.style.display = 'none';
+  }
+  resetLoginLogoAnimation();
+  stopLoginAnimation();
+}
+
+function continueAsGuestSession() {
+  currentUser = null;
+  _applyRoleUI();
+  setAppShellVisible(true);
+  hideLoginModal();
+  showPage('dashboard');
+}
+
 function playLoginLogoAnimation() {
   const shell = document.getElementById('login-logo-shell');
   const video = document.getElementById('login-logo-video');
@@ -2206,10 +2229,11 @@ function primeLoginLogoAnimation() {
   video.load();
 }
 
-function showLoginModal() {
+function showLoginModal(tab = 'signin') {
   const o = document.getElementById('login-overlay');
   assignSessionCrown();
-  switchLoginTab('signin');
+  setAppShellVisible(false);
+  switchLoginTab(tab);
   primeLoginLogoAnimation();
   resetLoginLogoAnimation();
   if (o) { o.style.display = 'flex'; startLoginAnimation(); }
@@ -2263,9 +2287,9 @@ async function _finalizeAuthenticatedSession(user) {
   }
   _applyRoleUI();
   _initSocket();
+  setAppShellVisible(true);
   playLoginExplosion(() => {
-    document.getElementById('login-overlay').style.display = 'none';
-    stopLoginAnimation();
+    hideLoginModal();
     showPage('dashboard');
   });
 }
@@ -2338,6 +2362,7 @@ async function logout() {
   try { sessionStorage.removeItem(SESSION_CROWN_KEY); } catch (e) {}
   _applyRoleUI();
   if (_socket) { _socket.disconnect(); _socket = null; }
+  showLoginModal();
 }
 
 // ── Socket.IO client ──────────────────────────────────────────
@@ -7381,6 +7406,7 @@ document.addEventListener('DOMContentLoaded', () => {
   assignSessionCrown();
   primeLoginLogoAnimation();
   resetLoginLogoAnimation();
+  setAppShellVisible(false);
 
   checkAuth().then(() => {
     // If nobody logged in, show the login overlay automatically
@@ -7388,6 +7414,8 @@ document.addEventListener('DOMContentLoaded', () => {
       showLoginModal();
       return;
     }
+    hideLoginModal();
+    setAppShellVisible(true);
     loadAdminSettings().then(() => loadDashboard());
   });
 });

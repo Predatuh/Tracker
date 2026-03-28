@@ -20,7 +20,7 @@
 <body>
 
 <!-- ── Login Overlay ─────────────────────────────────────────────────────── -->
-<div id="login-overlay" style="display:none;position:fixed;inset:0;background:#03040a;z-index:99999;align-items:center;justify-content:center;">
+<div id="login-overlay" style="display:flex;position:fixed;inset:0;background:#03040a;z-index:99999;align-items:center;justify-content:center;">
   <canvas id="login-canvas"></canvas>
   <div class="login-box" style="position:relative;z-index:1;background:rgba(10,14,31,0.75);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(0,212,255,0.12);border-radius:22px;padding:40px 44px;width:390px;max-width:93vw;box-shadow:0 32px 90px rgba(0,0,0,0.85),0 0 80px rgba(0,212,255,0.06);">
     <div style="text-align:center;margin-bottom:24px;">
@@ -74,7 +74,7 @@
       onmouseout="this.style.boxShadow='none';this.style.transform='none'">
       <span id="login-btn-text">Sign In</span>
     </button>
-    <button onclick="document.getElementById('login-overlay').style.display='none';resetLoginLogoAnimation();stopLoginAnimation()"
+    <button onclick="continueAsGuestSession()"
       style="width:100%;background:transparent;color:rgba(238,242,255,0.3);border:1px solid rgba(0,212,255,0.08);border-radius:8px;padding:10px;font-size:13px;cursor:pointer;font-family:'Space Grotesk',sans-serif;transition:all 0.25s;"
       onmouseover="this.style.borderColor='rgba(0,212,255,0.2)';this.style.color='rgba(238,242,255,0.6)'"
       onmouseout="this.style.borderColor='rgba(0,212,255,0.08)';this.style.color='rgba(238,242,255,0.3)'">
@@ -85,7 +85,7 @@
       Admin? Use name <strong style="color:rgba(238,242,255,0.5);">Admin</strong> with the admin PIN.</div>
   </div>
 </div>
-    <div id="app">
+    <div id="app" style="display:none;">
         <!-- Navigation -->
         <nav class="navbar">
             <div class="navbar-container">
