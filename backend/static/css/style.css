@@ -1338,7 +1338,6 @@ body::after {
   overflow: hidden;
   border-radius: 18px;
   padding: 18px 18px 16px;
-  border: 1px solid rgba(255,255,255,0.08);
   background: linear-gradient(145deg, rgba(8,12,28,0.92) 0%, rgba(13,18,38,0.98) 100%);
   box-shadow: 0 16px 40px rgba(0,0,0,0.35);
 }
@@ -1763,7 +1762,6 @@ body::after {
 .thc-meta-pill {
   font-size: 11px;
   color: rgba(238,242,255,0.58);
-  border: 1px solid rgba(255,255,255,0.08);
   background: rgba(255,255,255,0.04);
   border-radius: 999px;
   padding: 5px 10px;
@@ -1776,7 +1774,6 @@ body::after {
 }
 .thc-stat-pill {
   background: rgba(255,255,255,0.035);
-  border: 1px solid rgba(255,255,255,0.07);
   border-radius: 20px;
   padding: 4px 12px;
   font-size: 12px;
@@ -1787,7 +1784,7 @@ body::after {
 .thc-pct-pill {
   font-weight: 700;
   letter-spacing: 0.5px;
-  border-width: 1.5px;
+  border: 1.5px solid;
 }
 .thc-pct-pill .thc-stat-val {
   font-family: 'Orbitron', sans-serif;

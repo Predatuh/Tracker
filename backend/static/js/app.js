@@ -1299,12 +1299,6 @@ function renderDashboardOverview(cards) {
       tone: 'cyan'
     },
     {
-      kicker: 'Completed Blocks',
-      value: `${featured?.completedBlocks || 0}`,
-      meta: `${featured?.completedBlocks || 0} of ${featured?.totalBlocks || 0} ${featuredBlocksLabel.toLowerCase()} completed in ${featured?.name || 'the featured tracker'} • ${activeTrackerLabel}`,
-      tone: 'amber'
-    },
-    {
       kicker: 'Trackers Active',
       value: `${activeTrackers}/${totalTrackers}`,
       meta: `${formatDashboardCount(updatedToday, 'block', 'blocks')} updated today`,
