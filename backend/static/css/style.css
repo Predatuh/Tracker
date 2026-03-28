@@ -1817,6 +1817,10 @@ body::after {
   color: rgba(238,242,255,0.54);
 }
 .thc-open-btn {
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
   font-size: 12px;
   font-family: 'Orbitron', sans-serif;
   font-weight: 700;

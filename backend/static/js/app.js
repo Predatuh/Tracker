@@ -1371,8 +1371,10 @@ async function loadDashboard() {
       const totalBlocks = blocks.length;
       const completedBlocks = blocks.filter(b => b.is_completed).length;
       const totalItems = blocks.reduce((s, b) => s + (b.lbd_count || 0), 0);
-      // % based on LBDs with 'term' (Termed) status completed
-      const termedItems = blocks.reduce((s, b) => s + ((b.lbd_summary && b.lbd_summary['term']) || 0), 0);
+      // % based on the tracker's own primary status type
+      const _statusTypes = t.status_types || [];
+      const _primaryStatus = _statusTypes.length ? _statusTypes[_statusTypes.length - 1] : 'term';
+      const termedItems = blocks.reduce((s, b) => s + ((b.lbd_summary && b.lbd_summary[_primaryStatus]) || 0), 0);
       const pct = totalItems > 0 ? Math.round((termedItems / totalItems) * 100) : 0;
       const activeClaims = blocks.filter(b => (Array.isArray(b.claimed_people) && b.claimed_people.length > 0) || !!b.claimed_by).length;
       const claimedToday = blocks.filter(b => isDateToday(b.claimed_at)).length;
@@ -1423,7 +1425,7 @@ async function loadDashboard() {
       <div class="thc-stats">
         <div class="thc-stat-pill thc-pct-pill" style="background:${barColor}18;border-color:${barColor}55;color:${barColor}"><span class="thc-stat-val">${t.pct}%</span> <span class="thc-stat-lbl">${completeLabel}</span></div>
         <div class="thc-stat-pill"><span class="thc-stat-val">${t.totalBlocks}</span> <span class="thc-stat-lbl">${powerBlocksLabel}</span></div>
-        <div class="thc-stat-pill"><span class="thc-stat-val">${t.termedItems}</span> <span class="thc-stat-lbl">${t.stat_label || t.item_name_plural || 'Items'}</span></div>
+        <div class="thc-stat-pill"><span class="thc-stat-val">${t.totalItems}</span> <span class="thc-stat-lbl">${t.stat_label || t.item_name_plural || 'Items'}</span></div>
       </div>
       <div class="thc-bar-wrap"><div class="thc-bar-fill" style="width:${t.pct}%;background:${barColor};"></div></div>
       <div class="thc-footer">
