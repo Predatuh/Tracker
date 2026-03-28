@@ -193,19 +193,21 @@ def create_app():
 
 # -- Seed default admin account ----------------------------------------
 def _seed_admin():
-    """Create the built-in admin account on first run if it does not exist."""
+    """Create the built-in admin account on first run if it does not exist.
+    Always re-hashes the PIN so that changing ADMIN_PIN takes effect immediately."""
     from app.models.user import User
     admin_pin = os.environ.get('ADMIN_PIN', '1234')
     admin = User.query.filter_by(username='admin').first()
     if not admin:
         admin = User(name='Admin', username='admin', is_admin=True, role='admin')
-        admin.set_pin(admin_pin)
         admin.email_verified = True
         db.session.add(admin)
-        db.session.commit()
-    elif not admin.role or admin.role != 'admin':
+    # Always sync PIN and role so env-var changes take effect on next deploy
+    admin.set_pin(admin_pin)
+    if not admin.role or admin.role != 'admin':
         admin.role = 'admin'
-        db.session.commit()
+    admin.is_admin = True
+    db.session.commit()
 
 
 # -- Schema migration for SQLite ---------------------------------------
