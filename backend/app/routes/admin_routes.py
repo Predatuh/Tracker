@@ -53,6 +53,17 @@ def create_tracker():
         job_site_name=data.get('job_site_name') or default_job_site()['name'],
         icon=data.get('icon', '📋'),
         sort_order=data.get('sort_order', 99),
+        tracking_mode=data.get('tracking_mode', 'per_item'),
+        block_label_singular=data.get('block_label_singular', 'Power Block'),
+        block_label_plural=data.get('block_label_plural', 'Power Blocks'),
+        show_on_dashboard=bool(data.get('show_on_dashboard', True)),
+        claims_enabled=bool(data.get('claims_enabled', True)),
+        notes_enabled=bool(data.get('notes_enabled', True)),
+        map_color=data.get('map_color') or None,
+        report_enabled=bool(data.get('report_enabled', True)),
+        show_per_lbd_ui=bool(data.get('show_per_lbd_ui', True)),
+        completion_status_type=data.get('completion_status_type') or None,
+        progress_unit=data.get('progress_unit', 'lbd'),
     )
     types = data.get('status_types', [])
     t.set_status_types(types)
@@ -71,13 +82,20 @@ def update_tracker(tracker_id):
         return err, status
     t = Tracker.query.get_or_404(tracker_id)
     data = request.get_json() or {}
-    for field in ('name', 'slug', 'item_name_singular', 'item_name_plural', 'stat_label', 'dashboard_progress_label', 'dashboard_blocks_label', 'dashboard_open_label', 'job_site_name', 'icon', 'sort_order', 'progress_unit'):
+    for field in ('name', 'slug', 'item_name_singular', 'item_name_plural', 'stat_label',
+                  'dashboard_progress_label', 'dashboard_blocks_label', 'dashboard_open_label',
+                  'job_site_name', 'icon', 'sort_order', 'progress_unit',
+                  'tracking_mode', 'block_label_singular', 'block_label_plural'):
         if field in data:
             setattr(t, field, data[field])
+    if 'map_color' in data:
+        t.map_color = data['map_color'] or None
     if 'completion_status_type' in data:
         t.completion_status_type = data['completion_status_type'] or None
-    if 'show_per_lbd_ui' in data:
-        t.show_per_lbd_ui = bool(data['show_per_lbd_ui'])
+    for _bf in ('show_per_lbd_ui', 'show_on_dashboard', 'claims_enabled',
+                'notes_enabled', 'report_enabled', 'is_active'):
+        if _bf in data:
+            setattr(t, _bf, bool(data[_bf]))
     if 'status_types' in data:
         t.set_status_types(data['status_types'])
     if 'status_colors' in data:

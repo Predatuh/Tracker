@@ -28,6 +28,14 @@ class Tracker(db.Model):
     completion_status_type = db.Column(db.String(50), nullable=True)  # which status_type counts as "done"
     progress_unit          = db.Column(db.String(20), default='lbd')   # 'lbd' = count by item, 'block' = count by power block
     show_per_lbd_ui        = db.Column(db.Boolean, default=True)        # whether to show per-item tracking grid in panels
+    tracking_mode          = db.Column(db.String(20), default='per_item')  # 'per_item' | 'block_only' | 'percentage'
+    block_label_singular   = db.Column(db.String(50), default='Power Block')
+    block_label_plural     = db.Column(db.String(50), default='Power Blocks')
+    show_on_dashboard      = db.Column(db.Boolean, default=True)
+    claims_enabled         = db.Column(db.Boolean, default=True)
+    notes_enabled          = db.Column(db.Boolean, default=True)
+    map_color              = db.Column(db.String(20), nullable=True)
+    report_enabled         = db.Column(db.Boolean, default=True)
     created_at          = db.Column(db.DateTime, default=datetime.utcnow)
 
     # Relationships
@@ -107,5 +115,13 @@ class Tracker(db.Model):
             'completion_status_type': self.completion_status_type,
             'progress_unit':          self.progress_unit or 'lbd',
             'show_per_lbd_ui':        self.show_per_lbd_ui if self.show_per_lbd_ui is not None else True,
+            'tracking_mode':          self.tracking_mode or 'per_item',
+            'block_label_singular':   self.block_label_singular or 'Power Block',
+            'block_label_plural':     self.block_label_plural or 'Power Blocks',
+            'show_on_dashboard':      self.show_on_dashboard if self.show_on_dashboard is not None else True,
+            'claims_enabled':         self.claims_enabled if self.claims_enabled is not None else True,
+            'notes_enabled':          self.notes_enabled if self.notes_enabled is not None else True,
+            'map_color':              self.map_color or None,
+            'report_enabled':         self.report_enabled if self.report_enabled is not None else True,
             'created_at':          self.created_at.isoformat() if self.created_at else None,
         }

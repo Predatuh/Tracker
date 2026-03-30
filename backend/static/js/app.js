@@ -1418,8 +1418,9 @@ async function loadDashboard() {
     return;
   }
 
-  // Load stats for each tracker in parallel
-  const cards = await Promise.all(allTrackers.map(async t => {
+  // Load stats for each tracker in parallel (only trackers set to show on dashboard)
+  const dashboardTrackers = allTrackers.filter(t => t.show_on_dashboard !== false);
+  const cards = await Promise.all(dashboardTrackers.map(async t => {
     try {
       const r = await fetch(`/api/tracker/power-blocks?tracker_id=${t.id}`, { credentials: 'include' });
       const d = await r.json();
@@ -1724,7 +1725,7 @@ function renderBlocks(blocks) {
           <div class="block-card${allDone ? ' block-card--complete' : ''}">
             <div class="pb-card-header">
               <div class="pb-card-heading">
-                <span class="pb-card-kicker">Power Block</span>
+                <span class="pb-card-kicker">${currentTracker?.block_label_singular || 'Power Block'}</span>
                 <span class="pb-card-name">${block.name}</span>
               </div>
               <span class="pb-card-meta">${claimed}${zonePill}<span class="pb-card-count">${total} ${getPowerBlockCountLabel(total)}</span></span>
@@ -2786,6 +2787,14 @@ function getRenderableMapPBs() {
 function getMapPBVisualState(pb) {
   const lbds = pb?.lbds || [];
   const total = Number(pb?.lbd_count || lbds.length || 0);
+
+  // block_only tracking: completion is the block flag, no per-item breakdown
+  if (currentTracker?.tracking_mode === 'block_only') {
+    const allDone = !!pb.is_completed;
+    const inProgress = !allDone && !!pb.claimed_by;
+    return { total: 0, summary: {}, completedTypes: [], partialTypes: [], allDone, inProgress };
+  }
+
   const summary = pb?.lbd_summary || {};
   const completedTypes = [];
   const partialTypes = [];
@@ -2836,7 +2845,7 @@ function renderSiteMapSummary() {
         <strong>${_escapeHtml(trackerName)}</strong>
       </div>
       <div class="sitemap-summary-card">
-        <span class="sitemap-summary-label">Power Blocks</span>
+        <span class="sitemap-summary-label">${currentTracker?.block_label_plural || 'Power Blocks'}</span>
         <strong>${renderablePBs.length}</strong>
       </div>
       <div class="sitemap-summary-card">
@@ -3624,6 +3633,11 @@ function renderPBMarkers() {
       bgStyle = '#ffc107';
     } else {
       bgStyle = '#6c757d';
+    }
+
+    // Per-tracker custom map color for in-progress markers
+    if (overlayMode === 'tracker' && currentTracker?.map_color && inProgress && !allDone) {
+      bgStyle = currentTracker.map_color;
     }
 
     const borderColor = overlayMode === 'tracker'
@@ -4437,7 +4451,7 @@ function showPBPanel(pb) {
   const claimedLabel = pb.claimed_label || claimedPeople.join(', ') || pb.claimed_by || '';
   const pbClaimed = blockHasClaim(pb);
   let mapClaimBanner = '';
-  if (currentUser) {
+  if (currentUser && currentTracker?.claims_enabled !== false) {
     if (pbClaimed) {
       mapClaimBanner = `<div style="margin-bottom:8px;padding:8px 10px;background:rgba(21,101,192,0.1);border:1px solid rgba(21,101,192,0.2);border-radius:6px;">
         <div style="font-size:12px;color:#8adfff;">&#128204; Claimed by <strong>${_escapeHtml(claimedLabel || 'Crew')}</strong></div>
@@ -4456,7 +4470,7 @@ function showPBPanel(pb) {
   }
 
   const headerEl = document.getElementById('lbd-grid-header');
-  const mapNoteHtml = pb.notes
+  const mapNoteHtml = (currentTracker?.notes_enabled !== false) && pb.notes
     ? `<div style="margin-bottom:6px;padding:6px 10px;background:rgba(165,180,252,0.07);border:1px solid rgba(165,180,252,0.15);border-radius:7px;font-size:11px;color:#c4b5fd;font-style:italic;">&#128203; ${_escapeHtml(pb.notes)}</div>`
     : '';
 
@@ -6012,6 +6026,16 @@ async function loadClaimPage() {
 function renderClaimPage() {
   const el = document.getElementById('claim-content');
   if (!el) return;
+
+  // Guard: claims disabled for this tracker
+  if (currentTracker?.claims_enabled === false) {
+    el.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 20px;text-align:center;">
+      <div style="font-size:40px;margin-bottom:12px;">🚫</div>
+      <h3 style="margin:0 0 8px;font-size:16px;color:#94a3b8;">Claims Disabled</h3>
+      <p style="color:#64748b;font-size:13px;max-width:320px;">Claims are not enabled for the <strong>${_escapeHtml(currentTracker.name)}</strong> tracker.</p>
+    </div>`;
+    return;
+  }
 
   const filtered = claimFilteredBlocks();
   const selectedBlock = claimSelectedBlock();
@@ -8339,6 +8363,20 @@ function renderTrackersList(trackers) {
       const n = names[k] || k.replace(/_/g, ' ');
       return `<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;color:#fff;background:${c};margin:2px;">${n}</span>`;
     }).join('');
+    const modeBadge = t.tracking_mode === 'block_only'
+      ? `<span style="padding:2px 7px;border-radius:8px;font-size:10px;font-weight:700;background:rgba(124,108,252,0.2);color:#a78bfa;border:1px solid rgba(167,139,250,0.3);">Block-Only</span>`
+      : `<span style="padding:2px 7px;border-radius:8px;font-size:10px;font-weight:700;background:rgba(0,212,255,0.12);color:#00d4ff;border:1px solid rgba(0,212,255,0.25);">Per-Item</span>`;
+    const colorDot = t.map_color
+      ? `<span title="Map color: ${t.map_color}" style="display:inline-block;width:13px;height:13px;border-radius:50%;background:${t.map_color};border:1px solid rgba(255,255,255,0.2);vertical-align:middle;margin-right:2px;"></span>`
+      : '';
+    const _flag = (on, label) => `<span style="font-size:10px;padding:2px 6px;border-radius:6px;background:${on ? 'rgba(0,232,122,0.1)' : 'rgba(255,76,106,0.08)'};color:${on ? '#00e87a' : '#ff4c6a'};border:1px solid ${on ? 'rgba(0,232,122,0.25)' : 'rgba(255,76,106,0.2)'};">${on ? '✓' : '✗'} ${label}</span>`;
+    const flagsRow = [
+      _flag(t.show_on_dashboard !== false, 'Dashboard'),
+      _flag(t.is_active !== false, 'Active'),
+      _flag(t.claims_enabled !== false, 'Claims'),
+      _flag(t.notes_enabled !== false, 'Notes'),
+      _flag(t.report_enabled !== false, 'Reports'),
+    ].join(' ');
     return `<div id="tracker-card-${t.id}" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:16px;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
         <div style="font-size:15px;font-weight:700;color:#eef2ff;">${t.icon || '📋'} ${getTrackerDisplayName(t)} <span style="font-size:11px;color:#8892b0;font-weight:400;">(${t.slug})</span></div>
@@ -8348,10 +8386,15 @@ function renderTrackersList(trackers) {
         </div>
       </div>
       <div style="font-size:12px;color:#a0aec0;margin-bottom:6px;">
-        Item: <strong>${t.item_name_singular || 'Item'}</strong> / <strong>${t.item_name_plural || 'Items'}</strong> &nbsp;|&nbsp; Stat label: <strong>${t.stat_label || ''}</strong>
+        Item: <strong>${t.item_name_singular || 'Item'}</strong> / <strong>${t.item_name_plural || 'Items'}</strong> &nbsp;|&nbsp; Block: <strong>${t.block_label_singular || 'Power Block'}</strong> / <strong>${t.block_label_plural || 'Power Blocks'}</strong>
       </div>
       <div style="font-size:12px;color:#a0aec0;margin-bottom:6px;">
         Dashboard card: <strong>${t.dashboard_progress_label || 'Complete'}</strong> &nbsp;|&nbsp; <strong>${t.dashboard_blocks_label || 'Power Blocks'}</strong> &nbsp;|&nbsp; <strong>${t.dashboard_open_label || 'Open Tracker'}</strong>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+        ${modeBadge}
+        ${colorDot ? `<span style="font-size:11px;color:#8892b0;">${colorDot} Map color</span>` : ''}
+        ${flagsRow}
       </div>
       <div style="font-size:11px;color:#8892b0;margin-bottom:4px;">Status columns:</div>
       <div>${columnPills || '<span style="color:#8892b0;font-size:11px;">None</span>'}</div>
@@ -8379,58 +8422,97 @@ function editTrackerInline(trackerId) {
     </div>`;
   }).join('');
 
-  card.innerHTML = `<div style="display:flex;flex-direction:column;gap:10px;">
-    <div style="font-size:13px;font-weight:700;color:#eef2ff;margin-bottom:4px;">Editing: ${t.name}</div>
+  const _s = (x) => x ? 'style="background:#1e1e2e;color:#eef2ff;border:1px solid #444;border-radius:4px;padding:4px 6px;font-size:12px;width:100%;"' : '';
+  const _chk = (id, val, lbl) => `<label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#eef2ff;cursor:pointer;"><input type="checkbox" id="${id}" ${val ? 'checked' : ''} style="width:15px;height:15px;cursor:pointer;"> ${lbl}</label>`;
+  const _sec = (title) => `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:#6b7280;padding:8px 0 4px;border-top:1px solid rgba(255,255,255,0.07);margin-top:8px;">${title}</div>`;
+  const _inp = (id, val, placeholder='') => `<input type="text" id="${id}" value="${_escapeHtml(String(val||''))}" placeholder="${placeholder}" style="background:#1e1e2e;color:#eef2ff;border:1px solid #444;border-radius:4px;padding:4px 6px;font-size:12px;width:100%;">`;
+  const _sel = (id, options, curVal) => `<select id="${id}" style="background:#1e1e2e;color:#eef2ff;border:1px solid #444;border-radius:4px;padding:4px 6px;font-size:12px;width:100%;">${options.map(([v,l])=>`<option value="${v}" ${curVal===v?'selected':''}>${l}</option>`).join('')}</select>`;
+
+  card.innerHTML = `<div style="display:flex;flex-direction:column;gap:6px;">
+    <div style="font-size:14px;font-weight:700;color:#eef2ff;margin-bottom:2px;">✏️ Editing: ${_escapeHtml(t.name)}</div>
+
+    ${_sec('🏷️ Identity')}
     <div class="form-row">
-      <div class="form-group"><label style="font-size:12px;">Name</label><input type="text" id="tedit-name-${trackerId}" value="${t.name}" /></div>
-      <div class="form-group"><label style="font-size:12px;">Slug</label><input type="text" id="tedit-slug-${trackerId}" value="${t.slug}" oninput="this.value=this.value.toLowerCase().replace(/[^a-z0-9-]/g,'')" /></div>
-      <div class="form-group"><label style="font-size:12px;">Icon</label><input type="text" id="tedit-icon-${trackerId}" value="${t.icon || ''}" style="width:60px;" /></div>
+      <div class="form-group"><label style="font-size:12px;">Name</label>${_inp(`tedit-name-${trackerId}`, t.name)}</div>
+      <div class="form-group"><label style="font-size:12px;">Slug</label><input type="text" id="tedit-slug-${trackerId}" value="${t.slug}" oninput="this.value=this.value.toLowerCase().replace(/[^a-z0-9-]/g,'')" style="background:#1e1e2e;color:#eef2ff;border:1px solid #444;border-radius:4px;padding:4px 6px;font-size:12px;width:100%;"></div>
+      <div class="form-group"><label style="font-size:12px;">Icon</label><input type="text" id="tedit-icon-${trackerId}" value="${_escapeHtml(t.icon||'')}" style="background:#1e1e2e;color:#eef2ff;border:1px solid #444;border-radius:4px;padding:4px 6px;font-size:12px;width:56px;"></div>
+      <div class="form-group"><label style="font-size:12px;">Sort Order</label><input type="number" id="tedit-sort-${trackerId}" value="${t.sort_order||0}" style="background:#1e1e2e;color:#eef2ff;border:1px solid #444;border-radius:4px;padding:4px 6px;font-size:12px;width:70px;"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label style="font-size:12px;">Item Singular</label><input type="text" id="tedit-singular-${trackerId}" value="${t.item_name_singular || ''}" /></div>
-      <div class="form-group"><label style="font-size:12px;">Item Plural</label><input type="text" id="tedit-plural-${trackerId}" value="${t.item_name_plural || ''}" /></div>
-      <div class="form-group"><label style="font-size:12px;">Stat Label</label><input type="text" id="tedit-stat-${trackerId}" value="${t.stat_label || ''}" /></div>
+      <div class="form-group"><label style="font-size:12px;">Item Singular</label>${_inp(`tedit-singular-${trackerId}`, t.item_name_singular, 'e.g. LBD')}</div>
+      <div class="form-group"><label style="font-size:12px;">Item Plural</label>${_inp(`tedit-plural-${trackerId}`, t.item_name_plural, 'e.g. LBDs')}</div>
+      <div class="form-group"><label style="font-size:12px;">Stat Label</label>${_inp(`tedit-stat-${trackerId}`, t.stat_label, 'e.g. Total LBDs')}</div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label style="font-size:12px;">Dashboard Progress Label</label><input type="text" id="tedit-progress-${trackerId}" value="${t.dashboard_progress_label || ''}" /></div>
-      <div class="form-group"><label style="font-size:12px;">Dashboard Blocks Label</label><input type="text" id="tedit-blocks-${trackerId}" value="${t.dashboard_blocks_label || ''}" /></div>
-      <div class="form-group"><label style="font-size:12px;">Dashboard Button Text</label><input type="text" id="tedit-open-${trackerId}" value="${t.dashboard_open_label || ''}" /></div>
+      <div class="form-group"><label style="font-size:12px;">Block Label (singular)</label>${_inp(`tedit-blk-sing-${trackerId}`, t.block_label_singular||'Power Block', 'e.g. Row')}</div>
+      <div class="form-group"><label style="font-size:12px;">Block Label (plural)</label>${_inp(`tedit-blk-plur-${trackerId}`, t.block_label_plural||'Power Blocks', 'e.g. Rows')}</div>
     </div>
-    <div>
-      <div style="font-size:12px;font-weight:600;color:#a0aec0;margin-bottom:6px;">Status Columns</div>
-      <div id="tedit-cols-${trackerId}">${columnsHtml}</div>
-      <div style="display:flex;gap:6px;align-items:center;margin-top:6px;">
-        <input type="text" id="tedit-newcol-key-${trackerId}" placeholder="key" style="width:100px;padding:3px 6px;font-size:12px;border:1px solid #555;border-radius:4px;background:#1e1e2e;color:#eef2ff;" oninput="this.value=this.value.toLowerCase().replace(/ /g,'_').replace(/[^a-z0-9_]/g,'')">
-        <input type="text" id="tedit-newcol-name-${trackerId}" placeholder="Label" style="width:100px;padding:3px 6px;font-size:12px;border:1px solid #555;border-radius:4px;background:#1e1e2e;color:#eef2ff;">
-        <input type="color" id="tedit-newcol-color-${trackerId}" value="#888888" style="width:32px;height:26px;border:none;border-radius:4px;cursor:pointer;">
-        <button class="btn btn-sm" onclick="addTrackerEditCol(${trackerId})" style="font-size:11px;padding:3px 8px;">+ Add</button>
-      </div>
+
+    ${_sec('📊 Dashboard & Visibility')}
+    <div class="form-row">
+      <div class="form-group"><label style="font-size:12px;">Dashboard Progress Label</label>${_inp(`tedit-progress-${trackerId}`, t.dashboard_progress_label, 'Complete')}</div>
+      <div class="form-group"><label style="font-size:12px;">Dashboard Blocks Label</label>${_inp(`tedit-blocks-${trackerId}`, t.dashboard_blocks_label, 'Power Blocks')}</div>
+      <div class="form-group"><label style="font-size:12px;">Dashboard Button Text</label>${_inp(`tedit-open-${trackerId}`, t.dashboard_open_label, 'Open Tracker')}</div>
     </div>
-    <div style="border-top:1px solid rgba(255,255,255,0.08);padding-top:12px;margin-top:8px;">
-      <div style="font-size:12px;font-weight:600;color:#a0aec0;margin-bottom:8px;">Tracker Behavior</div>
-      <div class="form-row">
-        <div class="form-group">
-          <label style="font-size:12px;">Completion Column</label>
-          <select id="tedit-completion-status-${trackerId}" style="width:100%;padding:4px 6px;font-size:12px;border:1px solid #555;border-radius:4px;background:#1e1e2e;color:#eef2ff;">
-            <option value="">— Use last column —</option>
-            ${types.map(k => `<option value="${k}" ${t.completion_status_type === k ? 'selected' : ''}>${names[k] || k.replace(/_/g,' ')}</option>`).join('')}
-          </select>
-        </div>
-        <div class="form-group">
-          <label style="font-size:12px;">Track Progress By</label>
-          <select id="tedit-progress-unit-${trackerId}" style="width:100%;padding:4px 6px;font-size:12px;border:1px solid #555;border-radius:4px;background:#1e1e2e;color:#eef2ff;">
-            <option value="lbd" ${(t.progress_unit || 'lbd') === 'lbd' ? 'selected' : ''}>Count by individual item (LBD)</option>
-            <option value="block" ${t.progress_unit === 'block' ? 'selected' : ''}>Count by power block completion</option>
-          </select>
+    <div class="form-row">
+      <div class="form-group">
+        <label style="font-size:12px;">Map Marker Color (in-progress tint)</label>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <input type="color" id="tedit-map-color-${trackerId}" value="${t.map_color || '#ffc107'}" style="width:36px;height:28px;border:none;border-radius:4px;cursor:pointer;">
+          <input type="text" id="tedit-map-color-hex-${trackerId}" value="${t.map_color || ''}" placeholder="leave empty for default yellow" oninput="if(/^#[0-9a-fA-F]{6}$/.test(this.value))document.getElementById('tedit-map-color-${trackerId}').value=this.value" style="background:#1e1e2e;color:#eef2ff;border:1px solid #444;border-radius:4px;padding:4px 6px;font-size:12px;width:180px;">
+          <button type="button" onclick="document.getElementById('tedit-map-color-hex-${trackerId}').value=''" style="background:none;border:none;color:#8892b0;cursor:pointer;font-size:11px;">✕ clear</button>
         </div>
       </div>
-      <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
-        <input type="checkbox" id="tedit-show-per-lbd-${trackerId}" ${(t.show_per_lbd_ui !== false) ? 'checked' : ''} style="width:16px;height:16px;cursor:pointer;">
-        <label for="tedit-show-per-lbd-${trackerId}" style="font-size:12px;color:#eef2ff;margin:0;cursor:pointer;">Show per-item tracking grid in map &amp; claim panels</label>
+    </div>
+    <div style="display:flex;gap:20px;flex-wrap:wrap;margin-top:4px;">
+      ${_chk(`tedit-show-dashboard-${trackerId}`, t.show_on_dashboard !== false, 'Show on main dashboard overview')}
+      ${_chk(`tedit-is-active-${trackerId}`, t.is_active !== false, 'Tracker is active (visible to crew)')}
+    </div>
+
+    ${_sec('⚙️ Tracking Mode')}
+    <div class="form-row">
+      <div class="form-group">
+        <label style="font-size:12px;">How this tracker is tracked</label>
+        ${_sel(`tedit-tracking-mode-${trackerId}`, [
+          ['per_item', 'Per item — LBD row-by-row tracking (e.g. LBD Tracker)'],
+          ['block_only', 'Block only — mark whole power blocks complete/incomplete (e.g. Inverter DC Landing)'],
+        ], t.tracking_mode || 'per_item')}
+      </div>
+      <div class="form-group">
+        <label style="font-size:12px;">Completion Column (for progress %)</label>
+        ${_sel(`tedit-completion-status-${trackerId}`,
+          [['', '— Use last column —'], ...types.map(k => [k, names[k] || k.replace(/_/g,' ')])],
+          t.completion_status_type || '')}
+      </div>
+      <div class="form-group">
+        <label style="font-size:12px;">Dashboard % counts by</label>
+        ${_sel(`tedit-progress-unit-${trackerId}`,
+          [['lbd','Individual item (LBD)'], ['block','Power block completion']],
+          t.progress_unit || 'lbd')}
       </div>
     </div>
-    <div style="display:flex;gap:8px;margin-top:6px;">
-      <button class="btn btn-primary" onclick="saveTrackerEdit(${trackerId})" style="font-size:13px;">Save</button>
+    <div style="display:flex;gap:20px;flex-wrap:wrap;margin-top:4px;">
+      ${_chk(`tedit-show-per-lbd-${trackerId}`, t.show_per_lbd_ui !== false, 'Show per-item grid in map & claim panels')}
+    </div>
+
+    ${_sec('👷 Crew & Workflow')}
+    <div style="display:flex;gap:20px;flex-wrap:wrap;">
+      ${_chk(`tedit-claims-enabled-${trackerId}`, t.claims_enabled !== false, 'Enable crew claiming for this tracker')}
+      ${_chk(`tedit-notes-enabled-${trackerId}`, t.notes_enabled !== false, 'Enable per-block notes')}
+      ${_chk(`tedit-report-enabled-${trackerId}`, t.report_enabled !== false, 'Include in daily crew reports')}
+    </div>
+
+    ${_sec('📋 Status Columns')}
+    <div id="tedit-cols-${trackerId}">${columnsHtml}</div>
+    <div style="display:flex;gap:6px;align-items:center;margin-top:4px;">
+      <input type="text" id="tedit-newcol-key-${trackerId}" placeholder="key" style="width:90px;padding:3px 6px;font-size:12px;border:1px solid #555;border-radius:4px;background:#1e1e2e;color:#eef2ff;" oninput="this.value=this.value.toLowerCase().replace(/ /g,'_').replace(/[^a-z0-9_]/g,'')">
+      <input type="text" id="tedit-newcol-name-${trackerId}" placeholder="Label" style="width:100px;padding:3px 6px;font-size:12px;border:1px solid #555;border-radius:4px;background:#1e1e2e;color:#eef2ff;">
+      <input type="color" id="tedit-newcol-color-${trackerId}" value="#888888" style="width:32px;height:26px;border:none;border-radius:4px;cursor:pointer;">
+      <button class="btn btn-sm" onclick="addTrackerEditCol(${trackerId})" style="font-size:11px;padding:3px 8px;">+ Add</button>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.07);">
+      <button class="btn btn-primary" onclick="saveTrackerEdit(${trackerId})" style="font-size:13px;">Save Changes</button>
       <button class="btn" onclick="loadTrackersTab()" style="font-size:13px;">Cancel</button>
     </div>
   </div>`;
@@ -8468,6 +8550,16 @@ async function saveTrackerEdit(trackerId) {
   const completionStatusType = (document.getElementById('tedit-completion-status-' + trackerId)?.value || '').trim();
   const progressUnit = document.getElementById('tedit-progress-unit-' + trackerId)?.value || 'lbd';
   const showPerLbdUi = document.getElementById('tedit-show-per-lbd-' + trackerId)?.checked !== false;
+  const trackingMode = document.getElementById('tedit-tracking-mode-' + trackerId)?.value || 'per_item';
+  const blockLabelSingular = (document.getElementById('tedit-blk-sing-' + trackerId)?.value || '').trim() || 'Power Block';
+  const blockLabelPlural = (document.getElementById('tedit-blk-plur-' + trackerId)?.value || '').trim() || 'Power Blocks';
+  const showOnDashboard = document.getElementById('tedit-show-dashboard-' + trackerId)?.checked !== false;
+  const isActive = document.getElementById('tedit-is-active-' + trackerId)?.checked !== false;
+  const claimsEnabled = document.getElementById('tedit-claims-enabled-' + trackerId)?.checked !== false;
+  const notesEnabled = document.getElementById('tedit-notes-enabled-' + trackerId)?.checked !== false;
+  const reportEnabled = document.getElementById('tedit-report-enabled-' + trackerId)?.checked !== false;
+  const mapColorHex = (document.getElementById('tedit-map-color-hex-' + trackerId)?.value || '').trim();
+  const sortOrder = parseInt(document.getElementById('tedit-sort-' + trackerId)?.value || '0', 10);
   if (!name || !slug) { showAdminAlert('Name and slug are required.', 'error'); return; }
 
   // Collect columns from the edit rows
@@ -8485,7 +8577,23 @@ async function saveTrackerEdit(trackerId) {
   });
 
   try {
-    await api.updateTracker(trackerId, { name, slug, icon, item_name_singular: singular, item_name_plural: plural, stat_label: statLabel, dashboard_progress_label: progressLabel, dashboard_blocks_label: blocksLabel, dashboard_open_label: openLabel, status_types, status_colors, status_names, column_order: status_types, completion_status_type: completionStatusType || null, progress_unit: progressUnit, show_per_lbd_ui: showPerLbdUi });
+    await api.updateTracker(trackerId, {
+      name, slug, icon, sort_order: sortOrder,
+      item_name_singular: singular, item_name_plural: plural, stat_label: statLabel,
+      dashboard_progress_label: progressLabel, dashboard_blocks_label: blocksLabel, dashboard_open_label: openLabel,
+      block_label_singular: blockLabelSingular, block_label_plural: blockLabelPlural,
+      status_types, status_colors, status_names, column_order: status_types,
+      completion_status_type: completionStatusType || null,
+      progress_unit: progressUnit,
+      tracking_mode: trackingMode,
+      show_per_lbd_ui: showPerLbdUi,
+      show_on_dashboard: showOnDashboard,
+      is_active: isActive,
+      claims_enabled: claimsEnabled,
+      notes_enabled: notesEnabled,
+      report_enabled: reportEnabled,
+      map_color: mapColorHex || null,
+    });
     showAdminAlert('Tracker updated!', 'success');
     await loadTrackers();
     // If this is the current tracker, refresh settings
@@ -8598,29 +8706,75 @@ async function adminDeleteBlockLbds(blockId, trackerId, blockName, trackerName) 
   }
 }
 
+// pending columns for the new tracker create form
+let _newTrackerCols = [];
+
+function addNewTrackerCol() {
+  const key = (document.getElementById('new-col-key') || {}).value.trim();
+  const label = (document.getElementById('new-col-label') || {}).value.trim();
+  const color = (document.getElementById('new-col-color') || {}).value.trim() || '#4caf50';
+  if (!key) { showAdminAlert('Column key is required.', 'error'); return; }
+  if (_newTrackerCols.find(c => c.key === key)) { showAdminAlert('Column key already added.', 'error'); return; }
+  _newTrackerCols.push({ key, label: label || key, color });
+  document.getElementById('new-col-key').value = '';
+  document.getElementById('new-col-label').value = '';
+  document.getElementById('new-col-color').value = '#4caf50';
+  const container = document.getElementById('new-tracker-cols');
+  if (container) {
+    container.innerHTML = _newTrackerCols.map((c, i) =>
+      `<div style="display:flex;align-items:center;gap:8px;font-size:13px;background:#fff;padding:5px 8px;border-radius:5px;border:1px solid #ddd;">
+        <span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:${c.color};flex-shrink:0;"></span>
+        <span style="font-weight:600;">${c.key}</span> — <span style="color:#555;">${c.label}</span>
+        <button type="button" onclick="_newTrackerCols.splice(${i},1);addNewTrackerCol.call(null,true)" style="margin-left:auto;background:none;border:none;color:#e74c3c;cursor:pointer;font-size:16px;line-height:1;">×</button>
+      </div>`
+    ).join('');
+  }
+}
+
 async function addNewTracker() {
-  const name = (document.getElementById('new-tracker-name') || {}).value.trim();
-  const slug = (document.getElementById('new-tracker-slug') || {}).value.trim();
-  const singular = (document.getElementById('new-tracker-singular') || {}).value.trim();
-  const plural = (document.getElementById('new-tracker-plural') || {}).value.trim();
-  const statLabel = (document.getElementById('new-tracker-stat') || {}).value.trim();
-  const progressLabel = (document.getElementById('new-tracker-progress') || {}).value.trim();
-  const blocksLabel = (document.getElementById('new-tracker-blocks') || {}).value.trim();
-  const openLabel = (document.getElementById('new-tracker-open') || {}).value.trim();
-  const icon = (document.getElementById('new-tracker-icon') || {}).value.trim();
+  const _v = id => (document.getElementById(id) || {}).value || '';
+  const _chkv = id => !!(document.getElementById(id) || {}).checked;
+  const name = _v('new-tracker-name').trim();
+  const slug = _v('new-tracker-slug').trim();
   if (!name || !slug) { showAdminAlert('Tracker name and slug are required.', 'error'); return; }
+  const mapColorRaw = _v('new-tracker-map-color-hex').trim();
+  const mapColor = /^#[0-9a-fA-F]{6}$/.test(mapColorRaw) ? mapColorRaw : (_v('new-tracker-map-color').trim() || null);
+  const payload = {
+    name, slug,
+    icon: _v('new-tracker-icon').trim(),
+    sort_order: parseInt(_v('new-tracker-sort')) || 0,
+    item_name_singular: _v('new-tracker-singular').trim(),
+    item_name_plural: _v('new-tracker-plural').trim(),
+    block_label_singular: _v('new-tracker-block-sing').trim() || 'Power Block',
+    block_label_plural: _v('new-tracker-block-plur').trim() || 'Power Blocks',
+    stat_label: _v('new-tracker-stat').trim(),
+    dashboard_progress_label: _v('new-tracker-progress').trim(),
+    dashboard_blocks_label: _v('new-tracker-blocks').trim(),
+    dashboard_open_label: _v('new-tracker-open').trim(),
+    tracking_mode: _v('new-tracker-mode') || 'per_item',
+    show_per_lbd_ui: _chkv('new-tracker-per-lbd'),
+    show_on_dashboard: _chkv('new-tracker-show-dash'),
+    is_active: _chkv('new-tracker-active'),
+    claims_enabled: _chkv('new-tracker-claims'),
+    notes_enabled: _chkv('new-tracker-notes'),
+    report_enabled: _chkv('new-tracker-report'),
+    map_color: mapColor,
+  };
   try {
-    await api.createTracker({ name, slug, item_name_singular: singular, item_name_plural: plural, stat_label: statLabel, dashboard_progress_label: progressLabel, dashboard_blocks_label: blocksLabel, dashboard_open_label: openLabel, icon });
+    const created = await api.createTracker(payload);
+    // add any pending status columns
+    if (_newTrackerCols.length > 0 && created && created.id) {
+      for (const col of _newTrackerCols) {
+        try { await api.addTrackerColumn(created.id, col.key, col.label, col.color); } catch(_) {}
+      }
+    }
     showAdminAlert('Tracker created!', 'success');
-    document.getElementById('new-tracker-name').value = '';
-    document.getElementById('new-tracker-slug').value = '';
-    document.getElementById('new-tracker-singular').value = '';
-    document.getElementById('new-tracker-plural').value = '';
-    document.getElementById('new-tracker-stat').value = '';
-    document.getElementById('new-tracker-progress').value = '';
-    document.getElementById('new-tracker-blocks').value = '';
-    document.getElementById('new-tracker-open').value = '';
-    document.getElementById('new-tracker-icon').value = '';
+    _newTrackerCols = [];
+    ['new-tracker-name','new-tracker-slug','new-tracker-icon','new-tracker-sort',
+     'new-tracker-singular','new-tracker-plural','new-tracker-block-sing','new-tracker-block-plur',
+     'new-tracker-stat','new-tracker-progress','new-tracker-blocks','new-tracker-open',
+     'new-tracker-map-color-hex'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    const colsEl = document.getElementById('new-tracker-cols'); if (colsEl) colsEl.innerHTML = '';
     await loadTrackers();
     loadTrackersTab();
   } catch(e) { showAdminAlert('Error: ' + e.message, 'error'); }

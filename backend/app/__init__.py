@@ -469,6 +469,31 @@ def _migrate_tracker_columns(app):
             db.session.execute(db.text(f'ALTER TABLE trackers ADD COLUMN show_per_lbd_ui BOOLEAN DEFAULT {_bool_def}'))
             app.logger.info('Added show_per_lbd_ui to trackers table')
 
+        # New tracker config columns (phase 2 schema)
+        _t_db_uri = app.config.get('SQLALCHEMY_DATABASE_URI', '')
+        _t_bool_t = 'TRUE' if 'postgresql' in _t_db_uri else '1'
+        _new_bool_cols = [
+            ('show_on_dashboard', _t_bool_t),
+            ('claims_enabled', _t_bool_t),
+            ('notes_enabled', _t_bool_t),
+            ('report_enabled', _t_bool_t),
+        ]
+        _new_str_cols = [
+            ("tracking_mode",        "VARCHAR(20)",  "'per_item'"),
+            ("block_label_singular", "VARCHAR(50)",  "'Power Block'"),
+            ("block_label_plural",   "VARCHAR(50)",  "'Power Blocks'"),
+            ("map_color",            "VARCHAR(20)",  "NULL"),
+        ]
+        for _col, _def_val in _new_bool_cols:
+            if _col not in tr_cols:
+                db.session.execute(db.text(f'ALTER TABLE trackers ADD COLUMN {_col} BOOLEAN DEFAULT {_def_val}'))
+                app.logger.info(f'Added {_col} to trackers table')
+        for _col, _coltype, _default in _new_str_cols:
+            if _col not in tr_cols:
+                _def_clause = f"DEFAULT {_default}" if _default != 'NULL' else ''
+                db.session.execute(db.text(f'ALTER TABLE trackers ADD COLUMN {_col} {_coltype} {_def_clause}'.strip()))
+                app.logger.info(f'Added {_col} to trackers table')
+
         db.session.commit()
     except Exception as e:
         db.session.rollback()
