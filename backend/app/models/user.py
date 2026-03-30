@@ -155,6 +155,9 @@ class User(db.Model):
     verification_expires_at = db.Column(db.DateTime, nullable=True)
     verified_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    needs_review = db.Column(db.Boolean, default=False)          # set True on self-registration
+    pin_reset_requested = db.Column(db.Boolean, default=False)   # set True when user requests forgot-PIN
+    pin_needs_reset = db.Column(db.Boolean, default=False)       # set True when admin approves; PIN cleared
 
     def set_pin(self, pin: str):
         self.pin_hash = generate_password_hash(str(pin))
@@ -236,4 +239,7 @@ class User(db.Model):
             'job_site_name': self.job_site_name,
             'job_site_slug': self.job_site_slug,
             'email_verified': bool(self.email_verified),
+            'needs_review': bool(self.needs_review),
+            'pin_reset_requested': bool(self.pin_reset_requested),
+            'pin_needs_reset': bool(self.pin_needs_reset),
         }

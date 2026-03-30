@@ -67,6 +67,20 @@
         onblur="this.style.borderColor='rgba(0,212,255,0.1)';this.style.boxShadow='none'"
         onkeydown="if(event.key==='Enter')submitLogin()" />
     </div>
+    <!-- Confirm PIN (register tab only) -->
+    <div id="login-pin-confirm-wrap" style="margin-bottom:13px;display:none;">
+      <label style="font-size:10px;font-weight:700;color:rgba(238,242,255,0.4);letter-spacing:1.2px;text-transform:uppercase;display:block;margin-bottom:6px;font-family:'Space Grotesk',sans-serif;">Confirm PIN</label>
+      <input id="login-pin-confirm" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="••••"
+        autocomplete="off"
+        style="width:100%;box-sizing:border-box;background:rgba(255,255,255,0.04);border:1.5px solid rgba(0,212,255,0.1);border-radius:8px;padding:12px 14px;font-size:28px;letter-spacing:14px;text-align:center;outline:none;color:#eef2ff;font-family:'JetBrains Mono',monospace;transition:all 0.25s;"
+        onfocus="this.style.borderColor='#00d4ff';this.style.boxShadow='0 0 0 3px rgba(0,212,255,0.1),0 0 20px rgba(0,212,255,0.05)'"
+        onblur="this.style.borderColor='rgba(0,212,255,0.1)';this.style.boxShadow='none'"
+        onkeydown="if(event.key==='Enter')submitLogin()" />
+    </div>
+    <!-- Forgot PIN (sign-in tab only) -->
+    <div id="login-forgot-pin-wrap" style="margin-bottom:10px;text-align:right;">
+      <button type="button" onclick="requestForgotPin()" style="background:none;border:none;color:rgba(238,242,255,0.28);font-size:11px;cursor:pointer;font-family:'Space Grotesk',sans-serif;padding:0;text-decoration:underline;" onmouseover="this.style.color='rgba(238,242,255,0.55)'" onmouseout="this.style.color='rgba(238,242,255,0.28)'">Forgot PIN?</button>
+    </div>
     <!-- Button -->
     <button id="login-submit-btn" onclick="submitLogin()"
       style="width:100%;background:linear-gradient(135deg,#00d4ff,#009abc);color:#000;border:none;border-radius:8px;padding:14px;font-size:14px;font-weight:800;cursor:pointer;margin-bottom:10px;font-family:'Space Grotesk',sans-serif;letter-spacing:0.5px;transition:all 0.25s;position:relative;overflow:hidden;"
@@ -81,7 +95,6 @@
       Continue as Guest — view only
     </button>
     <div style="font-size:11px;color:rgba(238,242,255,0.25);text-align:center;margin-top:16px;line-height:1.7;font-family:'Space Grotesk',sans-serif;">
-      Forgot your PIN? Contact Princess for a manual reset.<br>
       Admin? Use name <strong style="color:rgba(238,242,255,0.5);">Admin</strong> with the admin PIN.</div>
   </div>
 </div>
@@ -103,7 +116,7 @@
                     <li><a href="#" onclick="showPage('claim')" id="nav-link-claim">Claim</a></li>
                     <li><a href="#" onclick="showPage('reports')" id="nav-link-reports">Reports</a></li>
                     <li><a href="#" onclick="showPage('review')" class="admin-only" data-perm="admin_settings" id="nav-link-review">Review</a></li>
-                    <li><a href="#" onclick="showPage('admin')" class="admin-only" data-perm="manage_trackers" id="nav-link-admin">Admin</a></li>
+                    <li><a href="#" onclick="showPage('admin')" class="admin-only" data-perm="manage_trackers" id="nav-link-admin">Admin <span id="nav-admin-badge" style="display:none;background:#f59e0b;color:#000;font-size:10px;font-weight:800;padding:1px 5px;border-radius:9px;margin-left:2px;vertical-align:middle;"></span></a></li>
                 </ul>
                 <div id="user-info" style="display:flex;align-items:center;gap:8px;margin-left:12px;"></div>
             </div>
@@ -388,7 +401,7 @@
                   <button class="btn admin-tab" id="atab-claimcrew" onclick="switchAdminTab('claimcrew')">👷 Claim Crew</button>
                   <button class="btn admin-tab" id="atab-claimhistory" onclick="switchAdminTab('claimhistory')">🕰️ Historical Claims</button>
                   <button class="btn admin-tab main-admin-only" id="atab-lbddata" onclick="switchAdminTab('lbddata')">🔧 LBD Data</button>
-                  <button class="btn admin-tab main-admin-only" id="atab-users" onclick="switchAdminTab('users')">👥 Users</button>
+                  <button class="btn admin-tab main-admin-only" id="atab-users" onclick="switchAdminTab('users')">👥 Users <span id="admin-users-badge" style="display:none;background:#f59e0b;color:#000;font-size:10px;font-weight:800;padding:1px 6px;border-radius:10px;margin-left:4px;"></span></button>
                   <button class="btn admin-tab main-admin-only" id="atab-audit" onclick="switchAdminTab('audit')">🧾 Activity</button>
                   <button class="btn admin-tab main-admin-only" id="atab-appearance" onclick="switchAdminTab('appearance')">✨ Appearance</button>
                   <button class="btn admin-tab main-admin-only" id="atab-uilabels" onclick="switchAdminTab('uilabels')">📝 UI Text</button>

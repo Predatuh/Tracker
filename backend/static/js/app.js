@@ -2349,11 +2349,15 @@ function switchLoginTab(tab) {
   const submitBtn = document.getElementById('login-submit-btn');
   const tokenWrap = document.getElementById('login-register-token-wrap');
   const pinWrap = document.getElementById('login-pin-wrap');
+  const confirmWrap = document.getElementById('login-pin-confirm-wrap');
+  const forgotWrap = document.getElementById('login-forgot-pin-wrap');
   if (siBtn)  { siBtn.style.color  = isSignin ? '#00d4ff' : '#4a5568'; siBtn.style.borderBottomColor  = isSignin ? '#00d4ff' : 'transparent'; }
   if (regBtn) { regBtn.style.color = isSignin ? '#4a5568' : '#00d4ff'; regBtn.style.borderBottomColor = isSignin ? 'transparent' : '#00d4ff'; }
   _setLoginButtonLabel(isSignin ? 'Sign In' : 'Create Account');
   submitBtn._mode = tab;
   if (tokenWrap) tokenWrap.style.display = isRegister ? 'block' : 'none';
+  if (confirmWrap) confirmWrap.style.display = isRegister ? 'block' : 'none';
+  if (forgotWrap) forgotWrap.style.display = isSignin ? 'block' : 'none';
   if (pinWrap) pinWrap.style.display = 'block';
   const errEl = document.getElementById('login-error');
   if (errEl) errEl.style.display = 'none';
@@ -2400,6 +2404,13 @@ async function submitLogin() {
   if (mode === 'signin' && (!name || !pin)) { _loginError('Please enter your name and PIN'); return; }
   if (mode === 'register' && (!name || !pin || !jobToken)) { _loginError('Name, PIN, and job token are required'); return; }
 
+  // Confirm PIN match on register
+  if (mode === 'register') {
+    const confirmEl = document.getElementById('login-pin-confirm');
+    const confirmPin = (confirmEl ? confirmEl.value : '').trim();
+    if (pin !== confirmPin) { _loginError('PINs do not match — re-enter both PINs'); return; }
+  }
+
   btn.disabled = true;
   _setLoginButtonLabel('...');
   playLoginLogoAnimation();
@@ -2421,6 +2432,9 @@ async function submitLogin() {
     if (!r.ok) {
       resetLoginLogoAnimation();
       _loginError(d.error || 'Error');
+    } else if (d.needs_pin_reset) {
+      resetLoginLogoAnimation();
+      showSetPinPanel(d.user_id);
     } else if (d.user) {
       if (mode === 'register' && d.message) {
         _setLoginHelp(d.message);
@@ -2434,6 +2448,75 @@ async function submitLogin() {
 
   btn.disabled = false;
   _setLoginButtonLabel(mode === 'register' ? 'Create Account' : 'Sign In');
+}
+
+function showSetPinPanel(userId) {
+  const box = document.querySelector('.login-box');
+  if (!box) return;
+  box.innerHTML = `
+    <div style="text-align:center;margin-bottom:22px;">
+      <div style="font-size:22px;margin-bottom:6px;">&#128274;</div>
+      <h2 style="margin:0 0 4px;font-size:20px;font-weight:800;color:#eef2ff;font-family:'Orbitron',sans-serif;letter-spacing:1px;">Set New PIN</h2>
+      <div style="color:rgba(238,242,255,0.4);font-size:13px;font-family:'Space Grotesk',sans-serif;">Your PIN reset was approved. Set your new 4-digit PIN below.</div>
+    </div>
+    <div id="set-pin-error" style="display:none;background:rgba(255,76,106,0.1);border:1px solid rgba(255,76,106,0.3);color:#ff8fa3;border-radius:8px;padding:10px 13px;font-size:12px;margin-bottom:14px;font-family:'Space Grotesk',sans-serif;"></div>
+    <div style="margin-bottom:13px;">
+      <label style="font-size:10px;font-weight:700;color:rgba(238,242,255,0.4);letter-spacing:1.2px;text-transform:uppercase;display:block;margin-bottom:6px;font-family:'Space Grotesk',sans-serif;">New PIN</label>
+      <input id="new-pin-input" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="••••" autocomplete="off"
+        style="width:100%;box-sizing:border-box;background:rgba(255,255,255,0.04);border:1.5px solid rgba(0,212,255,0.1);border-radius:8px;padding:12px 14px;font-size:28px;letter-spacing:14px;text-align:center;outline:none;color:#eef2ff;font-family:'JetBrains Mono',monospace;"
+        onfocus="this.style.borderColor='#00d4ff'" onblur="this.style.borderColor='rgba(0,212,255,0.1)'" />
+    </div>
+    <div style="margin-bottom:18px;">
+      <label style="font-size:10px;font-weight:700;color:rgba(238,242,255,0.4);letter-spacing:1.2px;text-transform:uppercase;display:block;margin-bottom:6px;font-family:'Space Grotesk',sans-serif;">Confirm New PIN</label>
+      <input id="new-pin-confirm" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="••••" autocomplete="off"
+        style="width:100%;box-sizing:border-box;background:rgba(255,255,255,0.04);border:1.5px solid rgba(0,212,255,0.1);border-radius:8px;padding:12px 14px;font-size:28px;letter-spacing:14px;text-align:center;outline:none;color:#eef2ff;font-family:'JetBrains Mono',monospace;"
+        onfocus="this.style.borderColor='#00d4ff'" onblur="this.style.borderColor='rgba(0,212,255,0.1)'" onkeydown="if(event.key==='Enter')submitSetPin(${userId})" />
+    </div>
+    <button onclick="submitSetPin(${userId})"
+      style="width:100%;background:linear-gradient(135deg,#00d4ff,#009abc);color:#000;border:none;border-radius:8px;padding:14px;font-size:14px;font-weight:800;cursor:pointer;font-family:'Space Grotesk',sans-serif;">
+      Set PIN
+    </button>`;
+}
+
+async function submitSetPin(userId) {
+  const newPin = (document.getElementById('new-pin-input')?.value || '').trim();
+  const confirmPin = (document.getElementById('new-pin-confirm')?.value || '').trim();
+  const errEl = document.getElementById('set-pin-error');
+  const showErr = (msg) => { if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; } };
+
+  if (newPin.length !== 4 || !/^\d{4}$/.test(newPin)) { showErr('PIN must be exactly 4 digits'); return; }
+  if (newPin !== confirmPin) { showErr('PINs do not match — re-enter both'); return; }
+
+  try {
+    const r = await fetch('/api/auth/set-pin', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, new_pin: newPin })
+    });
+    const d = await r.json();
+    if (!r.ok) { showErr(d.error || 'Failed to set PIN'); return; }
+    await _finalizeAuthenticatedSession(d.user);
+  } catch(e) {
+    showErr('Network error — try again');
+  }
+}
+
+async function requestForgotPin() {
+  if (!confirm('Request a PIN reset?\n\nAn admin will need to approve it before you can set a new PIN.')) return;
+  const name = (prompt('Enter your name (as you registered):') || '').trim();
+  if (!name) return;
+  try {
+    await fetch('/api/auth/forgot-pin', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name })
+    });
+    _setLoginHelp('Reset requested. Contact an admin to approve it — they\'ll see it in the Users tab.');
+  } catch(e) {
+    _loginError('Network error — try again');
+  }
 }
 
 function _loginError(msg) {
@@ -7976,6 +8059,7 @@ document.addEventListener('DOMContentLoaded', () => {
 async function loadAdminPage() {
   syncAdminTabVisibility();
   switchAdminTab(adminDefaultTabKey());
+  refreshAdminNotificationBadge();
   try {
     const r = await api.getAdminSettings();
     const d = r.data;
@@ -8002,7 +8086,7 @@ function switchAdminTab(tabKey) {
   const btn = document.getElementById('atab-' + tabKey);
   if (btn) btn.classList.add('active');
   if (tabKey === 'updates') loadUpdateTab();
-  if (tabKey === 'users') loadUsersTab();
+  if (tabKey === 'users') { loadUsersTab(); refreshAdminNotificationBadge(); }
   if (tabKey === 'trackers') loadTrackersTab();
   if (tabKey === 'maplabels') loadMapLabelsTab();
   if (tabKey === 'zones') loadZonesTab();
@@ -9533,7 +9617,24 @@ async function loadUsersTab() {
 
     if (!users.length) { container.innerHTML = '<p style="color:#777;">No users found.</p>'; return; }
 
-    container.innerHTML = users.map(u => {
+    // Pending review section
+    const pendingReview = users.filter(u => u.needs_review);
+    let pendingBanner = '';
+    if (pendingReview.length) {
+      const pendingRows = pendingReview.map(u => `
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(245,158,11,0.15);">
+          <span style="flex:1;font-weight:700;color:#fef3c7;">${_escapeHtml(u.name)}</span>
+          <span style="font-size:11px;color:#d97706;">No role assigned yet</span>
+          <button class="btn" onclick="adminDismissUserReview(${u.id})" style="font-size:11px;padding:4px 10px;background:rgba(245,158,11,0.15);color:#f59e0b;border-color:rgba(245,158,11,0.3);">✓ Dismiss Review</button>
+        </div>`).join('');
+      pendingBanner = `
+        <div style="margin-bottom:18px;padding:14px 16px;border-radius:12px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);">
+          <div style="font-size:13px;font-weight:700;color:#f59e0b;margin-bottom:8px;">🔔 ${pendingReview.length} new user${pendingReview.length > 1 ? 's' : ''} pending role assignment</div>
+          ${pendingRows}
+        </div>`;
+    }
+
+    const userCards = users.map(u => {
       const isMainAdmin = u.username === 'admin';
       const role = u.role || (u.is_admin ? 'admin' : 'user');
       const perms = u.permissions || [];
@@ -9548,6 +9649,17 @@ async function loadUsersTab() {
       } else {
         roleBadge = `<span style="font-size:10px;background:rgba(124,108,252,0.15);color:#7c6cfc;border:1px solid rgba(124,108,252,0.3);border-radius:4px;padding:2px 8px;font-weight:700;">${_escapeHtml(u.role_label || formatRoleLabel(role)).toUpperCase()}</span>`;
       }
+
+      const pinResetBadge = u.pin_reset_requested
+        ? `<span style="font-size:10px;background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.3);border-radius:4px;padding:2px 8px;font-weight:700;margin-left:4px;">🔔 PIN Reset Requested</span>`
+        : '';
+
+      const pinResetAction = u.pin_reset_requested && !isMainAdmin
+        ? `<div style="margin-top:8px;padding:8px 10px;border-radius:8px;background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.2);display:flex;align-items:center;gap:10px;">
+            <span style="font-size:12px;color:#fbbf24;flex:1;">User has requested a PIN reset.</span>
+            <button class="btn" onclick="adminApprovePinReset(${u.id}, '${_escapeHtml(u.name).replace(/'/g, "\\'")}')" style="font-size:11px;padding:4px 10px;background:rgba(245,158,11,0.15);color:#f59e0b;border-color:rgba(245,158,11,0.3);">✓ Approve Reset</button>
+           </div>`
+        : '';
 
       let controls = '';
       if (!isMainAdmin) {
@@ -9570,25 +9682,114 @@ async function loadUsersTab() {
           </div>`;
       }
 
-      return `<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:14px 18px;">
-        <div style="display:flex;align-items:center;gap:10px;">
-          <strong style="font-size:14px;color:#eef2ff;">${u.name}</strong>
+      return `<div id="user-card-${u.id}" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:14px 18px;">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <span id="user-name-display-${u.id}" style="font-size:14px;font-weight:700;color:#eef2ff;">${_escapeHtml(u.name)}</span>
+          ${!isMainAdmin ? `<button onclick="adminEditUserName(${u.id}, '${_escapeHtml(u.name).replace(/'/g, "\\'")}')" title="Rename user" style="background:none;border:none;color:#4a5568;cursor:pointer;font-size:13px;padding:0 2px;" onmouseover="this.style.color='#00d4ff'" onmouseout="this.style.color='#4a5568'">✏️</button>` : ''}
           ${roleBadge}
-          <span style="font-size:11px;color:#555;margin-left:auto;">@${u.username}</span>
+          ${pinResetBadge}
+          <span style="font-size:11px;color:#555;margin-left:auto;">@${_escapeHtml(u.username)}</span>
         </div>
-        <div style="margin-top:8px;font-size:11px;color:#8892b0;">Forgot PIN? Reset it here, then tell the user to sign in with the new PIN.</div>
+        ${pinResetAction}
+        <div style="margin-top:8px;font-size:11px;color:#8892b0;">Forgot PIN? Reset it here, then tell the user to sign in and they'll be prompted to set a new PIN.</div>
         <div style="margin-top:4px;font-size:11px;color:${lastPinReset ? '#aeb8d6' : '#6f7d9b'};">${_escapeHtml(lastPinResetLabel)}</div>
         ${controls}
         ${!isMainAdmin ? `
           <div style="margin-top:10px;display:flex;flex-wrap:wrap;align-items:center;gap:8px;">
-            <label style="font-size:12px;color:#aaa;">Reset PIN:</label>
+            <label style="font-size:12px;color:#aaa;">Admin PIN reset:</label>
             <input id="pin-reset-${u.id}" type="password" maxlength="4" inputmode="numeric" placeholder="0000" style="width:88px;font-size:12px;padding:6px 8px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:rgba(7,9,26,0.8);color:#eef2ff;">
-            <button class="btn btn-secondary" onclick="resetUserPin(${u.id}, '${_escapeHtml(u.name)}')" style="padding:6px 10px;font-size:11px;">Save New PIN</button>
+            <button class="btn btn-secondary" onclick="resetUserPin(${u.id}, '${_escapeHtml(u.name).replace(/'/g, "\\'")}')" style="padding:6px 10px;font-size:11px;">Set PIN Directly</button>
           </div>` : ''}
       </div>`;
     }).join('');
+
+    container.innerHTML = pendingBanner + userCards;
   } catch(e) {
     container.innerHTML = '<p style="color:#ff4c6a;">Error: ' + e.message + '</p>';
+  }
+}
+
+async function refreshAdminNotificationBadge() {
+  try {
+    const r = await fetch('/api/auth/pending-count', { credentials: 'include' });
+    if (!r.ok) return;
+    const d = await r.json();
+    const total = (d.total || 0);
+    const usersBadge = document.getElementById('admin-users-badge');
+    const navBadge = document.getElementById('nav-admin-badge');
+    if (usersBadge) {
+      usersBadge.textContent = total > 0 ? String(total) : '';
+      usersBadge.style.display = total > 0 ? 'inline' : 'none';
+    }
+    if (navBadge) {
+      navBadge.textContent = total > 0 ? String(total) : '';
+      navBadge.style.display = total > 0 ? 'inline' : 'none';
+    }
+  } catch(_) {}
+}
+
+async function adminApprovePinReset(userId, userName) {
+  if (!confirm(`Approve PIN reset for ${userName}?\n\nThis will clear their current PIN. They'll be prompted to set a new one on next sign-in.`)) return;
+  try {
+    const res = await fetch(`/api/auth/users/${userId}/approve-pin-reset`, {
+      method: 'POST', credentials: 'include'
+    });
+    const d = await res.json();
+    if (!res.ok) { showAdminAlert(d.error || 'Failed to approve reset', 'error'); return; }
+    showAdminAlert(d.message || `PIN reset approved for ${userName}`, 'success');
+    await loadUsersTab();
+    refreshAdminNotificationBadge();
+  } catch(e) {
+    showAdminAlert('Network error: ' + e.message, 'error');
+  }
+}
+
+async function adminDismissUserReview(userId) {
+  try {
+    const res = await fetch(`/api/auth/users/${userId}/dismiss-review`, {
+      method: 'POST', credentials: 'include'
+    });
+    if (!res.ok) { const d = await res.json(); showAdminAlert(d.error || 'Failed', 'error'); return; }
+    await loadUsersTab();
+    refreshAdminNotificationBadge();
+  } catch(e) {
+    showAdminAlert('Network error: ' + e.message, 'error');
+  }
+}
+
+function adminEditUserName(userId, currentName) {
+  const displayEl = document.getElementById(`user-name-display-${userId}`);
+  if (!displayEl) return;
+  const parent = displayEl.parentElement;
+  // Replace display elements up to and including the edit pencil button
+  displayEl.outerHTML = `<input id="user-name-edit-${userId}" type="text" value="${_escapeHtml(currentName)}"
+    style="font-size:13px;padding:4px 8px;border-radius:6px;border:1px solid rgba(0,212,255,0.3);background:rgba(255,255,255,0.05);color:#eef2ff;width:160px;"
+    onkeydown="if(event.key==='Enter')adminSaveUserName(${userId});if(event.key==='Escape')loadUsersTab();" />
+    <button onclick="adminSaveUserName(${userId})" style="background:rgba(0,232,122,0.15);border:1px solid rgba(0,232,122,0.3);color:#00e87a;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px;">Save</button>
+    <button onclick="loadUsersTab()" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#8892b0;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px;">Cancel</button>`;
+  // Remove the pencil button that was right after the display
+  const pencil = parent.querySelector(`button[onclick^="adminEditUserName(${userId}"]`);
+  if (pencil) pencil.remove();
+  document.getElementById(`user-name-edit-${userId}`)?.focus();
+}
+
+async function adminSaveUserName(userId) {
+  const input = document.getElementById(`user-name-edit-${userId}`);
+  const newName = (input?.value || '').trim();
+  if (!newName) { showAdminAlert('Name cannot be empty', 'error'); return; }
+  try {
+    const res = await fetch(`/api/auth/users/${userId}/name`, {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: newName })
+    });
+    const d = await res.json();
+    if (!res.ok) { showAdminAlert(d.error || 'Failed to rename user', 'error'); return; }
+    showAdminAlert(`Renamed to ${newName}`, 'success');
+    loadUsersTab();
+  } catch(e) {
+    showAdminAlert('Network error: ' + e.message, 'error');
   }
 }
 

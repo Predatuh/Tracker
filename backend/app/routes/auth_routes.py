@@ -54,7 +54,7 @@ def _validate_registration_payload(data):
     }, None, None
 
 
-def _create_user(payload):
+def _create_user(payload, self_registered=False):
     default_role = normalize_role_key(payload.get('role') or 'worker')
     user = User(
         name=payload['name'],
@@ -65,6 +65,7 @@ def _create_user(payload):
         job_site_name=payload['job_site_name'],
         job_site_slug=payload['job_site_slug'],
         email_verified=True,
+        needs_review=self_registered,
     )
     user.set_pin(payload['pin'])
     user.set_permissions(default_permissions_for_role(default_role))
@@ -100,6 +101,11 @@ def login():
         return jsonify({'error': 'Name and PIN are required'}), 400
 
     user = User.query.filter_by(username=username).first()
+
+    # If user exists and their PIN was cleared for reset, signal the client
+    if user and user.pin_needs_reset and not user.pin_hash:
+        return jsonify({'needs_pin_reset': True, 'user_id': user.id}), 200
+
     if not user or not user.check_pin(pin):
         return jsonify({'error': 'Incorrect name or PIN'}), 401
 
@@ -131,14 +137,14 @@ def register():
     if err:
         return err, status
 
-    user = _create_user(payload)
+    user = _create_user(payload, self_registered=True)
     session.clear()
     session['user_id'] = user.id
     session.permanent = True
     log_action('user.register', 'user', user.id, {'job_site_name': user.job_site_name, 'email': user.email})
     return jsonify({
         'user': user.to_dict(),
-        'message': 'Account created. Contact Princess if you ever need your PIN reset.',
+        'message': 'Account created. An admin will assign your role shortly.',
     }), 201
 
 
@@ -202,12 +208,138 @@ def admin_create_user():
     if failure:
         return failure, status
 
-    user = _create_user(payload)
+    user = _create_user(payload, self_registered=False)
     log_action('user.create', 'user', user.id, {'job_site_name': user.job_site_name, 'email': user.email}, actor=caller)
     return jsonify({
         'created_user': user.to_dict(),
         'message': 'User created. Contact Princess if the PIN ever needs to be reset.',
     }), 201
+
+
+@bp.route('/users/<int:user_id>/name', methods=['PUT'])
+def rename_user(user_id):
+    caller, *err = _require_admin()
+    if not caller:
+        return err[0], err[1]
+
+    target = User.query.get(user_id)
+    if not target:
+        return jsonify({'error': 'User not found'}), 404
+    if target.username == 'admin':
+        return jsonify({'error': 'Cannot rename the main admin account'}), 400
+
+    data = request.get_json() or {}
+    new_name = (data.get('name') or '').strip()
+    if not new_name:
+        return jsonify({'error': 'Name is required'}), 400
+
+    new_username = _make_username(new_name)
+    if new_username == 'admin':
+        return jsonify({'error': 'That name is reserved'}), 400
+    existing = User.query.filter_by(username=new_username).first()
+    if existing and existing.id != target.id:
+        return jsonify({'error': 'An account with that name already exists'}), 409
+
+    old_name = target.name
+    target.name = new_name
+    target.username = new_username
+    db.session.commit()
+    log_action('user.rename', 'user', target.id, {'old_name': old_name, 'new_name': new_name}, actor=caller)
+    return jsonify({'user': target.to_dict()}), 200
+
+
+@bp.route('/forgot-pin', methods=['POST'])
+def forgot_pin():
+    """User-initiated PIN reset request. Always returns success to prevent name enumeration."""
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    if name:
+        username = _make_username(name)
+        user = User.query.filter_by(username=username).first()
+        if user and not user.is_admin:
+            user.pin_reset_requested = True
+            db.session.commit()
+    return jsonify({'ok': True, 'message': 'If that name exists, a reset request has been sent to the admin.'}), 200
+
+
+@bp.route('/users/<int:user_id>/approve-pin-reset', methods=['POST'])
+def approve_pin_reset(user_id):
+    caller, *err = _require_admin()
+    if not caller:
+        return err[0], err[1]
+
+    target = User.query.get(user_id)
+    if not target:
+        return jsonify({'error': 'User not found'}), 404
+    if target.username == 'admin':
+        return jsonify({'error': 'Cannot reset admin PIN this way'}), 400
+
+    target.pin_hash = None
+    target.pin_needs_reset = True
+    target.pin_reset_requested = False
+    db.session.commit()
+    log_action('user.pin.approve_reset', 'user', target.id, {'approved_by': caller.name}, actor=caller)
+    return jsonify({'user': target.to_dict(), 'message': f'PIN reset approved for {target.name}. They can now set a new PIN on next sign-in.'}), 200
+
+
+@bp.route('/users/<int:user_id>/dismiss-review', methods=['POST'])
+def dismiss_user_review(user_id):
+    caller, *err = _require_admin()
+    if not caller:
+        return err[0], err[1]
+
+    target = User.query.get(user_id)
+    if not target:
+        return jsonify({'error': 'User not found'}), 404
+
+    target.needs_review = False
+    db.session.commit()
+    log_action('user.review.dismiss', 'user', target.id, {'dismissed_by': caller.name}, actor=caller)
+    return jsonify({'user': target.to_dict()}), 200
+
+
+@bp.route('/set-pin', methods=['POST'])
+def set_pin():
+    """Public endpoint — lets a user set their new PIN after admin approves a reset."""
+    data = request.get_json() or {}
+    user_id = data.get('user_id')
+    new_pin = str(data.get('new_pin') or '').strip()
+
+    if not user_id:
+        return jsonify({'error': 'user_id is required'}), 400
+    if len(new_pin) != 4 or not new_pin.isdigit():
+        return jsonify({'error': 'PIN must be exactly 4 digits'}), 400
+
+    target = User.query.get(user_id)
+    if not target:
+        return jsonify({'error': 'User not found'}), 404
+    if not target.pin_needs_reset:
+        return jsonify({'error': 'No PIN reset is pending for this account'}), 400
+
+    target.set_pin(new_pin)
+    target.pin_needs_reset = False
+    db.session.commit()
+    log_action('user.pin.set', 'user', target.id, {})
+
+    session.clear()
+    session['user_id'] = target.id
+    session.permanent = True
+    return jsonify({'user': target.to_dict()}), 200
+
+
+@bp.route('/pending-count', methods=['GET'])
+def pending_count():
+    caller, *err = _require_admin()
+    if not caller:
+        return err[0], err[1]
+
+    needs_review = User.query.filter_by(needs_review=True).count()
+    pin_reset_requested = User.query.filter_by(pin_reset_requested=True).count()
+    return jsonify({
+        'needs_review': needs_review,
+        'pin_reset_requested': pin_reset_requested,
+        'total': needs_review + pin_reset_requested,
+    }), 200
 
 
 @bp.route('/users/<int:user_id>/pin', methods=['PUT'])

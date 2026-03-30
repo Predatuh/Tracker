@@ -431,6 +431,16 @@ def _migrate_tracker_columns(app):
     try:
         inspector = sa_inspect(db.engine)
 
+        # users table — new workflow flags
+        u_cols = {c['name'] for c in inspector.get_columns('users')}
+        for _ucol in ('needs_review', 'pin_reset_requested', 'pin_needs_reset'):
+            if _ucol not in u_cols:
+                _u_db_uri = app.config.get('SQLALCHEMY_DATABASE_URI', '')
+                _u_bool_f = 'FALSE' if 'postgresql' in _u_db_uri else '0'
+                db.session.execute(db.text(f'ALTER TABLE users ADD COLUMN {_ucol} BOOLEAN DEFAULT {_u_bool_f}'))
+                app.logger.info(f'Added {_ucol} to users table')
+        db.session.commit()
+
         # lbds table
         lbd_cols = {c['name'] for c in inspector.get_columns('lbds')}
         if 'tracker_id' not in lbd_cols:
