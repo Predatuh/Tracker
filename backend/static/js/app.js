@@ -1439,11 +1439,16 @@ async function loadDashboard() {
       const d = await r.json();
       const blocks = Array.isArray(d.data) ? d.data : [];
       const totalBlocks = blocks.length;
-      const completedBlocks = blocks.filter(b => b.is_completed).length;
       const totalItems = blocks.reduce((s, b) => s + (b.lbd_count || 0), 0);
       // % based on the tracker's own completion_status_type (falls back to last in array)
       const _statusTypes = t.status_types || [];
       const _primaryStatus = t.completion_status_type || (_statusTypes.length ? _statusTypes[_statusTypes.length - 1] : 'term');
+      // A block counts as complete ONLY when ALL its items have the primary status
+      const completedBlocks = blocks.filter(b => {
+        const total = b.lbd_count || 0;
+        if (total === 0) return !!b.is_completed;
+        return ((b.lbd_summary && b.lbd_summary[_primaryStatus]) || 0) >= total;
+      }).length;
       const termedItems = blocks.reduce((s, b) => s + ((b.lbd_summary && b.lbd_summary[_primaryStatus]) || 0), 0);
       const pct = t.progress_unit === 'block'
         ? (totalBlocks > 0 ? Math.round((completedBlocks / totalBlocks) * 100) : 0)
@@ -8501,10 +8506,12 @@ function editTrackerInline(trackerId) {
           t.completion_status_type || '')}
       </div>
       <div class="form-group">
-        <label style="font-size:12px;">Dashboard % counts by</label>
+        <label style="font-size:12px;">Live progress counts by</label>
         ${_sel(`tedit-progress-unit-${trackerId}`,
-          [['lbd','Individual item (LBD)'], ['block','Power block completion']],
+          [['lbd','Count each item (e.g. 1019/2350 LBD boxes terminated)'],
+           ['block','Count each block as 1 — only when ALL items complete (e.g. 12/119 inverters landed)']],
           t.progress_unit || 'lbd')}
+        <div style="font-size:10px;color:#6b7280;margin-top:3px;">Block mode: a block counts only when every item reaches the completion column.</div>
       </div>
     </div>
     <div style="display:flex;gap:20px;flex-wrap:wrap;margin-top:4px;">
@@ -8771,6 +8778,7 @@ async function addNewTracker() {
     dashboard_open_label: _v('new-tracker-open').trim(),
     tracking_mode: _v('new-tracker-mode') || 'per_item',
     show_per_lbd_ui: _chkv('new-tracker-per-lbd'),
+    progress_unit: _v('new-tracker-progress-unit') || 'lbd',
     show_on_dashboard: _chkv('new-tracker-show-dash'),
     is_active: _chkv('new-tracker-active'),
     claims_enabled: _chkv('new-tracker-claims'),
