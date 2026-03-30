@@ -1330,12 +1330,26 @@ function renderDashboardOverview(cards) {
   const featured = ranked[0] || cards[0];
   const activeTrackers = cards.filter(card => card.activeClaims > 0 || card.updatedToday > 0).length;
 
-  // Sum LBD progress across trackers (each card already uses its own completion_status_type)
-  let totalItems = 0, termedItems = 0, updatedToday = 0, claimedToday = 0;
+  // Per-tracker live progress lines — never combine across trackers
+  const liveProgressLines = cards.map(card => {
+    const label = card.progress_display_label
+      || `${card.item_name_plural || 'items'} ${card.dashboard_progress_label || 'complete'}`.trim();
+    const value = card.progress_unit === 'block'
+      ? `${card.completedBlocks}/${card.totalBlocks}`
+      : `${card.termedItems}/${card.totalItems}`;
+    const pct = card.pct || 0;
+    const barColor = pct >= 100 ? '#00e87a' : pct >= 50 ? '#00d4ff' : '#7c6cfc';
+    return `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.05);">
+      <span style="font-size:11px;color:#8892b0;min-width:18px;">${card.icon || '📋'}</span>
+      <span style="font-size:13px;font-weight:700;color:#eef2ff;font-variant-numeric:tabular-nums;">${value}</span>
+      <span style="font-size:12px;color:#94a3b8;flex:1;">${_escapeHtml(label)}</span>
+      <span style="font-size:11px;font-weight:600;color:${barColor};">${pct}%</span>
+    </div>`;
+  }).join('');
+
+  let updatedToday = 0, claimedToday = 0;
   const _seenIds = new Set();
   cards.forEach(card => {
-    termedItems += (card.termedItems || 0);
-    totalItems += (card.totalItems || 0);
     (card._blocks || []).forEach(b => {
       if (_seenIds.has(b.id)) return;
       _seenIds.add(b.id);
@@ -1343,15 +1357,13 @@ function renderDashboardOverview(cards) {
       if (isDateToday(b.claimed_at)) claimedToday++;
     });
   });
-  const overallPct = totalItems > 0 ? Math.round((termedItems / totalItems) * 100) : 0;
-  const featuredBlocksLabel = featured?.dashboard_blocks_label || 'Power Blocks';
-  const activeTrackerLabel = `${activeTrackers}/${totalTrackers} trackers active sitewide`;
 
   const overviewCards = [
     {
       kicker: 'Live Progress',
-      value: `${overallPct}%`,
-      meta: `LBD Boxes Terminated: ${termedItems}/${totalItems}`,
+      value: null,
+      custom: `<div style="display:flex;flex-direction:column;gap:2px;margin-top:6px;">${liveProgressLines}</div>`,
+      meta: `${totalTrackers} tracker${totalTrackers !== 1 ? 's' : ''}`,
       tone: 'cyan'
     },
     {
@@ -1371,7 +1383,8 @@ function renderDashboardOverview(cards) {
   grid.innerHTML = overviewCards.map(card => `
     <article class="dashboard-overview-card dashboard-tone-${card.tone}">
       <div class="dashboard-overview-kicker">${card.kicker}</div>
-      <div class="dashboard-overview-value">${card.value}</div>
+      ${card.value != null ? `<div class="dashboard-overview-value">${card.value}</div>` : ''}
+      ${card.custom || ''}
       <div class="dashboard-overview-meta">${card.meta}</div>
     </article>
   `).join('');
@@ -8444,6 +8457,9 @@ function editTrackerInline(trackerId) {
       <div class="form-group"><label style="font-size:12px;">Stat Label</label>${_inp(`tedit-stat-${trackerId}`, t.stat_label, 'e.g. Total LBDs')}</div>
     </div>
     <div class="form-row">
+      <div class="form-group"><label style="font-size:12px;">Live Progress Label <span style="color:#6b7280;font-weight:400;">("X/Y [this text]" on overview)</span></label>${_inp(`tedit-progress-display-${trackerId}`, t.progress_display_label||'', 'e.g. LBD boxes terminated')}</div>
+    </div>
+    <div class="form-row">
       <div class="form-group"><label style="font-size:12px;">Block Label (singular)</label>${_inp(`tedit-blk-sing-${trackerId}`, t.block_label_singular||'Power Block', 'e.g. Row')}</div>
       <div class="form-group"><label style="font-size:12px;">Block Label (plural)</label>${_inp(`tedit-blk-plur-${trackerId}`, t.block_label_plural||'Power Blocks', 'e.g. Rows')}</div>
     </div>
@@ -8553,6 +8569,7 @@ async function saveTrackerEdit(trackerId) {
   const trackingMode = document.getElementById('tedit-tracking-mode-' + trackerId)?.value || 'per_item';
   const blockLabelSingular = (document.getElementById('tedit-blk-sing-' + trackerId)?.value || '').trim() || 'Power Block';
   const blockLabelPlural = (document.getElementById('tedit-blk-plur-' + trackerId)?.value || '').trim() || 'Power Blocks';
+  const progressDisplayLabel = (document.getElementById('tedit-progress-display-' + trackerId)?.value || '').trim();
   const showOnDashboard = document.getElementById('tedit-show-dashboard-' + trackerId)?.checked !== false;
   const isActive = document.getElementById('tedit-is-active-' + trackerId)?.checked !== false;
   const claimsEnabled = document.getElementById('tedit-claims-enabled-' + trackerId)?.checked !== false;
@@ -8582,6 +8599,7 @@ async function saveTrackerEdit(trackerId) {
       item_name_singular: singular, item_name_plural: plural, stat_label: statLabel,
       dashboard_progress_label: progressLabel, dashboard_blocks_label: blocksLabel, dashboard_open_label: openLabel,
       block_label_singular: blockLabelSingular, block_label_plural: blockLabelPlural,
+      progress_display_label: progressDisplayLabel,
       status_types, status_colors, status_names, column_order: status_types,
       completion_status_type: completionStatusType || null,
       progress_unit: progressUnit,
@@ -8759,6 +8777,7 @@ async function addNewTracker() {
     notes_enabled: _chkv('new-tracker-notes'),
     report_enabled: _chkv('new-tracker-report'),
     map_color: mapColor,
+    progress_display_label: _v('new-tracker-progress-display').trim(),
   };
   try {
     const created = await api.createTracker(payload);

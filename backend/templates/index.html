@@ -443,128 +443,139 @@
                   <h2 class="section-subtitle">Manage Trackers</h2>
                   <p style="color:#777;font-size:13px;margin-bottom:18px;">Create, edit, or remove trackers. Each tracker has its own status columns and dashboard labels.</p>
                   <div id="admin-trackers-list" style="display:flex;flex-direction:column;gap:14px;margin-bottom:28px;"></div>
-                  <div style="border:2px dashed #ccc;border-radius:10px;padding:18px;background:#fafafa;">
-                    <h3 style="margin:0 0 16px;font-size:15px;">Add New Tracker</h3>
+                  <div style="border:2px dashed rgba(255,255,255,0.15);border-radius:10px;padding:18px;background:rgba(255,255,255,0.02);">
+                    <h3 style="margin:0 0 16px;font-size:15px;color:#eef2ff;">Add New Tracker</h3>
 
                     <!-- Identity -->
-                    <div style="margin-bottom:16px;padding:12px;background:#f0f4f8;border-radius:8px;">
-                      <div style="font-size:12px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;">🏷️ Identity</div>
+                    <div style="margin-bottom:14px;padding:12px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);border-radius:8px;">
+                      <div style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;">🏷️ Identity</div>
                       <div class="form-row">
                         <div class="form-group">
-                          <label>Tracker Name <span style="color:red">*</span></label>
-                          <input type="text" id="new-tracker-name" placeholder="e.g. Inverter DC Landing" />
+                          <label style="color:#a0aec0;font-size:12px;">Tracker Name <span style="color:#ff4c6a">*</span></label>
+                          <input type="text" id="new-tracker-name" placeholder="e.g. Inverter DC Landing" style="background:#1e1e2e;color:#eef2ff;border:1px solid #444;border-radius:4px;padding:5px 8px;font-size:13px;width:100%;" />
                         </div>
                         <div class="form-group">
-                          <label>Slug (URL-friendly) <span style="color:red">*</span></label>
-                          <input type="text" id="new-tracker-slug" placeholder="e.g. inverter-dc" oninput="this.value=this.value.toLowerCase().replace(/[^a-z0-9-]/g,'')" />
+                          <label style="color:#a0aec0;font-size:12px;">Slug (URL-friendly) <span style="color:#ff4c6a">*</span></label>
+                          <input type="text" id="new-tracker-slug" placeholder="e.g. inverter-dc" oninput="this.value=this.value.toLowerCase().replace(/[^a-z0-9-]/g,'')" style="background:#1e1e2e;color:#eef2ff;border:1px solid #444;border-radius:4px;padding:5px 8px;font-size:13px;width:100%;" />
                         </div>
                         <div class="form-group" style="flex:0 0 70px;">
-                          <label>Icon</label>
-                          <input type="text" id="new-tracker-icon" placeholder="⚡" style="width:60px;text-align:center;font-size:18px;" />
+                          <label style="color:#a0aec0;font-size:12px;">Icon</label>
+                          <input type="text" id="new-tracker-icon" placeholder="⚡" style="width:56px;text-align:center;font-size:18px;background:#1e1e2e;color:#eef2ff;border:1px solid #444;border-radius:4px;padding:5px;" />
                         </div>
-                        <div class="form-group" style="flex:0 0 90px;">
-                          <label>Sort Order</label>
-                          <input type="number" id="new-tracker-sort" placeholder="0" style="width:72px;" />
+                        <div class="form-group" style="flex:0 0 80px;">
+                          <label style="color:#a0aec0;font-size:12px;">Sort Order</label>
+                          <input type="number" id="new-tracker-sort" placeholder="0" style="width:66px;background:#1e1e2e;color:#eef2ff;border:1px solid #444;border-radius:4px;padding:5px;" />
                         </div>
                       </div>
                       <div class="form-row">
                         <div class="form-group">
-                          <label>Item Name (singular)</label>
-                          <input type="text" id="new-tracker-singular" placeholder="e.g. Inverter" />
+                          <label style="color:#a0aec0;font-size:12px;">Item Name (singular)</label>
+                          <input type="text" id="new-tracker-singular" placeholder="e.g. Inverter" style="background:#1e1e2e;color:#eef2ff;border:1px solid #444;border-radius:4px;padding:5px 8px;font-size:13px;width:100%;" />
                         </div>
                         <div class="form-group">
-                          <label>Item Name (plural)</label>
-                          <input type="text" id="new-tracker-plural" placeholder="e.g. Inverters" />
+                          <label style="color:#a0aec0;font-size:12px;">Item Name (plural)</label>
+                          <input type="text" id="new-tracker-plural" placeholder="e.g. Inverters" style="background:#1e1e2e;color:#eef2ff;border:1px solid #444;border-radius:4px;padding:5px 8px;font-size:13px;width:100%;" />
                         </div>
                         <div class="form-group">
-                          <label>Block Unit (singular)</label>
-                          <input type="text" id="new-tracker-block-sing" placeholder="e.g. Power Block" />
+                          <label style="color:#a0aec0;font-size:12px;">Block Unit (singular)</label>
+                          <input type="text" id="new-tracker-block-sing" placeholder="e.g. Power Block" style="background:#1e1e2e;color:#eef2ff;border:1px solid #444;border-radius:4px;padding:5px 8px;font-size:13px;width:100%;" />
                         </div>
                         <div class="form-group">
-                          <label>Block Unit (plural)</label>
-                          <input type="text" id="new-tracker-block-plur" placeholder="e.g. Power Blocks" />
+                          <label style="color:#a0aec0;font-size:12px;">Block Unit (plural)</label>
+                          <input type="text" id="new-tracker-block-plur" placeholder="e.g. Power Blocks" style="background:#1e1e2e;color:#eef2ff;border:1px solid #444;border-radius:4px;padding:5px 8px;font-size:13px;width:100%;" />
                         </div>
                       </div>
                     </div>
 
                     <!-- Dashboard & Visibility -->
-                    <div style="margin-bottom:16px;padding:12px;background:#f0f4f8;border-radius:8px;">
-                      <div style="font-size:12px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;">📊 Dashboard &amp; Visibility</div>
+                    <div style="margin-bottom:14px;padding:12px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);border-radius:8px;">
+                      <div style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;">📊 Dashboard &amp; Visibility</div>
                       <div class="form-row">
                         <div class="form-group">
-                          <label>Stat Label</label>
-                          <input type="text" id="new-tracker-stat" placeholder="e.g. Inverters Landed" />
+                          <label style="color:#a0aec0;font-size:12px;">Stat Label</label>
+                          <input type="text" id="new-tracker-stat" placeholder="e.g. Inverters Landed" style="background:#1e1e2e;color:#eef2ff;border:1px solid #444;border-radius:4px;padding:5px 8px;font-size:13px;width:100%;" />
                         </div>
                         <div class="form-group">
-                          <label>Dashboard Progress Label</label>
-                          <input type="text" id="new-tracker-progress" placeholder="e.g. Complete" />
+                          <label style="color:#a0aec0;font-size:12px;">Dashboard Progress Label</label>
+                          <input type="text" id="new-tracker-progress" placeholder="e.g. Complete" style="background:#1e1e2e;color:#eef2ff;border:1px solid #444;border-radius:4px;padding:5px 8px;font-size:13px;width:100%;" />
                         </div>
                         <div class="form-group">
-                          <label>Dashboard Blocks Label</label>
-                          <input type="text" id="new-tracker-blocks" placeholder="e.g. Power Blocks" />
+                          <label style="color:#a0aec0;font-size:12px;">Dashboard Blocks Label</label>
+                          <input type="text" id="new-tracker-blocks" placeholder="e.g. Power Blocks" style="background:#1e1e2e;color:#eef2ff;border:1px solid #444;border-radius:4px;padding:5px 8px;font-size:13px;width:100%;" />
                         </div>
                         <div class="form-group">
-                          <label>Dashboard Button Text</label>
-                          <input type="text" id="new-tracker-open" placeholder="e.g. Open Tracker" />
+                          <label style="color:#a0aec0;font-size:12px;">Dashboard Button Text</label>
+                          <input type="text" id="new-tracker-open" placeholder="e.g. Open Tracker" style="background:#1e1e2e;color:#eef2ff;border:1px solid #444;border-radius:4px;padding:5px 8px;font-size:13px;width:100%;" />
                         </div>
                       </div>
-                      <div class="form-row" style="align-items:center;gap:18px;flex-wrap:wrap;">
+                      <div class="form-row">
+                        <div class="form-group">
+                          <label style="color:#a0aec0;font-size:12px;">Live Progress Label <span style="color:#6b7280;font-weight:400;">(shown on overview as "X/Y [this text]")</span></label>
+                          <input type="text" id="new-tracker-progress-display" placeholder="e.g. LBD boxes terminated" style="background:#1e1e2e;color:#eef2ff;border:1px solid #444;border-radius:4px;padding:5px 8px;font-size:13px;width:100%;" />
+                        </div>
                         <div class="form-group" style="flex:0 0 auto;">
-                          <label>Map Marker Color</label>
+                          <label style="color:#a0aec0;font-size:12px;">Map Marker Color</label>
                           <div style="display:flex;align-items:center;gap:6px;">
                             <input type="color" id="new-tracker-map-color" value="#1a73e8" style="width:38px;height:30px;border:none;border-radius:4px;cursor:pointer;" oninput="document.getElementById('new-tracker-map-color-hex').value=this.value" />
-                            <input type="text" id="new-tracker-map-color-hex" value="" maxlength="7" placeholder="auto" style="width:72px;font-family:monospace;font-size:12px;padding:4px;border:1px solid #ddd;border-radius:4px;" oninput="if(/^#[0-9a-fA-F]{6}$/.test(this.value))document.getElementById('new-tracker-map-color').value=this.value" />
+                            <input type="text" id="new-tracker-map-color-hex" value="" maxlength="7" placeholder="auto" style="width:68px;font-family:monospace;font-size:12px;padding:4px;background:#1e1e2e;color:#eef2ff;border:1px solid #444;border-radius:4px;" oninput="if(/^#[0-9a-fA-F]{6}$/.test(this.value))document.getElementById('new-tracker-map-color').value=this.value" />
                           </div>
                         </div>
-                        <label style="display:flex;align-items:center;gap:7px;font-size:13px;cursor:pointer;margin-top:18px;">
-                          <input type="checkbox" id="new-tracker-show-dash" checked style="width:15px;height:15px;" /> Show on Dashboard
-                        </label>
-                        <label style="display:flex;align-items:center;gap:7px;font-size:13px;cursor:pointer;margin-top:18px;">
-                          <input type="checkbox" id="new-tracker-active" checked style="width:15px;height:15px;" /> Active
-                        </label>
+                        <div class="form-group" style="flex:0 0 auto;justify-content:flex-end;">
+                          <label style="color:#a0aec0;font-size:12px;">&nbsp;</label>
+                          <div style="display:flex;flex-direction:column;gap:8px;margin-top:2px;">
+                            <label style="display:flex;align-items:center;gap:7px;font-size:13px;color:#eef2ff;cursor:pointer;">
+                              <input type="checkbox" id="new-tracker-show-dash" checked style="width:15px;height:15px;" /> Show on Dashboard
+                            </label>
+                            <label style="display:flex;align-items:center;gap:7px;font-size:13px;color:#eef2ff;cursor:pointer;">
+                              <input type="checkbox" id="new-tracker-active" checked style="width:15px;height:15px;" /> Active
+                            </label>
+                          </div>
+                        </div>
                       </div>
                     </div>
 
                     <!-- Tracking Mode -->
-                    <div style="margin-bottom:16px;padding:12px;background:#f0f4f8;border-radius:8px;">
-                      <div style="font-size:12px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;">⚙️ Tracking Mode</div>
+                    <div style="margin-bottom:14px;padding:12px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);border-radius:8px;">
+                      <div style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;">⚙️ Tracking Mode</div>
                       <div class="form-row" style="align-items:center;gap:18px;flex-wrap:wrap;">
                         <div class="form-group" style="flex:0 0 auto;">
-                          <label>Mode</label>
-                          <select id="new-tracker-mode" style="padding:6px 10px;border-radius:6px;border:1px solid #ddd;font-size:13px;">
+                          <label style="color:#a0aec0;font-size:12px;">Mode</label>
+                          <select id="new-tracker-mode" style="background:#1e1e2e;color:#eef2ff;border:1px solid #444;border-radius:4px;padding:6px 10px;font-size:13px;">
                             <option value="per_item">Per Item (track each unit)</option>
                             <option value="block_only">Block-Only (track whole blocks)</option>
                           </select>
                         </div>
-                        <label style="display:flex;align-items:center;gap:7px;font-size:13px;cursor:pointer;margin-top:18px;">
-                          <input type="checkbox" id="new-tracker-per-lbd" style="width:15px;height:15px;" /> Show Per-Block UI
-                        </label>
+                        <div style="margin-top:18px;">
+                          <label style="display:flex;align-items:center;gap:7px;font-size:13px;color:#eef2ff;cursor:pointer;">
+                            <input type="checkbox" id="new-tracker-per-lbd" style="width:15px;height:15px;" /> Show Per-Block UI
+                          </label>
+                        </div>
                       </div>
                     </div>
 
                     <!-- Crew & Workflow -->
-                    <div style="margin-bottom:16px;padding:12px;background:#f0f4f8;border-radius:8px;">
-                      <div style="font-size:12px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;">👷 Crew &amp; Workflow</div>
+                    <div style="margin-bottom:14px;padding:12px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);border-radius:8px;">
+                      <div style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;">👷 Crew &amp; Workflow</div>
                       <div style="display:flex;gap:22px;flex-wrap:wrap;">
-                        <label style="display:flex;align-items:center;gap:7px;font-size:13px;cursor:pointer;">
+                        <label style="display:flex;align-items:center;gap:7px;font-size:13px;color:#eef2ff;cursor:pointer;">
                           <input type="checkbox" id="new-tracker-claims" checked style="width:15px;height:15px;" /> Enable Claims
                         </label>
-                        <label style="display:flex;align-items:center;gap:7px;font-size:13px;cursor:pointer;">
+                        <label style="display:flex;align-items:center;gap:7px;font-size:13px;color:#eef2ff;cursor:pointer;">
                           <input type="checkbox" id="new-tracker-notes" checked style="width:15px;height:15px;" /> Enable Notes
                         </label>
-                        <label style="display:flex;align-items:center;gap:7px;font-size:13px;cursor:pointer;">
+                        <label style="display:flex;align-items:center;gap:7px;font-size:13px;color:#eef2ff;cursor:pointer;">
                           <input type="checkbox" id="new-tracker-report" checked style="width:15px;height:15px;" /> Include in Reports
                         </label>
                       </div>
                     </div>
 
                     <!-- Initial Status Columns -->
-                    <div style="margin-bottom:16px;padding:12px;background:#f0f4f8;border-radius:8px;">
-                      <div style="font-size:12px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;">📋 Status Columns</div>
+                    <div style="margin-bottom:14px;padding:12px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);border-radius:8px;">
+                      <div style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;">📋 Status Columns</div>
                       <div id="new-tracker-cols" style="display:flex;flex-direction:column;gap:8px;margin-bottom:8px;"></div>
                       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-                        <input type="text" id="new-col-key" placeholder="key (no spaces)" style="width:130px;font-size:13px;" oninput="this.value=this.value.toLowerCase().replace(/[^a-z0-9_]/g,'')" />
-                        <input type="text" id="new-col-label" placeholder="Display label" style="width:140px;font-size:13px;" />
+                        <input type="text" id="new-col-key" placeholder="key (no spaces)" style="width:130px;font-size:13px;background:#1e1e2e;color:#eef2ff;border:1px solid #444;border-radius:4px;padding:5px 8px;" oninput="this.value=this.value.toLowerCase().replace(/[^a-z0-9_]/g,'')" />
+                        <input type="text" id="new-col-label" placeholder="Display label" style="width:140px;font-size:13px;background:#1e1e2e;color:#eef2ff;border:1px solid #444;border-radius:4px;padding:5px 8px;" />
                         <input type="color" id="new-col-color" value="#4caf50" style="width:34px;height:28px;border:none;border-radius:4px;cursor:pointer;" />
                         <button type="button" class="btn btn-sm" style="background:#2c3e50;color:#fff;padding:5px 12px;font-size:12px;border-radius:5px;" onclick="addNewTrackerCol()">+ Add Column</button>
                       </div>

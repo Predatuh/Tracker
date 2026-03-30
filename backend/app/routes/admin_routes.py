@@ -61,6 +61,7 @@ def create_tracker():
         notes_enabled=bool(data.get('notes_enabled', True)),
         map_color=data.get('map_color') or None,
         report_enabled=bool(data.get('report_enabled', True)),
+        progress_display_label=data.get('progress_display_label', ''),
         show_per_lbd_ui=bool(data.get('show_per_lbd_ui', True)),
         completion_status_type=data.get('completion_status_type') or None,
         progress_unit=data.get('progress_unit', 'lbd'),
@@ -85,7 +86,8 @@ def update_tracker(tracker_id):
     for field in ('name', 'slug', 'item_name_singular', 'item_name_plural', 'stat_label',
                   'dashboard_progress_label', 'dashboard_blocks_label', 'dashboard_open_label',
                   'job_site_name', 'icon', 'sort_order', 'progress_unit',
-                  'tracking_mode', 'block_label_singular', 'block_label_plural'):
+                  'tracking_mode', 'block_label_singular', 'block_label_plural',
+                  'progress_display_label'):
         if field in data:
             setattr(t, field, data[field])
     if 'map_color' in data:

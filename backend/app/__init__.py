@@ -479,10 +479,11 @@ def _migrate_tracker_columns(app):
             ('report_enabled', _t_bool_t),
         ]
         _new_str_cols = [
-            ("tracking_mode",        "VARCHAR(20)",  "'per_item'"),
-            ("block_label_singular", "VARCHAR(50)",  "'Power Block'"),
-            ("block_label_plural",   "VARCHAR(50)",  "'Power Blocks'"),
-            ("map_color",            "VARCHAR(20)",  "NULL"),
+            ("tracking_mode",         "VARCHAR(20)",  "'per_item'"),
+            ("block_label_singular",  "VARCHAR(50)",  "'Power Block'"),
+            ("block_label_plural",    "VARCHAR(50)",  "'Power Blocks'"),
+            ("map_color",             "VARCHAR(20)",  "NULL"),
+            ("progress_display_label","VARCHAR(80)",  "''"),
         ]
         for _col, _def_val in _new_bool_cols:
             if _col not in tr_cols:

@@ -36,6 +36,7 @@ class Tracker(db.Model):
     notes_enabled          = db.Column(db.Boolean, default=True)
     map_color              = db.Column(db.String(20), nullable=True)
     report_enabled         = db.Column(db.Boolean, default=True)
+    progress_display_label = db.Column(db.String(80), default='')   # e.g. "LBD boxes terminated", shown in live progress
     created_at          = db.Column(db.DateTime, default=datetime.utcnow)
 
     # Relationships
@@ -123,5 +124,6 @@ class Tracker(db.Model):
             'notes_enabled':          self.notes_enabled if self.notes_enabled is not None else True,
             'map_color':              self.map_color or None,
             'report_enabled':         self.report_enabled if self.report_enabled is not None else True,
+            'progress_display_label': self.progress_display_label or '',
             'created_at':          self.created_at.isoformat() if self.created_at else None,
         }
