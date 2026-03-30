@@ -71,9 +71,13 @@ def update_tracker(tracker_id):
         return err, status
     t = Tracker.query.get_or_404(tracker_id)
     data = request.get_json() or {}
-    for field in ('name', 'slug', 'item_name_singular', 'item_name_plural', 'stat_label', 'dashboard_progress_label', 'dashboard_blocks_label', 'dashboard_open_label', 'job_site_name', 'icon', 'sort_order'):
+    for field in ('name', 'slug', 'item_name_singular', 'item_name_plural', 'stat_label', 'dashboard_progress_label', 'dashboard_blocks_label', 'dashboard_open_label', 'job_site_name', 'icon', 'sort_order', 'progress_unit'):
         if field in data:
             setattr(t, field, data[field])
+    if 'completion_status_type' in data:
+        t.completion_status_type = data['completion_status_type'] or None
+    if 'show_per_lbd_ui' in data:
+        t.show_per_lbd_ui = bool(data['show_per_lbd_ui'])
     if 'status_types' in data:
         t.set_status_types(data['status_types'])
     if 'status_colors' in data:

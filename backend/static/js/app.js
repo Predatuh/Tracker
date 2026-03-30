@@ -1431,7 +1431,9 @@ async function loadDashboard() {
       const _statusTypes = t.status_types || [];
       const _primaryStatus = t.completion_status_type || (_statusTypes.length ? _statusTypes[_statusTypes.length - 1] : 'term');
       const termedItems = blocks.reduce((s, b) => s + ((b.lbd_summary && b.lbd_summary[_primaryStatus]) || 0), 0);
-      const pct = totalItems > 0 ? Math.round((termedItems / totalItems) * 100) : 0;
+      const pct = t.progress_unit === 'block'
+        ? (totalBlocks > 0 ? Math.round((completedBlocks / totalBlocks) * 100) : 0)
+        : (totalItems > 0 ? Math.round((termedItems / totalItems) * 100) : 0);
       const activeClaims = blocks.filter(b => (Array.isArray(b.claimed_people) && b.claimed_people.length > 0) || !!b.claimed_by).length;
       const claimedToday = blocks.filter(b => isDateToday(b.claimed_at)).length;
       const updatedToday = blocks.filter(b => isDateToday(b.last_updated_at)).length;
@@ -1667,39 +1669,46 @@ function renderBlocks(blocks) {
     html = '<div class="blocks-empty-state"><strong>No power blocks match the current filter.</strong><span>Try a different zone or sort order to bring more blocks back into view.</span></div>';
   } else {
     const cols = LBD_STATUS_TYPES;
+    const showLbdDetails = !currentTracker || currentTracker.show_per_lbd_ui !== false;
 
     filtered.forEach(block => {
       const total = block.lbd_count || 0;
       const summary = block.lbd_summary || {};
       const lbds = block.lbds || [];
-      const allDone = total > 0 && cols.every(c => (summary[c] || 0) >= total);
+      const allDone = showLbdDetails
+        ? (total > 0 && cols.every(c => (summary[c] || 0) >= total))
+        : !!block.is_completed;
       const claimed = block.claimed_by ? `<span class="pb-claimed-pill">👥 ${_escapeHtml(block.claimed_label || block.claimed_by)}</span>` : '';
       const zonePill = block.zone ? `<span class="pb-zone-pill">${block.zone}</span>` : '';
 
       // Overall completion
       const totalSteps = cols.length * total;
       const doneSteps = cols.reduce((s, c) => s + (summary[c] || 0), 0);
-      const overallPct = totalSteps > 0 ? Math.round((doneSteps / totalSteps) * 100) : 0;
+      const overallPct = showLbdDetails
+        ? (totalSteps > 0 ? Math.round((doneSteps / totalSteps) * 100) : 0)
+        : (block.is_completed ? 100 : 0);
       const lastUpdatedCopy = block.last_updated_at ? formatDashboardActivityTime(block.last_updated_at) : 'No recent updates';
 
-      // Per-status summary rows
+      // Per-status summary rows (hidden when show_per_lbd_ui is off)
       let statusRows = '';
-      cols.forEach(col => {
-        const done = summary[col] || 0;
-        const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-        const color = STATUS_COLORS[col] || '#555';
-        const label = STATUS_LABELS[col] || col;
-        statusRows += `
-            <div class="pb-status-row">
-              <div class="pb-status-label" style="color:${color}">${label}</div>
-              <div class="pb-status-bar-wrap"><div class="pb-status-bar-fill" style="width:${pct}%;background:${color}"></div></div>
-              <div class="pb-status-count">${done}/${total}</div>
-            </div>`;
-      });
+      if (showLbdDetails) {
+        cols.forEach(col => {
+          const done = summary[col] || 0;
+          const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+          const color = STATUS_COLORS[col] || '#555';
+          const label = STATUS_LABELS[col] || col;
+          statusRows += `
+              <div class="pb-status-row">
+                <div class="pb-status-label" style="color:${color}">${label}</div>
+                <div class="pb-status-bar-wrap"><div class="pb-status-bar-fill" style="width:${pct}%;background:${color}"></div></div>
+                <div class="pb-status-count">${done}/${total}</div>
+              </div>`;
+        });
+      }
 
-      // Individual LBD table
+      // Individual LBD table (hidden when show_per_lbd_ui is off)
       let lbdTable = '';
-      if (lbds.length > 0) {
+      if (showLbdDetails && lbds.length > 0) {
         if (_pbFilters.expandAll) {
           lbdTable = `
             <div class="lbd-tbl-toggle" onclick="event.stopPropagation();toggleLbdTable(this,${block.id})">▼ Hide Details</div>
@@ -1724,8 +1733,9 @@ function renderBlocks(blocks) {
               <div class="pb-overall-bar-fill" style="width:${overallPct}%"></div>
             </div>
             <div class="pb-card-stats">
-              <span class="pb-stat-chip">${overallPct}% complete</span>
-              <span class="pb-stat-chip">${doneSteps}/${totalSteps} steps</span>
+              ${showLbdDetails
+                ? `<span class="pb-stat-chip">${overallPct}% complete</span><span class="pb-stat-chip">${doneSteps}/${totalSteps} steps</span>`
+                : `<span class="pb-stat-chip" style="color:${block.is_completed ? '#00e87a' : '#94a3b8'}">${block.is_completed ? '&#x2713; Complete' : '&#x25CB; In Progress'}</span>`}
               <span class="pb-stat-chip pb-stat-chip-muted">${lastUpdatedCopy}</span>
             </div>
             <div class="pb-status-rows">${statusRows}</div>
@@ -4449,6 +4459,25 @@ function showPBPanel(pb) {
   const mapNoteHtml = pb.notes
     ? `<div style="margin-bottom:6px;padding:6px 10px;background:rgba(165,180,252,0.07);border:1px solid rgba(165,180,252,0.15);border-radius:7px;font-size:11px;color:#c4b5fd;font-style:italic;">&#128203; ${_escapeHtml(pb.notes)}</div>`
     : '';
+
+  // Block-mode: simplified panel when per-LBD UI is disabled for this tracker
+  if (currentTracker && currentTracker.show_per_lbd_ui === false) {
+    headerEl.innerHTML = `
+      ${buildPBIfcActionMarkup(pb, true)}
+      ${mapNoteHtml}
+      ${mapClaimBanner}
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <button onclick="bulkMapAll(${pb.id},true)" style="flex:1;padding:10px;background:rgba(0,232,122,0.15);color:#00e87a;border:1px solid rgba(0,232,122,0.3);border-radius:6px;cursor:pointer;font-size:13px;font-weight:700;">&#x2713; Mark Complete</button>
+        <button onclick="bulkMapAll(${pb.id},false)" style="flex:1;padding:10px;background:rgba(255,76,106,0.1);color:#ff4c6a;border:1px solid rgba(255,76,106,0.3);border-radius:6px;cursor:pointer;font-size:13px;">&#x21A9; Mark Incomplete</button>
+      </div>
+    `;
+    const _blockTone = pb.is_completed ? '#00e87a' : '#94a3b8';
+    const _blockText = pb.is_completed ? '&#x2713; Block marked complete' : (done + '/' + total + ' items complete');
+    document.getElementById('lbd-panel').style.display = 'flex';
+    document.getElementById('lbd-panel-list').innerHTML = `<div style="padding:20px 4px;text-align:center;color:${_blockTone};font-size:13px;">${_blockText}</div>`;
+    return;
+  }
+
   headerEl.innerHTML = `
     ${buildPBIfcActionMarkup(pb, true)}
     ${mapNoteHtml}
@@ -8377,6 +8406,29 @@ function editTrackerInline(trackerId) {
         <button class="btn btn-sm" onclick="addTrackerEditCol(${trackerId})" style="font-size:11px;padding:3px 8px;">+ Add</button>
       </div>
     </div>
+    <div style="border-top:1px solid rgba(255,255,255,0.08);padding-top:12px;margin-top:8px;">
+      <div style="font-size:12px;font-weight:600;color:#a0aec0;margin-bottom:8px;">Tracker Behavior</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label style="font-size:12px;">Completion Column</label>
+          <select id="tedit-completion-status-${trackerId}" style="width:100%;padding:4px 6px;font-size:12px;border:1px solid #555;border-radius:4px;background:#1e1e2e;color:#eef2ff;">
+            <option value="">— Use last column —</option>
+            ${types.map(k => `<option value="${k}" ${t.completion_status_type === k ? 'selected' : ''}>${names[k] || k.replace(/_/g,' ')}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label style="font-size:12px;">Track Progress By</label>
+          <select id="tedit-progress-unit-${trackerId}" style="width:100%;padding:4px 6px;font-size:12px;border:1px solid #555;border-radius:4px;background:#1e1e2e;color:#eef2ff;">
+            <option value="lbd" ${(t.progress_unit || 'lbd') === 'lbd' ? 'selected' : ''}>Count by individual item (LBD)</option>
+            <option value="block" ${t.progress_unit === 'block' ? 'selected' : ''}>Count by power block completion</option>
+          </select>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
+        <input type="checkbox" id="tedit-show-per-lbd-${trackerId}" ${(t.show_per_lbd_ui !== false) ? 'checked' : ''} style="width:16px;height:16px;cursor:pointer;">
+        <label for="tedit-show-per-lbd-${trackerId}" style="font-size:12px;color:#eef2ff;margin:0;cursor:pointer;">Show per-item tracking grid in map &amp; claim panels</label>
+      </div>
+    </div>
     <div style="display:flex;gap:8px;margin-top:6px;">
       <button class="btn btn-primary" onclick="saveTrackerEdit(${trackerId})" style="font-size:13px;">Save</button>
       <button class="btn" onclick="loadTrackersTab()" style="font-size:13px;">Cancel</button>
@@ -8413,6 +8465,9 @@ async function saveTrackerEdit(trackerId) {
   const progressLabel = document.getElementById('tedit-progress-' + trackerId).value.trim();
   const blocksLabel = document.getElementById('tedit-blocks-' + trackerId).value.trim();
   const openLabel = document.getElementById('tedit-open-' + trackerId).value.trim();
+  const completionStatusType = (document.getElementById('tedit-completion-status-' + trackerId)?.value || '').trim();
+  const progressUnit = document.getElementById('tedit-progress-unit-' + trackerId)?.value || 'lbd';
+  const showPerLbdUi = document.getElementById('tedit-show-per-lbd-' + trackerId)?.checked !== false;
   if (!name || !slug) { showAdminAlert('Name and slug are required.', 'error'); return; }
 
   // Collect columns from the edit rows
@@ -8430,7 +8485,7 @@ async function saveTrackerEdit(trackerId) {
   });
 
   try {
-    await api.updateTracker(trackerId, { name, slug, icon, item_name_singular: singular, item_name_plural: plural, stat_label: statLabel, dashboard_progress_label: progressLabel, dashboard_blocks_label: blocksLabel, dashboard_open_label: openLabel, status_types, status_colors, status_names, column_order: status_types });
+    await api.updateTracker(trackerId, { name, slug, icon, item_name_singular: singular, item_name_plural: plural, stat_label: statLabel, dashboard_progress_label: progressLabel, dashboard_blocks_label: blocksLabel, dashboard_open_label: openLabel, status_types, status_colors, status_names, column_order: status_types, completion_status_type: completionStatusType || null, progress_unit: progressUnit, show_per_lbd_ui: showPerLbdUi });
     showAdminAlert('Tracker updated!', 'success');
     await loadTrackers();
     // If this is the current tracker, refresh settings

@@ -458,6 +458,17 @@ def _migrate_tracker_columns(app):
                     pass
             app.logger.info('Added tracker_id to daily_reports table')
 
+        # trackers table — tracker behavior settings (added after initial schema)
+        tr_cols = {c['name'] for c in inspector.get_columns('trackers')}
+        if 'progress_unit' not in tr_cols:
+            db.session.execute(db.text("ALTER TABLE trackers ADD COLUMN progress_unit VARCHAR(20) DEFAULT 'lbd'"))
+            app.logger.info('Added progress_unit to trackers table')
+        if 'show_per_lbd_ui' not in tr_cols:
+            _db_uri = app.config.get('SQLALCHEMY_DATABASE_URI', '')
+            _bool_def = 'TRUE' if 'postgresql' in _db_uri else '1'
+            db.session.execute(db.text(f'ALTER TABLE trackers ADD COLUMN show_per_lbd_ui BOOLEAN DEFAULT {_bool_def}'))
+            app.logger.info('Added show_per_lbd_ui to trackers table')
+
         db.session.commit()
     except Exception as e:
         db.session.rollback()

@@ -26,6 +26,8 @@ class Tracker(db.Model):
     is_active           = db.Column(db.Boolean, default=True)
     sort_order          = db.Column(db.Integer, default=0)
     completion_status_type = db.Column(db.String(50), nullable=True)  # which status_type counts as "done"
+    progress_unit          = db.Column(db.String(20), default='lbd')   # 'lbd' = count by item, 'block' = count by power block
+    show_per_lbd_ui        = db.Column(db.Boolean, default=True)        # whether to show per-item tracking grid in panels
     created_at          = db.Column(db.DateTime, default=datetime.utcnow)
 
     # Relationships
@@ -103,5 +105,7 @@ class Tracker(db.Model):
             'is_active':           self.is_active,
             'sort_order':          self.sort_order,
             'completion_status_type': self.completion_status_type,
+            'progress_unit':          self.progress_unit or 'lbd',
+            'show_per_lbd_ui':        self.show_per_lbd_ui if self.show_per_lbd_ui is not None else True,
             'created_at':          self.created_at.isoformat() if self.created_at else None,
         }
