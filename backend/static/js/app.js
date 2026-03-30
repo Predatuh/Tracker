@@ -5315,6 +5315,7 @@ function claimBlockVisualState(block) {
     complete: completed || fullyClaimed,
     inProgress: !(completed || fullyClaimed) && (claimProgress > 0 || inProgress),
     claimProgress,
+    completionRatio: claimCompletionRatio(block),
   };
 }
 
