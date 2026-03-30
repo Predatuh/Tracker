@@ -976,6 +976,8 @@ def claim_power_block(block_id):
         if data.get('tracker_id') and not tracker and not _is_admin_user():
             return jsonify({'error': 'That tracker is not accessible for this power block'}), 403
         work_date = _parse_claim_work_date(data.get('work_date'))
+        if action != 'unclaim' and 'note' in data:
+            block.notes = (str(data['note'] or '').strip()) or None
         claim_result = _apply_block_claim(
             block,
             action,

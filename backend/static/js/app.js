@@ -168,9 +168,10 @@ const api = {
   getClaimPeople() {
     return this.call('/tracker/claim-people');
   },
-  claimBlock(blockId, action, people = [], assignments = {}, workDate = null) {
+  claimBlock(blockId, action, people = [], assignments = {}, workDate = null, note = null) {
     const body = { action, people, assignments };
     if (workDate) body.work_date = workDate;
+    if (note !== null && note !== undefined) body.note = note;
     if (currentTracker) body.tracker_id = currentTracker.id;
     return this.call(`/tracker/power-blocks/${blockId}/claim`, {
       method:'POST',
@@ -849,9 +850,9 @@ function claimStatusTypesForCurrentTracker() {
   return types.length ? types : LBD_STATUS_TYPES;
 }
 
-async function claimBlock(blockId, action, people = [], assignments = {}, workDate = null) {
+async function claimBlock(blockId, action, people = [], assignments = {}, workDate = null, note = null) {
   try {
-    const response = await api.claimBlock(blockId, action, people, assignments, workDate);
+    const response = await api.claimBlock(blockId, action, people, assignments, workDate, note);
     if (_blocksCache[blockId] && response.data) {
       Object.assign(_blocksCache[blockId], response.data);
     }
@@ -912,6 +913,10 @@ async function showClaimPeopleDialog(block) {
             <label style="display:block;color:#cbd5e1;font-size:13px;font-weight:600;margin-bottom:6px;">Claim Date</label>
             <input id="claim-work-date" type="date" value="${_escapeHtml(defaultWorkDate)}" style="width:100%;min-height:42px;padding:10px 12px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#eef2ff;" />
             <div style="margin-top:6px;color:#94a3b8;font-size:11px;">Pick a past day if this claim is being entered late.</div>
+          </div>
+          <div style="margin-top:12px;">
+            <label style="display:block;color:#cbd5e1;font-size:13px;font-weight:600;margin-bottom:6px;">Block Note <span style="font-weight:400;color:#94a3b8;">(optional)</span></label>
+            <textarea id="claim-block-note" class="claim-modal-textarea" rows="2" placeholder="Any notes about this block…" style="width:100%;resize:vertical;font-size:14px;padding:10px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#eef2ff;">${_escapeHtml(block.notes || '')}</textarea>
           </div>
           <div style="margin-top:16px;">
             <label style="display:block;color:#cbd5e1;font-size:12px;margin-bottom:6px;">Work types</label>
@@ -974,6 +979,7 @@ async function showClaimPeopleDialog(block) {
       const assignments = {};
       const taskCrews = {};
       const workDate = String(overlay.querySelector('#claim-work-date')?.value || todayIsoDate());
+      const note = (overlay.querySelector('#claim-block-note')?.value ?? '').trim() || null;
       Array.from(overlay.querySelectorAll('.claim-status-type:checked')).forEach(input => {
         const statusType = input.value;
         const lbdIds = Array.from(overlay.querySelectorAll(`.claim-lbd-option[data-status-type="${statusType}"]:checked`))
@@ -995,6 +1001,7 @@ async function showClaimPeopleDialog(block) {
         sharedPeople,
         taskCrews,
         workDate,
+        note,
       };
     };
 
@@ -1036,6 +1043,10 @@ async function showClaimPeopleDialog(block) {
             <div style="font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:0.7px;text-transform:uppercase;">Claim Date</div>
             <div style="margin-top:6px;color:#eef2ff;font-size:14px;">${_escapeHtml(draft.workDate)}</div>
           </div>
+          ${draft.note ? `<div>
+            <div style="font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:0.7px;text-transform:uppercase;">Block Note</div>
+            <div style="margin-top:6px;color:#eef2ff;font-size:14px;white-space:pre-wrap;">${_escapeHtml(draft.note)}</div>
+          </div>` : ''}
           <div>
             <div style="font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:0.7px;text-transform:uppercase;">Assignments</div>
             <div style="margin-top:8px;display:grid;gap:8px;">${assignmentRows || '<div style="color:#94a3b8;font-size:12px;">This claim will assign crew only and will not mark specific LBD rows yet.</div>'}</div>
@@ -1059,7 +1070,7 @@ async function showClaimPeopleDialog(block) {
 
     submitBtn.addEventListener('click', async () => {
       const draft = submitBtn._draft || buildDraft();
-      await claimBlock(block.id, 'claim', draft.people, draft.assignments, draft.workDate);
+      await claimBlock(block.id, 'claim', draft.people, draft.assignments, draft.workDate, draft.note);
       close();
     });
   } catch (e) {
