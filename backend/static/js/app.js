@@ -6867,29 +6867,36 @@ async function rp_showDetail(dateStr, syncSelection = true, ensure = true) {
       crewByBlock[pb].push(g);
     });
     const crewLbdGroupsHtml = Object.entries(crewByBlock).map(([pbName, groups]) => {
-      const totalLbds = groups.reduce((s, g2) => s + (g2.tasks || []).reduce((ts, t) => ts + (t.lbd_count || 0), 0), 0);
       const blockNotes = (groups[0] || {}).block_notes;
-      const noteLineHtml = blockNotes ? `<div class="reports-insight-note">${_escapeHtml(blockNotes)}</div>` : '';
-      const rowsHtml = groups.map(g2 => {
-        const crewBadge = g2.is_crew ? '<span class="reports-note-pill" style="background:rgba(99,102,241,0.15);color:#a5b4fc;border-radius:6px;padding:2px 7px;font-size:11px;font-weight:600;margin-right:6px;">Crew</span>' : '';
-        const pills = (g2.tasks || []).map(t => {
-          const label = STATUS_LABELS[t.task] || t.task;
-          const color = STATUS_COLORS[t.task] || '#4f8cff';
-          return `<span class="reports-status-pill" style="--report-pill:${color}">${_escapeHtml(label)} · ${_escapeHtml(t.lbd_range || '')}</span>`;
-        }).join('');
-        return `<div class="reports-crew-lbd-row"><div class="reports-crew-lbd-name">${crewBadge}${_escapeHtml(g2.crew_label)}</div><div class="reports-pill-row" style="margin-top:4px;">${pills}</div></div>`;
+      const noteHtml = blockNotes ? `<div class="rpt-pb-note">${_escapeHtml(blockNotes)}</div>` : '';
+      // Flatten: one row per task per claim activity
+      const taskRows = groups.flatMap(g2 =>
+        (g2.tasks || []).map(t => ({
+          task: t.task,
+          workers: g2.people || [],
+          lbdRange: t.lbd_range || '',
+          lbdCount: t.lbd_count || 0,
+        }))
+      );
+      const totalLbds = taskRows.reduce((s, r) => s + r.lbdCount, 0);
+      const rowsHtml = taskRows.map(row => {
+        const label = STATUS_LABELS[row.task] || row.task.replace(/_/g, ' ');
+        const color = STATUS_COLORS[row.task] || '#4f8cff';
+        const workersText = row.workers.join(', ') || '—';
+        return `<div class="rpt-task-row">
+          <span class="rpt-task-chip" style="background:color-mix(in srgb,${color} 18%,transparent);color:${color};border-color:color-mix(in srgb,${color} 32%,transparent)">${_escapeHtml(label)}</span>
+          <span class="rpt-task-workers">${_escapeHtml(workersText)}</span>
+          <span class="rpt-task-lbd">${_escapeHtml(row.lbdRange)}</span>
+        </div>`;
       }).join('');
       return `
-        <article class="reports-insight-card reports-insight-card-block">
-          <div class="reports-insight-card-head">
-            <div>
-              <div class="reports-insight-title">${_escapeHtml(pbName)}</div>
-              <div class="reports-insight-meta">${groups.length} ${groups.length === 1 ? 'entry' : 'entries'} · ${totalLbds} LBDs</div>
-              ${noteLineHtml}
-            </div>
-            <div class="reports-insight-count">${totalLbds}</div>
+        <article class="rpt-pb-card">
+          <div class="rpt-pb-head">
+            <span class="rpt-pb-name">Block ${_escapeHtml(pbName)}</span>
+            <span class="rpt-pb-count">${taskRows.length} task${taskRows.length !== 1 ? 's' : ''} · ${totalLbds} LBDs</span>
           </div>
-          <div class="reports-crew-lbd-stack">${rowsHtml}</div>
+          ${noteHtml}
+          <div class="rpt-task-list">${rowsHtml || '<div class="reports-insight-meta">No task rows</div>'}</div>
         </article>`;
     }).join('');
 
@@ -6970,7 +6977,7 @@ async function rp_showDetail(dateStr, syncSelection = true, ensure = true) {
         </div>`;
 
     if (crewLbdGroups.length > 0) {
-      html += `<div class="reports-detail-section"><div class="reports-detail-section-head"><div class="reports-detail-section-title">Per-LBD Activity</div><div class="reports-section-meta">Exactly who did what and which LBDs they covered</div></div><div class="reports-insight-grid reports-insight-grid-wide">${crewLbdGroupsHtml}</div></div>`;
+      html += `<div class="reports-detail-section"><div class="reports-detail-section-head"><div class="reports-detail-section-title">Per-LBD Activity</div><div class="reports-section-meta">Exactly who did what and which LBDs they covered</div></div><div class="rpt-pb-grid">${crewLbdGroupsHtml}</div></div>`;
     }
 
     if (Object.keys(byPowerBlock).length > 0) {

@@ -649,14 +649,14 @@ def _report_pdf_bytes(report):
                 note_style = ParagraphStyle('BlockNote', parent=body_style, fontSize=9,
                                             textColor=colors.HexColor('#6366f1'), leftIndent=8)
                 story.append(_paragraph(f'Note: {pb_notes}', note_style))
-            rows = [['Worker / Crew', 'Tasks', 'LBDs']]
+            rows = [['Worker / Crew', 'Task', 'LBDs']]
             for g in pb_groups:
                 crew_label = g.get('crew_label') or '?'
-                task_list = g.get('tasks') or []
-                tasks_text = ', '.join(t.get('task', '').replace('_', ' ').title() for t in task_list)
-                lbd_text = ' | '.join(t.get('lbd_range', '') for t in task_list)
-                rows.append([crew_label, tasks_text, lbd_text])
-            story.append(_kv_table(rows, column_widths=[160, 160, 160], header=True))
+                for t in (g.get('tasks') or []):
+                    task_label = t.get('task', '').replace('_', ' ').title()
+                    lbd_text = t.get('lbd_range', '') or f"{t.get('lbd_count', 0)} LBDs"
+                    rows.append([crew_label, task_label, lbd_text])
+            story.append(_kv_table(rows, column_widths=[180, 140, 160], header=True))
             story.append(Spacer(1, 8))
     elif by_power_block:
         story.append(_paragraph('Work By Power Block', section_style))
