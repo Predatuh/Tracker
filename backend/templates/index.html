@@ -387,6 +387,7 @@
                   <button class="btn admin-tab" id="atab-zones" onclick="switchAdminTab('zones')">🗾 Zones</button>
                   <button class="btn admin-tab" id="atab-claimcrew" onclick="switchAdminTab('claimcrew')">👷 Claim Crew</button>
                   <button class="btn admin-tab" id="atab-claimhistory" onclick="switchAdminTab('claimhistory')">🕰️ Historical Claims</button>
+                  <button class="btn admin-tab main-admin-only" id="atab-lbddata" onclick="switchAdminTab('lbddata')">🔧 LBD Data</button>
                   <button class="btn admin-tab main-admin-only" id="atab-users" onclick="switchAdminTab('users')">👥 Users</button>
                   <button class="btn admin-tab main-admin-only" id="atab-audit" onclick="switchAdminTab('audit')">🧾 Activity</button>
                   <button class="btn admin-tab main-admin-only" id="atab-appearance" onclick="switchAdminTab('appearance')">✨ Appearance</button>
@@ -590,6 +591,30 @@
                     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
                       <button class="btn btn-primary" onclick="rp_openBackfillDialog()">Open Historical Claim Backfill</button>
                       <button class="btn btn-secondary" onclick="showPage('reports')">Open Reports</button>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- LBD Data Tab -->
+                <div id="admin-tab-lbddata" class="admin-tab-content" style="display:none;">
+                  <h2 class="section-subtitle">🔧 LBD Data Manager</h2>
+                  <p style="color:var(--text-muted);font-size:13px;margin-bottom:20px;">Fix duplicate LBDs and inspect counts per tracker without needing to run scripts. Use Deduplicate whenever LBD numbers look doubled.</p>
+
+                  <div class="appearance-group" style="margin-bottom:24px;max-width:760px;">
+                    <div class="appearance-group-title">Deduplicate LBDs</div>
+                    <p style="color:#8892b0;font-size:13px;line-height:1.6;margin:8px 0 14px 0;">Removes duplicate rows from the database, keeping one clean copy per LBD per block per tracker. Safe to run anytime — it only removes exact duplicates.</p>
+                    <div id="lbd-dedup-result" style="margin-bottom:12px;font-size:13px;"></div>
+                    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+                      <button class="btn btn-primary" id="lbd-dedup-btn" onclick="adminDedupLbds()">🧹 Deduplicate Now</button>
+                      <button class="btn btn-secondary" onclick="adminLoadLbdStats()">Refresh Stats</button>
+                    </div>
+                  </div>
+
+                  <div class="appearance-group" style="max-width:900px;">
+                    <div class="appearance-group-title">LBD Counts by Tracker</div>
+                    <p style="color:#8892b0;font-size:13px;line-height:1.6;margin:8px 0 14px 0;">Each row shows how many LBDs a block has. Blocks are sorted by count — duplicated blocks appear first. You can delete all LBDs for a single block if needed.</p>
+                    <div id="admin-lbd-stats-wrap">
+                      <p style="color:#94a3b8;font-size:13px;">Click "Refresh Stats" to load.</p>
                     </div>
                   </div>
                 </div>

@@ -384,6 +384,7 @@ const ADMIN_TAB_PERMISSIONS = {
   zones: ['edit_map'],
   claimcrew: ['manage_workers'],
   claimhistory: ['admin_settings'],
+  lbddata: null,
   users: null,
   audit: null,
   appearance: ['manage_ui'],
@@ -7931,6 +7932,7 @@ function switchAdminTab(tabKey) {
   if (tabKey === 'zones') loadZonesTab();
   if (tabKey === 'claimcrew') loadClaimCrewTab();
   if (tabKey === 'claimhistory') loadClaimHistoryTab();
+  if (tabKey === 'lbddata') adminLoadLbdStats();
   if (tabKey === 'appearance') loadAppearanceTab();
   if (tabKey === 'uilabels') loadUILabelsTab();
   if (tabKey === 'audit') loadAuditLogsTab();
@@ -8448,6 +8450,97 @@ async function deleteTrackerBtn(trackerId, name) {
     await loadTrackers();
     loadTrackersTab();
   } catch(e) { showAdminAlert('Error: ' + e.message, 'error'); }
+}
+
+// ── LBD Data Manager ──────────────────────────────────────────────────────────
+
+async function adminDedupLbds() {
+  const btn = document.getElementById('lbd-dedup-btn');
+  const result = document.getElementById('lbd-dedup-result');
+  if (!result) return;
+  if (!confirm('Run deduplication? This will permanently delete duplicate LBD rows and cannot be undone.')) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Running…'; }
+  result.innerHTML = '<span style="color:#94a3b8;">Working…</span>';
+  try {
+    const r = await api.call('/tracker/admin/dedup-lbds', { method: 'POST' });
+    const d = r.data || r;
+    const msg = d.message || (d.deleted === 0 ? 'No duplicates found.' : `Removed ${d.deleted} duplicates.`);
+    const tone = d.deleted > 0 ? '#00e87a' : '#a5b4fc';
+    result.innerHTML = `<span style="color:${tone};font-weight:700;">${_escapeHtml(msg)}</span>`
+      + (d.before != null ? ` <span style="color:#64748b;font-size:12px;">(${d.before.toLocaleString()} → ${d.after.toLocaleString()} LBDs)</span>` : '');
+    await adminLoadLbdStats();
+  } catch(e) {
+    result.innerHTML = `<span style="color:#ff4c6a;">Error: ${_escapeHtml(e.message)}</span>`;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🧹 Deduplicate Now'; }
+  }
+}
+
+async function adminLoadLbdStats() {
+  const wrap = document.getElementById('admin-lbd-stats-wrap');
+  if (!wrap) return;
+  wrap.innerHTML = '<p style="color:#94a3b8;font-size:13px;">Loading…</p>';
+  try {
+    const r = await api.call('/tracker/admin/lbd-stats');
+    const trackers = r.data || [];
+    const dupCount = r.duplicate_lbd_count || 0;
+
+    let dupBanner = '';
+    if (dupCount > 0) {
+      dupBanner = `<div style="margin-bottom:16px;padding:10px 14px;border-radius:10px;background:rgba(255,76,106,0.1);border:1px solid rgba(255,76,106,0.3);color:#ff8fab;font-size:13px;">
+        ⚠️ <strong>${dupCount.toLocaleString()} duplicate LBDs detected.</strong> Click "Deduplicate Now" above to remove them.
+      </div>`;
+    }
+
+    if (!trackers.length) {
+      wrap.innerHTML = dupBanner + '<p style="color:#94a3b8;font-size:13px;">No tracker data found.</p>';
+      return;
+    }
+
+    const sections = trackers.map(t => {
+      // Flag blocks that have an abnormally high count (likely doubled)
+      const counts = t.blocks.map(b => b.lbd_count);
+      const median = counts.length ? counts[Math.floor(counts.length / 2)] : 0;
+      const threshold = median * 1.5;
+
+      const rows = t.blocks.slice(0, 200).map(b => {
+        const suspicious = median > 0 && b.lbd_count >= threshold && b.lbd_count > median;
+        return `<div style="display:flex;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:12px;">
+          <span style="flex:1;color:${suspicious ? '#fbbf24' : '#eef2ff'};">${_escapeHtml(b.name)}${suspicious ? ' ⚠️' : ''}</span>
+          <span style="color:#94a3b8;min-width:60px;text-align:right;">${b.lbd_count.toLocaleString()} LBDs</span>
+          <button class="btn" style="font-size:10px;padding:2px 8px;color:#ff8fab;border-color:rgba(255,76,106,0.3);"
+            onclick="adminDeleteBlockLbds(${b.id}, ${t.tracker_id}, '${_escapeHtml(b.name).replace(/'/g,"\\'")}', '${_escapeHtml(t.tracker_name).replace(/'/g,"\\'")}')">
+            Delete all LBDs
+          </button>
+        </div>`;
+      }).join('');
+
+      return `<div style="margin-bottom:24px;">
+        <div style="font-size:13px;font-weight:700;color:#eef2ff;margin-bottom:6px;">
+          ${_escapeHtml(t.tracker_name)}
+          <span style="font-size:11px;font-weight:400;color:#64748b;margin-left:8px;">${t.total_lbds.toLocaleString()} total LBDs across ${t.block_count} blocks</span>
+        </div>
+        <div style="max-height:320px;overflow-y:auto;border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:8px 12px;">
+          ${rows || '<span style="color:#64748b;font-size:12px;">No blocks found.</span>'}
+        </div>
+      </div>`;
+    }).join('');
+
+    wrap.innerHTML = dupBanner + sections;
+  } catch(e) {
+    wrap.innerHTML = `<p style="color:#ff4c6a;font-size:13px;">Error: ${_escapeHtml(e.message)}</p>`;
+  }
+}
+
+async function adminDeleteBlockLbds(blockId, trackerId, blockName, trackerName) {
+  if (!confirm(`Delete ALL ${blockName} LBDs under tracker "${trackerName}"? This cannot be undone.`)) return;
+  try {
+    await api.call(`/tracker/admin/blocks/${blockId}/lbds?tracker_id=${trackerId}`, { method: 'DELETE' });
+    showAdminAlert(`Deleted LBDs for ${blockName}.`, 'success');
+    await adminLoadLbdStats();
+  } catch(e) {
+    showAdminAlert('Error: ' + e.message, 'error');
+  }
 }
 
 async function addNewTracker() {

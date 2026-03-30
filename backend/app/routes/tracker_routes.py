@@ -1155,3 +1155,153 @@ def bulk_claim_power_blocks():
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
+
+
+# ─── Admin: LBD data management ──────────────────────────────────────────────
+
+@bp.route('/admin/lbd-stats', methods=['GET'])
+def admin_lbd_stats():
+    """Return LBD counts per tracker and per power block (admin only)."""
+    user = current_session_user()
+    if not _is_admin_user(user):
+        return jsonify({'error': 'Admin access required'}), 403
+
+    from sqlalchemy import func as sa_func
+    from app.models.tracker import Tracker as _Tracker
+
+    trackers = _Tracker.query.filter_by(is_active=True).all()
+    result = []
+    for t in trackers:
+        rows = (
+            db.session.query(
+                PowerBlock.id,
+                PowerBlock.name,
+                sa_func.count(LBD.id).label('lbd_count'),
+            )
+            .join(LBD, LBD.power_block_id == PowerBlock.id)
+            .filter(LBD.tracker_id == t.id)
+            .group_by(PowerBlock.id, PowerBlock.name)
+            .order_by(sa_func.count(LBD.id).desc())
+            .all()
+        )
+        total = sum(r.lbd_count for r in rows)
+        blocks = [{'id': r.id, 'name': r.name, 'lbd_count': r.lbd_count} for r in rows]
+        result.append({
+            'tracker_id': t.id,
+            'tracker_name': t.name,
+            'total_lbds': total,
+            'block_count': len(blocks),
+            'blocks': blocks,
+        })
+
+    # Duplicates: find LBDs sharing the same (power_block_id, name, tracker_id)
+    dup_rows = (
+        db.session.query(
+            LBD.power_block_id,
+            LBD.name,
+            LBD.tracker_id,
+            sa_func.count(LBD.id).label('cnt'),
+        )
+        .group_by(LBD.power_block_id, LBD.name, LBD.tracker_id)
+        .having(sa_func.count(LBD.id) > 1)
+        .all()
+    )
+    duplicate_count = sum(r.cnt - 1 for r in dup_rows)
+
+    return jsonify({
+        'success': True,
+        'data': result,
+        'duplicate_lbd_count': duplicate_count,
+    }), 200
+
+
+@bp.route('/admin/dedup-lbds', methods=['POST'])
+def admin_dedup_lbds():
+    """Remove duplicate LBDs (keep lowest id per power_block_id + name + tracker_id). Admin only."""
+    user = current_session_user()
+    if not _is_admin_user(user):
+        return jsonify({'error': 'Admin access required'}), 403
+
+    from sqlalchemy import func as sa_func
+    from app.models.lbd import LBDStatus
+
+    try:
+        before = db.session.query(sa_func.count(LBD.id)).scalar()
+
+        keeper_subq = (
+            db.session.query(sa_func.min(LBD.id).label('keep_id'))
+            .group_by(LBD.power_block_id, LBD.name, LBD.tracker_id)
+            .subquery()
+        )
+        dup_ids = [
+            row[0] for row in
+            db.session.query(LBD.id)
+            .filter(LBD.id.notin_(db.session.query(keeper_subq.c.keep_id)))
+            .all()
+        ]
+
+        if not dup_ids:
+            return jsonify({'success': True, 'deleted': 0, 'before': before, 'after': before,
+                            'message': 'No duplicates found — everything looks clean!'}), 200
+
+        LBDStatus.query.filter(LBDStatus.lbd_id.in_(dup_ids)).delete(synchronize_session=False)
+        LBD.query.filter(LBD.id.in_(dup_ids)).delete(synchronize_session=False)
+        db.session.commit()
+
+        after = db.session.query(sa_func.count(LBD.id)).scalar()
+        return jsonify({
+            'success': True,
+            'deleted': len(dup_ids),
+            'before': before,
+            'after': after,
+            'message': f'Removed {len(dup_ids)} duplicate LBDs ({before:,} → {after:,}).',
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/admin/blocks/<int:block_id>/lbds', methods=['DELETE'])
+def admin_delete_block_lbds(block_id):
+    """Delete all LBDs for a block under a specific tracker. Admin only. ?tracker_id=X"""
+    user = current_session_user()
+    if not _is_admin_user(user):
+        return jsonify({'error': 'Admin access required'}), 403
+
+    tracker_id = request.args.get('tracker_id', type=int)
+    if not tracker_id:
+        return jsonify({'error': 'tracker_id is required'}), 400
+
+    from app.models.lbd import LBDStatus
+
+    try:
+        lbds = LBD.query.filter_by(power_block_id=block_id, tracker_id=tracker_id).all()
+        lbd_ids = [l.id for l in lbds]
+        if lbd_ids:
+            LBDStatus.query.filter(LBDStatus.lbd_id.in_(lbd_ids)).delete(synchronize_session=False)
+            LBD.query.filter(LBD.id.in_(lbd_ids)).delete(synchronize_session=False)
+            db.session.commit()
+        return jsonify({'success': True, 'deleted': len(lbd_ids)}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/lbds/<int:lbd_id>', methods=['DELETE'])
+def delete_lbd(lbd_id):
+    """Delete a single LBD. Admin only."""
+    user = current_session_user()
+    if not _is_admin_user(user):
+        return jsonify({'error': 'Admin access required'}), 403
+
+    from app.models.lbd import LBDStatus
+
+    try:
+        lbd = LBD.query.get_or_404(lbd_id)
+        LBDStatus.query.filter_by(lbd_id=lbd_id).delete()
+        db.session.delete(lbd)
+        db.session.commit()
+        return jsonify({'success': True}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
