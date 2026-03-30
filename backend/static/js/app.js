@@ -1332,9 +1332,14 @@ function renderDashboardOverview(cards) {
 
   // Per-tracker live progress lines — never combine across trackers
   const liveProgressLines = cards.map(card => {
-    const label = card.progress_display_label
-      || `${card.item_name_plural || 'items'} ${card.dashboard_progress_label || 'complete'}`.trim();
-    const value = card.progress_unit === 'block'
+    const isBlockUnit = card.progress_unit === 'block';
+    // Auto-fallback: block mode uses block label, item mode uses item label
+    const label = card.progress_display_label || (
+      isBlockUnit
+        ? `${card.block_label_plural || 'blocks'} complete`
+        : `${card.item_name_plural || 'items'} ${card.dashboard_progress_label || 'complete'}`.trim()
+    );
+    const value = isBlockUnit
       ? `${card.completedBlocks}/${card.totalBlocks}`
       : `${card.termedItems}/${card.totalItems}`;
     const pct = card.pct || 0;

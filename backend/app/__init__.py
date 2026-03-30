@@ -496,6 +496,17 @@ def _migrate_tracker_columns(app):
                 app.logger.info(f'Added {_col} to trackers table')
 
         db.session.commit()
+
+        # Auto-fix: trackers in block_only mode should use block-based progress counting
+        db.session.execute(db.text(
+            "UPDATE trackers SET progress_unit='block' WHERE tracking_mode='block_only' AND (progress_unit IS NULL OR progress_unit='lbd')"
+        ))
+        # Auto-fix: update inverter-dc tracker specifically to block counting if it hasn't been set
+        db.session.execute(db.text(
+            "UPDATE trackers SET progress_unit='block', progress_display_label='inverters complete' "
+            "WHERE slug='inverter-dc' AND (progress_unit IS NULL OR progress_unit='lbd')"
+        ))
+        db.session.commit()
     except Exception as e:
         db.session.rollback()
         app.logger.warning(f'tracker_id migration: {e}')
