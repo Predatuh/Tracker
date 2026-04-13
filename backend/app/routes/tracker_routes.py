@@ -76,6 +76,7 @@ def _available_claim_people(extra_names=None):
         for (name,) in db.session.query(Worker.name).filter_by(is_active=True).order_by(Worker.name).all()
         if name
     )
+    names.extend(AdminSettings.get_claim_people())
     names.extend(extra_names or [])
     return _normalize_people(names)
 
@@ -226,12 +227,15 @@ def _claim_payload(block, tracker=None, visible_lbd_ids=None):
     claimed_people = block.get_claimed_people(tracker_id=tracker_id) if assignments else []
     claimed_by = block.get_claimed_by(tracker_id=tracker_id) if assignments else None
     claimed_at = block.get_claimed_at(tracker_id=tracker_id) if assignments else None
+    recent_activity = ClaimActivity.query.filter_by(power_block_id=block.id).order_by(ClaimActivity.claimed_at.desc()).first() if assignments else None
+    claim_work_date = recent_activity.work_date.isoformat() if recent_activity and recent_activity.work_date else None
     return {
         'claimed_by': claimed_by,
         'claimed_people': claimed_people,
         'claim_assignments': assignments,
         'claimed_label': ', '.join(claimed_people),
         'claimed_at': claimed_at.isoformat() if assignments and claimed_at else None,
+        'claim_work_date': claim_work_date,
     }
 
 
@@ -1032,6 +1036,32 @@ def claim_power_block(block_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/power-blocks/<int:block_id>/change-claim-date', methods=['POST'])
+def change_claim_date(block_id):
+    """Admin: move all claim/work log entries for a block from one work_date to another."""
+    if not _is_admin_user():
+        return jsonify({'error': 'Admin required'}), 403
+    block = PowerBlock.query.get_or_404(block_id)
+    data = request.get_json() or {}
+    new_date = _parse_claim_work_date(data.get('new_date'))
+    from_date_raw = data.get('from_date')
+    from_date = _parse_claim_work_date(from_date_raw) if from_date_raw else None
+    ca_q = ClaimActivity.query.filter_by(power_block_id=block_id)
+    if from_date:
+        ca_q = ca_q.filter_by(work_date=from_date)
+    updated = 0
+    for act in ca_q.all():
+        act.work_date = new_date
+        updated += 1
+    we_q = WorkEntry.query.filter_by(power_block_id=block_id)
+    if from_date:
+        we_q = we_q.filter_by(work_date=from_date)
+    for we in we_q.all():
+        we.work_date = new_date
+    db.session.commit()
+    return jsonify({'success': True, 'updated': updated, 'new_date': new_date.isoformat()}), 200
 
 
 @bp.route('/power-blocks/bulk-claim', methods=['POST'])

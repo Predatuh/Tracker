@@ -178,6 +178,12 @@ const api = {
       body: JSON.stringify(body)
     });
   },
+  changeClaimDate(blockId, fromDate, newDate) {
+    return this.call(`/tracker/power-blocks/${blockId}/change-claim-date`, {
+      method: 'POST',
+      body: JSON.stringify({ from_date: fromDate, new_date: newDate }),
+    });
+  },
   bulkClaimBlocks(blockIds, action, people = [], assignmentsByBlock = {}, statusTypes = [], workDate = null) {
     const body = { block_ids: blockIds, action, people, assignments_by_block: assignmentsByBlock, status_types: statusTypes };
     if (workDate) body.work_date = workDate;
@@ -800,7 +806,7 @@ function _renderClaimAssignmentSections(overlay, block, suggestions = []) {
         : []
     );
     const taskCrewText = Array.isArray(draft.taskCrews[statusType]) ? draft.taskCrews[statusType].join(', ') : '';
-    const suggestionButtons = suggestions.slice(0, 8).map((name) => {
+    const suggestionButtons = suggestions.map((name) => {
       const encodedName = encodeURIComponent(String(name));
       return `<button type="button" class="btn btn-secondary" onclick="claimAppendTaskCrew('${_escapeHtml(statusType)}', decodeURIComponent('${encodedName}'))" style="padding:5px 9px;font-size:11px;">${_escapeHtml(name)}</button>`;
     }).join('');
@@ -951,9 +957,6 @@ async function showClaimPeopleDialog(block) {
   _renderClaimAssignmentSections(overlay, block, suggestions);
 
     const close = () => overlay.remove();
-    overlay.addEventListener('click', (event) => {
-      if (event.target === overlay) close();
-    });
     overlay.querySelectorAll('.claim-status-type').forEach(input => {
       input.addEventListener('change', () => _renderClaimAssignmentSections(overlay, block, suggestions));
     });
@@ -1087,6 +1090,50 @@ async function showClaimPeopleDialogById(blockId) {
   }
 }
 
+async function showChangeClaimDateDialog(blockId, currentWorkDate) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(3,8,20,0.7);backdrop-filter:blur(6px);z-index:10001;display:flex;align-items:center;justify-content:center;';
+  overlay.innerHTML = `
+    <div style="width:min(380px,95%);background:#0f172a;border:1px solid rgba(255,255,255,0.12);border-radius:18px;padding:22px;box-shadow:0 30px 80px rgba(0,0,0,0.45);">
+      <div style="font-size:17px;font-weight:700;color:#eef2ff;margin-bottom:4px;">Change Claim Date</div>
+      <div style="font-size:12px;color:#94a3b8;margin-bottom:18px;">Move work log entries for this block to a different date.</div>
+      <div style="margin-bottom:14px;">
+        <label style="display:block;color:#cbd5e1;font-size:13px;font-weight:600;margin-bottom:6px;">Move entries from:</label>
+        <input id="chd-from" type="date" value="${_escapeHtml(currentWorkDate || todayIsoDate())}" style="width:100%;min-height:42px;padding:10px 12px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#eef2ff;" />
+      </div>
+      <div style="margin-bottom:20px;">
+        <label style="display:block;color:#cbd5e1;font-size:13px;font-weight:600;margin-bottom:6px;">To new date:</label>
+        <input id="chd-to" type="date" value="" style="width:100%;min-height:42px;padding:10px 12px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#eef2ff;" />
+      </div>
+      <div id="chd-err" style="margin-bottom:10px;color:#ff8fa3;font-size:12px;display:none;"></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;">
+        <button id="chd-cancel" class="btn btn-secondary" style="min-height:40px;">Cancel</button>
+        <button id="chd-save" class="btn btn-primary" style="min-height:40px;">Save</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelector('#chd-cancel').addEventListener('click', () => overlay.remove());
+  overlay.querySelector('#chd-save').addEventListener('click', async () => {
+    const fromDate = overlay.querySelector('#chd-from').value;
+    const toDate = overlay.querySelector('#chd-to').value;
+    const errEl = overlay.querySelector('#chd-err');
+    if (!fromDate || !toDate) { errEl.textContent = 'Both dates are required.'; errEl.style.display = 'block'; return; }
+    if (fromDate === toDate) { errEl.textContent = 'Dates are the same — nothing to change.'; errEl.style.display = 'block'; return; }
+    try {
+      const saveBtn = overlay.querySelector('#chd-save');
+      saveBtn.disabled = true;
+      await api.changeClaimDate(blockId, fromDate, toDate);
+      overlay.remove();
+      const block = _blocksCache[blockId];
+      if (block) showPBPanel(block);
+    } catch(e) {
+      errEl.textContent = e.message || 'Failed to change date.';
+      errEl.style.display = 'block';
+      overlay.querySelector('#chd-save').disabled = false;
+    }
+  });
+}
+
 function _fmtDate(iso) {
   if (!iso) return '';
   try {
@@ -1113,6 +1160,7 @@ function _buildClaimedBanner(block) {
       actionButtons = '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">'
         + (currentUserCan('claim_create') ? '<button onclick="showClaimPeopleDialogById(' + block.id + ')" style="background:rgba(0,212,255,0.15);color:#00d4ff;border:1px solid rgba(0,212,255,0.3);border-radius:5px;padding:5px 12px;cursor:pointer;font-size:11px;font-weight:600;">Add Claim</button>' : '')
         + (currentUserCan('claim_delete') ? '<button onclick="claimBlock(' + block.id + ',\'unclaim\')" style="background:rgba(255,76,106,0.1);color:#ff4c6a;border:1px solid rgba(255,76,106,0.3);border-radius:5px;padding:5px 12px;cursor:pointer;font-size:11px;font-weight:600;">Release Claim</button>' : '')
+        + (currentUserCan('claim_delete') ? '<button onclick="showChangeClaimDateDialog(' + block.id + ', \'' + (block.claim_work_date || '') + '\')" style="background:rgba(251,191,36,0.12);color:#fbbf24;border:1px solid rgba(251,191,36,0.3);border-radius:5px;padding:5px 12px;cursor:pointer;font-size:11px;font-weight:600;">Change Date</button>' : '')
         + '</div>';
     }
   } else {
@@ -1498,6 +1546,9 @@ async function loadDashboard() {
     const powerBlocksLabel = t.dashboard_blocks_label || ui.dashboard_power_blocks || 'Power Blocks';
     const openTrackerLabel = t.dashboard_open_label || ui.dashboard_open_tracker || 'Open Tracker';
     const featuredBadge = featuredTrackerId === t.id ? '<span class="thc-featured-badge">Spotlight</span>' : '';
+    const isBlockUnit = t.progress_unit === 'block';
+    const thirdStatVal = isBlockUnit ? `${t.completedBlocks}/${t.totalBlocks}` : t.totalItems;
+    const thirdStatLbl = isBlockUnit ? (t.stat_label || t.item_name_plural || 'Inverters') : (t.stat_label || t.item_name_plural || 'Items');
     return `
     <div class="tracker-hub-card" onclick="openTracker(${t.id})">
       <div class="thc-activity-rail">
@@ -1519,7 +1570,7 @@ async function loadDashboard() {
       <div class="thc-stats">
         <div class="thc-stat-pill thc-pct-pill" style="background:${barColor}18;border-color:${barColor}55;color:${barColor}"><span class="thc-stat-val">${t.pct}%</span> <span class="thc-stat-lbl">${completeLabel}</span></div>
         <div class="thc-stat-pill"><span class="thc-stat-val">${t.totalBlocks}</span> <span class="thc-stat-lbl">${powerBlocksLabel}</span></div>
-        <div class="thc-stat-pill"><span class="thc-stat-val">${t.totalItems}</span> <span class="thc-stat-lbl">${t.stat_label || t.item_name_plural || 'Items'}</span></div>
+        <div class="thc-stat-pill"><span class="thc-stat-val">${thirdStatVal}</span> <span class="thc-stat-lbl">${thirdStatLbl}</span></div>
       </div>
       <div class="thc-bar-wrap"><div class="thc-bar-fill" style="width:${t.pct}%;background:${barColor};"></div></div>
       <div class="thc-footer">
@@ -4575,6 +4626,7 @@ function showPBPanel(pb) {
         <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
           ${currentUserCan('claim_create') ? `<button onclick="showClaimPeopleDialogById(${pb.id})" style="background:rgba(0,212,255,0.15);color:#00d4ff;border:1px solid rgba(0,212,255,0.3);border-radius:4px;padding:3px 10px;cursor:pointer;font-size:10px;font-weight:600;">Add Claim</button>` : ''}
           ${currentUserCan('claim_delete') ? `<button onclick="claimBlock(${pb.id},'unclaim').then(()=>{const r=mapPBs.find(b=>b.id===${pb.id});if(r){r.claimed_by=null;r.claimed_people=[];r.claim_assignments={};r.claimed_label='';showPBPanel(r);}})" style="background:rgba(255,76,106,0.1);color:#ff4c6a;border:1px solid rgba(255,76,106,0.3);border-radius:4px;padding:3px 10px;cursor:pointer;font-size:10px;font-weight:600;">Release</button>` : ''}
+          ${currentUserCan('claim_delete') ? `<button onclick="showChangeClaimDateDialog(${pb.id}, '${pb.claim_work_date || ''}')" style="background:rgba(251,191,36,0.12);color:#fbbf24;border:1px solid rgba(251,191,36,0.3);border-radius:4px;padding:3px 10px;cursor:pointer;font-size:10px;font-weight:600;">Change Date</button>` : ''}
         </div>
       </div>`;
     } else if (currentUserCan('claim_create')) {
