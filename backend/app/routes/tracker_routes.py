@@ -1081,9 +1081,14 @@ def remove_lbd_assignment(block_id):
         return jsonify({'error': 'Invalid lbd_id'}), 400
     if not status_type:
         return jsonify({'error': 'status_type is required'}), 400
-    tracker = _resolve_tracker()
+    tracker_id_param = data.get('tracker_id')
+    tracker = resolve_accessible_tracker(tracker_id_param, user=user) if tracker_id_param else _resolve_tracker()
     tracker_id = tracker.id if tracker else None
     current_assignments = block.get_claim_assignments(tracker_id=tracker_id)
+    if not current_assignments and tracker_id is not None:
+        # Fall back to legacy global assignments
+        current_assignments = block.get_claim_assignments(tracker_id=None)
+        tracker_id = None
     if status_type not in current_assignments or lbd_id not in (current_assignments.get(status_type) or []):
         return jsonify({'error': 'LBD is not in this claim assignment'}), 404
     updated_assignments = {

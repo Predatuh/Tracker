@@ -185,9 +185,11 @@ const api = {
     });
   },
   removeLbdAssignment(blockId, statusType, lbdId) {
+    const body = { status_type: statusType, lbd_id: lbdId };
+    if (currentTracker) body.tracker_id = currentTracker.id;
     return this.call(`/tracker/power-blocks/${blockId}/remove-lbd-assignment`, {
       method: 'POST',
-      body: JSON.stringify({ status_type: statusType, lbd_id: lbdId }),
+      body: JSON.stringify(body),
     });
   },
   bulkClaimBlocks(blockIds, action, people = [], assignmentsByBlock = {}, statusTypes = [], workDate = null) {
