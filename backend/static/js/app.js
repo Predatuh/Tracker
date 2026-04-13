@@ -6197,6 +6197,12 @@ function renderClaimPage() {
   const el = document.getElementById('claim-content');
   if (!el) return;
 
+  // Preserve search input focus/cursor across re-renders
+  const _prevActive = document.activeElement;
+  const _wasSearchFocused = _prevActive && _prevActive.classList.contains('claim-search-input');
+  const _searchSelStart = _wasSearchFocused ? _prevActive.selectionStart : null;
+  const _searchSelEnd = _wasSearchFocused ? _prevActive.selectionEnd : null;
+
   // Guard: claims disabled for this tracker
   if (currentTracker?.claims_enabled === false) {
     el.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 20px;text-align:center;">
@@ -6505,6 +6511,15 @@ function renderClaimPage() {
         </aside>
       </div>
     </div>`;
+
+  // Restore search input focus if it was active before re-render
+  if (_wasSearchFocused) {
+    const newSearch = el.querySelector('.claim-search-input');
+    if (newSearch) {
+      newSearch.focus();
+      try { newSearch.setSelectionRange(_searchSelEnd, _searchSelEnd); } catch(e) {}
+    }
+  }
 }
 
 // ============================================================
