@@ -168,12 +168,13 @@ const api = {
   getClaimPeople() {
     return this.call('/tracker/claim-people');
   },
-  claimBlock(blockId, action, people = [], assignments = {}, workDate = null, note = null, forceAssignments = false) {
+  claimBlock(blockId, action, people = [], assignments = {}, workDate = null, note = null, forceAssignments = false, forceStatusTypes = []) {
     const body = { action, people, assignments };
     if (workDate) body.work_date = workDate;
     if (note !== null && note !== undefined) body.note = note;
     if (currentTracker) body.tracker_id = currentTracker.id;
     if (forceAssignments) body.force_assignments = true;
+    if (forceStatusTypes && forceStatusTypes.length) body.force_status_types = forceStatusTypes;
     return this.call(`/tracker/power-blocks/${blockId}/claim`, {
       method:'POST',
       body: JSON.stringify(body)
@@ -869,9 +870,9 @@ function claimStatusTypesForCurrentTracker() {
   return types.length ? types : LBD_STATUS_TYPES;
 }
 
-async function claimBlock(blockId, action, people = [], assignments = {}, workDate = null, note = null, forceAssignments = false) {
+async function claimBlock(blockId, action, people = [], assignments = {}, workDate = null, note = null, forceAssignments = false, forceStatusTypes = []) {
   try {
-    const response = await api.claimBlock(blockId, action, people, assignments, workDate, note, forceAssignments);
+    const response = await api.claimBlock(blockId, action, people, assignments, workDate, note, forceAssignments, forceStatusTypes);
     if (_blocksCache[blockId] && response.data) {
       Object.assign(_blocksCache[blockId], response.data);
     }
@@ -1108,7 +1109,15 @@ async function showClaimPeopleDialog(block) {
     submitBtn.addEventListener('click', async () => {
       const draft = submitBtn._draft || buildDraft();
       const forceAssignments = currentUserCan('claim_delete') && Object.keys(_getClaimAssignments(block)).length > 0;
-      await claimBlock(block.id, 'claim', draft.people, draft.assignments, draft.workDate, draft.note, forceAssignments);
+      let finalAssignments = draft.assignments;
+      let forceStatusTypes = [];
+      if (forceAssignments) {
+        // Include all selected work types even if no LBDs checked, so backend can clear them
+        forceStatusTypes = Array.from(overlay.querySelectorAll('.claim-status-type:checked')).map(i => i.value);
+        finalAssignments = Object.assign({}, draft.assignments);
+        forceStatusTypes.forEach(t => { if (!(t in finalAssignments)) finalAssignments[t] = []; });
+      }
+      await claimBlock(block.id, 'claim', draft.people, finalAssignments, draft.workDate, draft.note, forceAssignments, forceStatusTypes);
       close();
     });
   } catch (e) {

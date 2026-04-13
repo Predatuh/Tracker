@@ -507,7 +507,7 @@ def _resolve_bulk_claim_assignments(block, data):
     }
 
 
-def _apply_block_claim(block, action, actor, requested_people=None, assignments=None, tracker=None, force_assignments=False):
+def _apply_block_claim(block, action, actor, requested_people=None, assignments=None, tracker=None, force_assignments=False, force_status_types=None):
     requested_people = requested_people or []
     if not isinstance(requested_people, list):
         requested_people = [requested_people]
@@ -530,10 +530,10 @@ def _apply_block_claim(block, action, actor, requested_people=None, assignments=
     normalized_assignments = _normalize_claim_assignments(assignments or {}, valid_lbd_ids)
     existing_assignments = block.get_claim_assignments(tracker_id=tracker_id)
 
-    if force_assignments and normalized_assignments:
-        # Admin override: for submitted status types, use the submitted list exactly
-        # (allows removing previously claimed LBDs by unchecking them)
-        submitted_types = set(normalized_assignments.keys())
+    submitted_types = set(force_status_types or []) if force_assignments else set()
+    if force_assignments and submitted_types:
+        # Admin override: for each explicitly submitted type, use submitted list exactly
+        # so unchecking all LBDs in a type clears it
         lbd_by_id = {lbd.id: lbd for lbd in block.lbds}
         for st in submitted_types:
             existing_ids = set(existing_assignments.get(st, []))
@@ -546,7 +546,7 @@ def _apply_block_claim(block, action, actor, requested_people=None, assignments=
                         status.is_completed = False
                         status.completed_at = None
                         status.completed_by = None
-        # Keep non-submitted types' existing assignments, replace submitted types
+        # Keep non-submitted types unchanged, replace submitted types
         non_submitted = {k: v for k, v in existing_assignments.items() if k not in submitted_types}
         merged_assignments = _merge_claim_assignments(non_submitted, normalized_assignments)
     else:
@@ -1005,14 +1005,18 @@ def claim_power_block(block_id):
         work_date = _parse_claim_work_date(data.get('work_date'))
         if action != 'unclaim' and 'note' in data:
             block.notes = (str(data['note'] or '').strip()) or None
+        raw_assignments = data.get('assignments') or {}
+        is_force = bool(data.get('force_assignments')) and _is_admin_user()
+        force_status_types = [str(k).strip() for k in (data.get('force_status_types') or raw_assignments.keys()) if str(k).strip()] if is_force else []
         claim_result = _apply_block_claim(
             block,
             action,
             actor,
             requested_people=data.get('people') or [],
-            assignments=data.get('assignments') or {},
+            assignments=raw_assignments,
             tracker=tracker,
-            force_assignments=bool(data.get('force_assignments')) and _is_admin_user(),
+            force_assignments=is_force,
+            force_status_types=force_status_types,
         )
 
         work_entries = {'created': 0, 'skipped': 0}
