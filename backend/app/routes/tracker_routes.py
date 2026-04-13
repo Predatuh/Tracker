@@ -1064,6 +1064,55 @@ def change_claim_date(block_id):
     return jsonify({'success': True, 'updated': updated, 'new_date': new_date.isoformat()}), 200
 
 
+@bp.route('/power-blocks/<int:block_id>/remove-lbd-assignment', methods=['POST'])
+def remove_lbd_assignment(block_id):
+    """Admin: remove a specific LBD from a block's claim assignments and revert its status."""
+    user = current_session_user()
+    if not (_is_admin_user(user) or (user and user.has_permission('claim_delete'))):
+        return jsonify({'error': 'Permission denied'}), 403
+    block = PowerBlock.query.options(
+        subqueryload(PowerBlock.lbds).subqueryload(LBD.statuses)
+    ).get_or_404(block_id)
+    data = request.get_json() or {}
+    status_type = str(data.get('status_type') or '').strip()
+    try:
+        lbd_id = int(data.get('lbd_id'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Invalid lbd_id'}), 400
+    if not status_type:
+        return jsonify({'error': 'status_type is required'}), 400
+    tracker = _resolve_tracker()
+    tracker_id = tracker.id if tracker else None
+    current_assignments = block.get_claim_assignments(tracker_id=tracker_id)
+    if status_type not in current_assignments or lbd_id not in (current_assignments.get(status_type) or []):
+        return jsonify({'error': 'LBD is not in this claim assignment'}), 404
+    updated_assignments = {
+        k: [i for i in v if i != lbd_id] if k == status_type else list(v)
+        for k, v in current_assignments.items()
+    }
+    updated_assignments = {k: v for k, v in updated_assignments.items() if v}
+    block.set_claim_assignments(updated_assignments, tracker_id=tracker_id)
+    lbd_by_id = {lbd.id: lbd for lbd in block.lbds}
+    lbd = lbd_by_id.get(lbd_id)
+    status_update = None
+    if lbd:
+        status = next((s for s in lbd.statuses if s.status_type == status_type), None)
+        if status and status.is_completed:
+            status.is_completed = False
+            status.completed_at = None
+            status.completed_by = None
+            status_update = {
+                'lbd_id': lbd_id,
+                'status_type': status_type,
+                'is_completed': False,
+                'pb_id': block.id,
+            }
+    db.session.commit()
+    payload = _claim_payload(block, tracker)
+    _emit_claim_updates([(block.id, payload)], [status_update] if status_update else [])
+    return jsonify({'success': True, 'data': payload}), 200
+
+
 @bp.route('/power-blocks/bulk-claim', methods=['POST'])
 def bulk_claim_power_blocks():
     """Claim or unclaim multiple power blocks with one request."""

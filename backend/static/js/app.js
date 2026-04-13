@@ -184,6 +184,12 @@ const api = {
       body: JSON.stringify({ from_date: fromDate, new_date: newDate }),
     });
   },
+  removeLbdAssignment(blockId, statusType, lbdId) {
+    return this.call(`/tracker/power-blocks/${blockId}/remove-lbd-assignment`, {
+      method: 'POST',
+      body: JSON.stringify({ status_type: statusType, lbd_id: lbdId }),
+    });
+  },
   bulkClaimBlocks(blockIds, action, people = [], assignmentsByBlock = {}, statusTypes = [], workDate = null) {
     const body = { block_ids: blockIds, action, people, assignments_by_block: assignmentsByBlock, status_types: statusTypes };
     if (workDate) body.work_date = workDate;
@@ -817,7 +823,9 @@ function _renderClaimAssignmentSections(overlay, block, suggestions = []) {
       const disabled = alreadyClaimed ? 'disabled' : '';
       const name = _escapeHtml(lbd.identifier || lbd.name || `LBD ${lbd.id}`);
       const badge = alreadyClaimed
-        ? '<span style="margin-left:auto;color:#8adfff;font-size:11px;">Already claimed</span>'
+        ? (currentUserCan('claim_delete')
+          ? `<button type="button" onclick="removeLbdAssignment(${block.id}, '${_escapeHtml(statusType)}', ${lbdId})" style="margin-left:auto;background:rgba(255,76,106,0.1);color:#ff4c6a;border:1px solid rgba(255,76,106,0.25);border-radius:4px;padding:2px 8px;cursor:pointer;font-size:11px;font-weight:600;">Remove</button>`
+          : '<span style="margin-left:auto;color:#8adfff;font-size:11px;">Already claimed</span>')
         : '';
       return `<label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid rgba(255,255,255,0.08);border-radius:10px;background:rgba(255,255,255,0.03);cursor:pointer;">
         <input type="checkbox" class="claim-lbd-option" data-status-type="${_escapeHtml(statusType)}" value="${lbd.id}" ${checked} ${disabled} />
@@ -870,6 +878,27 @@ async function claimBlock(blockId, action, people = [], assignments = {}, workDa
       loadClaimPage();
     }
   } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function removeLbdAssignment(blockId, statusType, lbdId) {
+  try {
+    const response = await api.removeLbdAssignment(blockId, statusType, lbdId);
+    if (_blocksCache[blockId] && response.data) {
+      Object.assign(_blocksCache[blockId], response.data);
+    }
+    const overlay = document.getElementById('claim-people-overlay');
+    if (overlay) {
+      const block = _blocksCache[blockId];
+      const suggestions = claimPageState.peopleSuggestions || [];
+      if (block) _renderClaimAssignmentSections(overlay, block, suggestions);
+    }
+    if (document.getElementById('claim-content')) {
+      loadClaimPage();
+    }
+  } catch (err) {
+    console.error('Failed to remove LBD assignment:', err);
+    alert('Failed to remove LBD assignment. Please try again.');
+  }
 }
 
 async function showClaimPeopleDialog(block) {
