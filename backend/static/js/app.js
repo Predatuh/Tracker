@@ -821,7 +821,6 @@ function _renderClaimAssignmentSections(overlay, block, suggestions = []) {
     }).join('');
     const options = lbds.map(lbd => {
       const lbdId = Number(lbd.id);
-      const checked = selectedIds.has(lbdId) ? 'checked' : '';
       const alreadyClaimed = completedIds.has(lbdId);
       const isAdminEdit = alreadyClaimed && currentUserCan('claim_delete');
       const disabled = alreadyClaimed && !isAdminEdit ? 'disabled' : '';
