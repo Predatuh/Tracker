@@ -507,7 +507,7 @@ def _resolve_bulk_claim_assignments(block, data):
     }
 
 
-def _apply_block_claim(block, action, actor, requested_people=None, assignments=None, tracker=None):
+def _apply_block_claim(block, action, actor, requested_people=None, assignments=None, tracker=None, force_assignments=False):
     requested_people = requested_people or []
     if not isinstance(requested_people, list):
         requested_people = [requested_people]
@@ -528,8 +528,31 @@ def _apply_block_claim(block, action, actor, requested_people=None, assignments=
 
     valid_lbd_ids = _block_accessible_lbd_ids(block, tracker=tracker)
     normalized_assignments = _normalize_claim_assignments(assignments or {}, valid_lbd_ids)
-    completed_assignments = _completed_claim_assignments(block, valid_lbd_ids)
-    merged_assignments = _merge_claim_assignments(block.get_claim_assignments(tracker_id=tracker_id), completed_assignments, normalized_assignments)
+    existing_assignments = block.get_claim_assignments(tracker_id=tracker_id)
+
+    if force_assignments and normalized_assignments:
+        # Admin override: for submitted status types, use the submitted list exactly
+        # (allows removing previously claimed LBDs by unchecking them)
+        submitted_types = set(normalized_assignments.keys())
+        lbd_by_id = {lbd.id: lbd for lbd in block.lbds}
+        for st in submitted_types:
+            existing_ids = set(existing_assignments.get(st, []))
+            new_ids = set(normalized_assignments.get(st, []))
+            for removed_id in (existing_ids - new_ids):
+                lbd = lbd_by_id.get(removed_id)
+                if lbd:
+                    status = next((s for s in lbd.statuses if s.status_type == st), None)
+                    if status and status.is_completed:
+                        status.is_completed = False
+                        status.completed_at = None
+                        status.completed_by = None
+        # Keep non-submitted types' existing assignments, replace submitted types
+        non_submitted = {k: v for k, v in existing_assignments.items() if k not in submitted_types}
+        merged_assignments = _merge_claim_assignments(non_submitted, normalized_assignments)
+    else:
+        completed_assignments = _completed_claim_assignments(block, valid_lbd_ids)
+        merged_assignments = _merge_claim_assignments(existing_assignments, completed_assignments, normalized_assignments)
+
     merged_people = _merge_claim_people(block.get_claimed_people(tracker_id=tracker_id), people)
     claimed_by = actor or people[0]
     claimed_at = datetime.utcnow()
@@ -989,6 +1012,7 @@ def claim_power_block(block_id):
             requested_people=data.get('people') or [],
             assignments=data.get('assignments') or {},
             tracker=tracker,
+            force_assignments=bool(data.get('force_assignments')) and _is_admin_user(),
         )
 
         work_entries = {'created': 0, 'skipped': 0}

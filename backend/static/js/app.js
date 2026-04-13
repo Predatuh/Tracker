@@ -168,11 +168,12 @@ const api = {
   getClaimPeople() {
     return this.call('/tracker/claim-people');
   },
-  claimBlock(blockId, action, people = [], assignments = {}, workDate = null, note = null) {
+  claimBlock(blockId, action, people = [], assignments = {}, workDate = null, note = null, forceAssignments = false) {
     const body = { action, people, assignments };
     if (workDate) body.work_date = workDate;
     if (note !== null && note !== undefined) body.note = note;
     if (currentTracker) body.tracker_id = currentTracker.id;
+    if (forceAssignments) body.force_assignments = true;
     return this.call(`/tracker/power-blocks/${blockId}/claim`, {
       method:'POST',
       body: JSON.stringify(body)
@@ -822,14 +823,17 @@ function _renderClaimAssignmentSections(overlay, block, suggestions = []) {
       const lbdId = Number(lbd.id);
       const checked = selectedIds.has(lbdId) ? 'checked' : '';
       const alreadyClaimed = completedIds.has(lbdId);
-      const disabled = alreadyClaimed ? 'disabled' : '';
+      const isAdminEdit = alreadyClaimed && currentUserCan('claim_delete');
+      const disabled = alreadyClaimed && !isAdminEdit ? 'disabled' : '';
+      // For admins, pre-check already-claimed LBDs so they can uncheck to remove
+      const checked = (selectedIds.has(lbdId) || isAdminEdit) ? 'checked' : '';
       const name = _escapeHtml(lbd.identifier || lbd.name || `LBD ${lbd.id}`);
-      const badge = alreadyClaimed
-        ? (currentUserCan('claim_delete')
-          ? `<button type="button" onclick="removeLbdAssignment(${block.id}, '${_escapeHtml(statusType)}', ${lbdId})" style="margin-left:auto;background:rgba(255,76,106,0.1);color:#ff4c6a;border:1px solid rgba(255,76,106,0.25);border-radius:4px;padding:2px 8px;cursor:pointer;font-size:11px;font-weight:600;">Remove</button>`
-          : '<span style="margin-left:auto;color:#8adfff;font-size:11px;">Already claimed</span>')
+      const badge = alreadyClaimed && !isAdminEdit
+        ? '<span style="margin-left:auto;color:#8adfff;font-size:11px;">Already claimed</span>'
         : '';
-      return `<label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid rgba(255,255,255,0.08);border-radius:10px;background:rgba(255,255,255,0.03);cursor:pointer;">
+      const rowBg = isAdminEdit ? 'rgba(251,191,36,0.06)' : 'rgba(255,255,255,0.03)';
+      const rowBorder = isAdminEdit ? 'rgba(251,191,36,0.2)' : 'rgba(255,255,255,0.08)';
+      return `<label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid ${rowBorder};border-radius:10px;background:${rowBg};cursor:pointer;">
         <input type="checkbox" class="claim-lbd-option" data-status-type="${_escapeHtml(statusType)}" value="${lbd.id}" ${checked} ${disabled} />
         <span style="color:#eef2ff;font-size:12px;">${name}</span>
         ${badge}
@@ -866,9 +870,9 @@ function claimStatusTypesForCurrentTracker() {
   return types.length ? types : LBD_STATUS_TYPES;
 }
 
-async function claimBlock(blockId, action, people = [], assignments = {}, workDate = null, note = null) {
+async function claimBlock(blockId, action, people = [], assignments = {}, workDate = null, note = null, forceAssignments = false) {
   try {
-    const response = await api.claimBlock(blockId, action, people, assignments, workDate, note);
+    const response = await api.claimBlock(blockId, action, people, assignments, workDate, note, forceAssignments);
     if (_blocksCache[blockId] && response.data) {
       Object.assign(_blocksCache[blockId], response.data);
     }
@@ -1104,7 +1108,8 @@ async function showClaimPeopleDialog(block) {
 
     submitBtn.addEventListener('click', async () => {
       const draft = submitBtn._draft || buildDraft();
-      await claimBlock(block.id, 'claim', draft.people, draft.assignments, draft.workDate, draft.note);
+      const forceAssignments = currentUserCan('claim_delete') && Object.keys(_getClaimAssignments(block)).length > 0;
+      await claimBlock(block.id, 'claim', draft.people, draft.assignments, draft.workDate, draft.note, forceAssignments);
       close();
     });
   } catch (e) {
