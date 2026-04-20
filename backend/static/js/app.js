@@ -518,6 +518,7 @@ function showPage(pageName) {
   if (pageName === 'admin') loadAdminPage();
   if (pageName === 'claim') loadClaimPage();
   if (pageName === 'reports') loadReportsPage();
+  if (pageName === 'tools') loadToolsPage();
   if (pageName === 'review') loadReviewPage();
 }
 
@@ -7567,6 +7568,542 @@ async function reviewLoadReportDetail(dateStr) {
   const response = await api.getReviewReportByDate(dateStr);
   reviewPageState.reportDetails[dateStr] = response.data || null;
   return reviewPageState.reportDetails[dateStr];
+}
+
+// =====================================================================
+// TOOLS PAGE
+// =====================================================================
+
+let _toolsSupportedFormats = null;
+
+async function loadToolsPage() {
+  const el = document.getElementById('tools-content');
+  if (!el) return;
+  // Fetch supported formats once
+  if (!_toolsSupportedFormats) {
+    try {
+      const resp = await fetch('/api/tools/supported-formats').then(r => r.json());
+      if (resp.data) _toolsSupportedFormats = resp.data;
+    } catch (_) {}
+  }
+  _renderToolsHub(el);
+}
+
+function _renderToolsHub(container) {
+  container.innerHTML = `
+    <div id="tools-hub" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-top:12px;">
+      <div class="form-section" style="cursor:pointer;padding:24px;border:1px solid rgba(0,212,255,0.15);border-radius:16px;background:rgba(0,212,255,0.04);transition:border-color .2s,transform .15s;" onclick="_showToolView('converter')" onmouseenter="this.style.borderColor='rgba(0,212,255,0.4)';this.style.transform='translateY(-2px)'" onmouseleave="this.style.borderColor='rgba(0,212,255,0.15)';this.style.transform='none'">
+        <div style="font-size:28px;margin-bottom:10px;">📄</div>
+        <div style="color:#eef2ff;font-size:16px;font-weight:700;">File Converter</div>
+        <div style="color:#94a3b8;font-size:13px;margin-top:6px;">Convert images, PDFs, Word docs, Excel files and more. Drag & drop or browse to convert instantly.</div>
+        <div style="margin-top:12px;display:flex;flex-wrap:wrap;gap:6px;">
+          ${['JPG→PDF','PDF→JPG','DOCX→PDF','XLSX→CSV','PNG→WEBP'].map(t => `<span style="background:rgba(0,212,255,0.1);color:#8adfff;font-size:10px;padding:3px 8px;border-radius:6px;">${t}</span>`).join('')}
+        </div>
+      </div>
+      <div class="form-section" style="cursor:pointer;padding:24px;border:1px solid rgba(34,197,94,0.15);border-radius:16px;background:rgba(34,197,94,0.04);transition:border-color .2s,transform .15s;" onclick="_showToolView('merge-pdf')" onmouseenter="this.style.borderColor='rgba(34,197,94,0.4)';this.style.transform='translateY(-2px)'" onmouseleave="this.style.borderColor='rgba(34,197,94,0.15)';this.style.transform='none'">
+        <div style="font-size:28px;margin-bottom:10px;">📑</div>
+        <div style="color:#eef2ff;font-size:16px;font-weight:700;">Merge PDFs</div>
+        <div style="color:#94a3b8;font-size:13px;margin-top:6px;">Combine multiple PDF files into one. Drag & drop or select files, reorder, then merge.</div>
+      </div>
+      <div class="form-section" style="cursor:pointer;padding:24px;border:1px solid rgba(251,191,36,0.15);border-radius:16px;background:rgba(251,191,36,0.04);transition:border-color .2s,transform .15s;" onclick="_showToolView('compress')" onmouseenter="this.style.borderColor='rgba(251,191,36,0.4)';this.style.transform='translateY(-2px)'" onmouseleave="this.style.borderColor='rgba(251,191,36,0.15)';this.style.transform='none'">
+        <div style="font-size:28px;margin-bottom:10px;">🗜️</div>
+        <div style="color:#eef2ff;font-size:16px;font-weight:700;">Compress Image</div>
+        <div style="color:#94a3b8;font-size:13px;margin-top:6px;">Reduce image file size with adjustable quality. Great for email attachments and uploads.</div>
+      </div>
+      <div class="form-section" style="cursor:pointer;padding:24px;border:1px solid rgba(168,85,247,0.15);border-radius:16px;background:rgba(168,85,247,0.04);transition:border-color .2s,transform .15s;" onclick="_showToolView('excel')" onmouseenter="this.style.borderColor='rgba(168,85,247,0.4)';this.style.transform='translateY(-2px)'" onmouseleave="this.style.borderColor='rgba(168,85,247,0.15)';this.style.transform='none'">
+        <div style="font-size:28px;margin-bottom:10px;">📊</div>
+        <div style="color:#eef2ff;font-size:16px;font-weight:700;">Excel Formula Helper</div>
+        <div style="color:#94a3b8;font-size:13px;margin-top:6px;">Build Excel formulas step by step. Lookup, math, logic, text, date functions and construction presets.</div>
+        <div style="margin-top:12px;display:flex;flex-wrap:wrap;gap:6px;">
+          ${['VLOOKUP','SUMIF','IF','INDEX/MATCH','CONCATENATE'].map(t => `<span style="background:rgba(168,85,247,0.1);color:#c084fc;font-size:10px;padding:3px 8px;border-radius:6px;">${t}</span>`).join('')}
+        </div>
+      </div>
+    </div>
+    <div id="tools-view" style="display:none;margin-top:12px;"></div>`;
+}
+
+function _showToolView(tool) {
+  const hub = document.getElementById('tools-hub');
+  const view = document.getElementById('tools-view');
+  if (!hub || !view) return;
+  hub.style.display = 'none';
+  view.style.display = 'block';
+  const backBtn = `<button onclick="_toolsBackToHub()" style="background:rgba(255,255,255,0.06);color:#94a3b8;border:1px solid rgba(255,255,255,0.12);border-radius:8px;padding:8px 16px;cursor:pointer;font-size:13px;font-weight:600;margin-bottom:16px;">← Back to Tools</button>`;
+  if (tool === 'converter') _renderFileConverter(view, backBtn);
+  else if (tool === 'merge-pdf') _renderMergePdf(view, backBtn);
+  else if (tool === 'compress') _renderCompressImage(view, backBtn);
+  else if (tool === 'excel') _renderExcelHelper(view, backBtn);
+}
+
+function _toolsBackToHub() {
+  const hub = document.getElementById('tools-hub');
+  const view = document.getElementById('tools-view');
+  if (hub) hub.style.display = 'grid';
+  if (view) { view.style.display = 'none'; view.innerHTML = ''; }
+}
+
+// ---------------------------------------------------------------------------
+// FILE CONVERTER
+// ---------------------------------------------------------------------------
+
+function _renderFileConverter(container, backBtn) {
+  const formats = _toolsSupportedFormats || {};
+  const allSources = Object.keys(formats).sort();
+  container.innerHTML = `${backBtn}
+    <div class="form-section" style="padding:24px;border-radius:16px;">
+      <div style="color:#eef2ff;font-size:18px;font-weight:700;margin-bottom:4px;">File Converter</div>
+      <div style="color:#94a3b8;font-size:13px;margin-bottom:20px;">Select a file and choose the output format. Supported: images, PDF, Word, Excel, CSV.</div>
+      <div id="converter-drop-zone" style="border:2px dashed rgba(0,212,255,0.25);border-radius:14px;padding:40px 20px;text-align:center;cursor:pointer;transition:border-color .2s,background .2s;">
+        <div style="font-size:36px;margin-bottom:8px;">📁</div>
+        <div style="color:#eef2ff;font-size:14px;font-weight:600;">Drag & drop a file here</div>
+        <div style="color:#94a3b8;font-size:12px;margin-top:4px;">or click to browse</div>
+        <div style="color:#64748b;font-size:11px;margin-top:8px;">Supported: ${allSources.map(s => '.'+s).join(', ')}</div>
+        <input type="file" id="converter-file-input" style="display:none;" />
+      </div>
+      <div id="converter-file-info" style="display:none;margin-top:16px;padding:16px;border-radius:12px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+          <div>
+            <div id="converter-file-name" style="color:#eef2ff;font-size:14px;font-weight:600;"></div>
+            <div id="converter-file-size" style="color:#94a3b8;font-size:12px;margin-top:2px;"></div>
+          </div>
+          <button onclick="_converterClearFile()" style="background:rgba(255,76,106,0.1);color:#ff4c6a;border:1px solid rgba(255,76,106,0.25);border-radius:6px;padding:5px 12px;cursor:pointer;font-size:12px;">Remove</button>
+        </div>
+        <div style="margin-top:14px;">
+          <label style="color:#cbd5e1;font-size:13px;font-weight:600;">Convert to:</label>
+          <div id="converter-targets" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;"></div>
+        </div>
+        <button id="converter-submit" disabled style="margin-top:18px;width:100%;padding:12px;border-radius:10px;background:rgba(0,212,255,0.15);color:#8adfff;border:1px solid rgba(0,212,255,0.3);font-size:14px;font-weight:700;cursor:pointer;transition:opacity .2s;opacity:0.5;" onclick="_converterSubmit()">Convert File</button>
+        <div id="converter-status" style="margin-top:10px;text-align:center;font-size:13px;"></div>
+      </div>
+    </div>`;
+
+  const dropZone = container.querySelector('#converter-drop-zone');
+  const fileInput = container.querySelector('#converter-file-input');
+  dropZone.addEventListener('click', () => fileInput.click());
+  dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.style.borderColor = 'rgba(0,212,255,0.6)'; dropZone.style.background = 'rgba(0,212,255,0.06)'; });
+  dropZone.addEventListener('dragleave', () => { dropZone.style.borderColor = 'rgba(0,212,255,0.25)'; dropZone.style.background = 'transparent'; });
+  dropZone.addEventListener('drop', (e) => { e.preventDefault(); dropZone.style.borderColor = 'rgba(0,212,255,0.25)'; dropZone.style.background = 'transparent'; if (e.dataTransfer.files.length) _converterSetFile(e.dataTransfer.files[0]); });
+  fileInput.addEventListener('change', () => { if (fileInput.files.length) _converterSetFile(fileInput.files[0]); });
+}
+
+let _converterSelectedFile = null;
+let _converterSelectedTarget = null;
+
+function _converterSetFile(file) {
+  _converterSelectedFile = file;
+  _converterSelectedTarget = null;
+  const ext = (file.name.split('.').pop() || '').toLowerCase();
+  const formats = _toolsSupportedFormats || {};
+  const targets = formats[ext] || [];
+
+  document.getElementById('converter-file-info').style.display = 'block';
+  document.getElementById('converter-file-name').textContent = file.name;
+  document.getElementById('converter-file-size').textContent = _formatFileSize(file.size);
+  document.getElementById('converter-status').innerHTML = '';
+
+  const targetsContainer = document.getElementById('converter-targets');
+  if (!targets.length) {
+    targetsContainer.innerHTML = `<div style="color:#ff4c6a;font-size:13px;">Unsupported file format (.${_escapeHtml(ext)})</div>`;
+    document.getElementById('converter-submit').disabled = true;
+    document.getElementById('converter-submit').style.opacity = '0.5';
+    return;
+  }
+  targetsContainer.innerHTML = targets.map(t => `<button type="button" class="converter-target-btn" data-target="${t}" onclick="_converterSelectTarget('${t}')" style="padding:8px 16px;border-radius:8px;background:rgba(255,255,255,0.06);color:#cbd5e1;border:1px solid rgba(255,255,255,0.12);cursor:pointer;font-size:13px;font-weight:600;transition:all .15s;">.${t.toUpperCase()}</button>`).join('');
+}
+
+function _converterSelectTarget(target) {
+  _converterSelectedTarget = target;
+  document.querySelectorAll('.converter-target-btn').forEach(btn => {
+    if (btn.dataset.target === target) {
+      btn.style.background = 'rgba(0,212,255,0.15)';
+      btn.style.borderColor = 'rgba(0,212,255,0.4)';
+      btn.style.color = '#8adfff';
+    } else {
+      btn.style.background = 'rgba(255,255,255,0.06)';
+      btn.style.borderColor = 'rgba(255,255,255,0.12)';
+      btn.style.color = '#cbd5e1';
+    }
+  });
+  const submitBtn = document.getElementById('converter-submit');
+  submitBtn.disabled = false;
+  submitBtn.style.opacity = '1';
+}
+
+function _converterClearFile() {
+  _converterSelectedFile = null;
+  _converterSelectedTarget = null;
+  document.getElementById('converter-file-info').style.display = 'none';
+  const fileInput = document.getElementById('converter-file-input');
+  if (fileInput) fileInput.value = '';
+}
+
+async function _converterSubmit() {
+  if (!_converterSelectedFile || !_converterSelectedTarget) return;
+  const submitBtn = document.getElementById('converter-submit');
+  const statusEl = document.getElementById('converter-status');
+  submitBtn.disabled = true;
+  submitBtn.style.opacity = '0.5';
+  submitBtn.textContent = 'Converting...';
+  statusEl.innerHTML = '<span style="color:#fbbf24;">Processing your file...</span>';
+
+  const formData = new FormData();
+  formData.append('file', _converterSelectedFile);
+  formData.append('target_format', _converterSelectedTarget);
+
+  try {
+    const resp = await fetch('/api/tools/convert', { method: 'POST', body: formData });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ error: 'Conversion failed' }));
+      throw new Error(err.error || 'Conversion failed');
+    }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const baseName = _converterSelectedFile.name.replace(/\.[^.]+$/, '');
+    const disposition = resp.headers.get('Content-Disposition') || '';
+    const filenameMatch = disposition.match(/filename="?([^";\n]+)"?/);
+    a.download = filenameMatch ? filenameMatch[1] : `${baseName}.${_converterSelectedTarget}`;
+    a.href = url;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    statusEl.innerHTML = '<span style="color:#22c55e;">✓ File converted and downloaded!</span>';
+  } catch (err) {
+    statusEl.innerHTML = `<span style="color:#ff4c6a;">✗ ${_escapeHtml(err.message)}</span>`;
+  }
+  submitBtn.disabled = false;
+  submitBtn.style.opacity = '1';
+  submitBtn.textContent = 'Convert File';
+}
+
+function _formatFileSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+// ---------------------------------------------------------------------------
+// MERGE PDFs
+// ---------------------------------------------------------------------------
+
+let _mergePdfFiles = [];
+
+function _renderMergePdf(container, backBtn) {
+  _mergePdfFiles = [];
+  container.innerHTML = `${backBtn}
+    <div class="form-section" style="padding:24px;border-radius:16px;">
+      <div style="color:#eef2ff;font-size:18px;font-weight:700;margin-bottom:4px;">Merge PDFs</div>
+      <div style="color:#94a3b8;font-size:13px;margin-bottom:20px;">Upload two or more PDF files. They will be combined in the order shown below.</div>
+      <div id="merge-drop-zone" style="border:2px dashed rgba(34,197,94,0.25);border-radius:14px;padding:40px 20px;text-align:center;cursor:pointer;transition:border-color .2s,background .2s;">
+        <div style="font-size:36px;margin-bottom:8px;">📑</div>
+        <div style="color:#eef2ff;font-size:14px;font-weight:600;">Drag & drop PDF files here</div>
+        <div style="color:#94a3b8;font-size:12px;margin-top:4px;">or click to browse (select multiple)</div>
+        <input type="file" id="merge-file-input" accept=".pdf" multiple style="display:none;" />
+      </div>
+      <div id="merge-file-list" style="margin-top:16px;display:grid;gap:8px;"></div>
+      <button id="merge-submit" disabled style="margin-top:18px;width:100%;padding:12px;border-radius:10px;background:rgba(34,197,94,0.15);color:#22c55e;border:1px solid rgba(34,197,94,0.3);font-size:14px;font-weight:700;cursor:pointer;opacity:0.5;" onclick="_mergeSubmit()">Merge PDFs</button>
+      <div id="merge-status" style="margin-top:10px;text-align:center;font-size:13px;"></div>
+    </div>`;
+
+  const dropZone = container.querySelector('#merge-drop-zone');
+  const fileInput = container.querySelector('#merge-file-input');
+  dropZone.addEventListener('click', () => fileInput.click());
+  dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.style.borderColor = 'rgba(34,197,94,0.6)'; });
+  dropZone.addEventListener('dragleave', () => { dropZone.style.borderColor = 'rgba(34,197,94,0.25)'; });
+  dropZone.addEventListener('drop', (e) => { e.preventDefault(); dropZone.style.borderColor = 'rgba(34,197,94,0.25)'; _mergeAddFiles(Array.from(e.dataTransfer.files)); });
+  fileInput.addEventListener('change', () => { _mergeAddFiles(Array.from(fileInput.files)); fileInput.value = ''; });
+}
+
+function _mergeAddFiles(files) {
+  files.forEach(f => { if (f.name.toLowerCase().endsWith('.pdf')) _mergePdfFiles.push(f); });
+  _mergeRenderList();
+}
+
+function _mergeRemoveFile(idx) {
+  _mergePdfFiles.splice(idx, 1);
+  _mergeRenderList();
+}
+
+function _mergeMoveFile(idx, dir) {
+  const newIdx = idx + dir;
+  if (newIdx < 0 || newIdx >= _mergePdfFiles.length) return;
+  [_mergePdfFiles[idx], _mergePdfFiles[newIdx]] = [_mergePdfFiles[newIdx], _mergePdfFiles[idx]];
+  _mergeRenderList();
+}
+
+function _mergeRenderList() {
+  const listEl = document.getElementById('merge-file-list');
+  const btn = document.getElementById('merge-submit');
+  if (!listEl) return;
+  listEl.innerHTML = _mergePdfFiles.map((f, i) => `
+    <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:10px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);">
+      <span style="color:#64748b;font-size:12px;font-weight:700;min-width:22px;">${i + 1}.</span>
+      <span style="color:#eef2ff;font-size:13px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${_escapeHtml(f.name)}</span>
+      <span style="color:#94a3b8;font-size:11px;">${_formatFileSize(f.size)}</span>
+      <button onclick="_mergeMoveFile(${i},-1)" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:14px;padding:2px 4px;" title="Move up">↑</button>
+      <button onclick="_mergeMoveFile(${i},1)" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:14px;padding:2px 4px;" title="Move down">↓</button>
+      <button onclick="_mergeRemoveFile(${i})" style="background:none;border:none;color:#ff4c6a;cursor:pointer;font-size:14px;padding:2px 4px;" title="Remove">✕</button>
+    </div>`).join('');
+  if (btn) { btn.disabled = _mergePdfFiles.length < 2; btn.style.opacity = _mergePdfFiles.length < 2 ? '0.5' : '1'; }
+}
+
+async function _mergeSubmit() {
+  if (_mergePdfFiles.length < 2) return;
+  const btn = document.getElementById('merge-submit');
+  const statusEl = document.getElementById('merge-status');
+  btn.disabled = true; btn.style.opacity = '0.5'; btn.textContent = 'Merging...';
+  statusEl.innerHTML = '<span style="color:#fbbf24;">Merging PDF files...</span>';
+  const formData = new FormData();
+  _mergePdfFiles.forEach(f => formData.append('files', f));
+  try {
+    const resp = await fetch('/api/tools/merge-pdfs', { method: 'POST', body: formData });
+    if (!resp.ok) { const err = await resp.json().catch(() => ({ error: 'Merge failed' })); throw new Error(err.error || 'Merge failed'); }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.download = 'merged.pdf'; a.href = url;
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    statusEl.innerHTML = '<span style="color:#22c55e;">✓ PDFs merged and downloaded!</span>';
+  } catch (err) { statusEl.innerHTML = `<span style="color:#ff4c6a;">✗ ${_escapeHtml(err.message)}</span>`; }
+  btn.disabled = false; btn.style.opacity = '1'; btn.textContent = 'Merge PDFs';
+}
+
+// ---------------------------------------------------------------------------
+// COMPRESS IMAGE
+// ---------------------------------------------------------------------------
+
+function _renderCompressImage(container, backBtn) {
+  container.innerHTML = `${backBtn}
+    <div class="form-section" style="padding:24px;border-radius:16px;">
+      <div style="color:#eef2ff;font-size:18px;font-weight:700;margin-bottom:4px;">Compress Image</div>
+      <div style="color:#94a3b8;font-size:13px;margin-bottom:20px;">Upload an image and choose quality level. Output is always JPEG for maximum compression.</div>
+      <div id="compress-drop-zone" style="border:2px dashed rgba(251,191,36,0.25);border-radius:14px;padding:40px 20px;text-align:center;cursor:pointer;">
+        <div style="font-size:36px;margin-bottom:8px;">🗜️</div>
+        <div style="color:#eef2ff;font-size:14px;font-weight:600;">Drag & drop an image here</div>
+        <div style="color:#94a3b8;font-size:12px;margin-top:4px;">or click to browse</div>
+        <input type="file" id="compress-file-input" accept="image/*" style="display:none;" />
+      </div>
+      <div id="compress-controls" style="display:none;margin-top:16px;">
+        <div id="compress-file-info" style="padding:12px 14px;border-radius:10px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+          <div>
+            <div id="compress-file-name" style="color:#eef2ff;font-size:14px;font-weight:600;"></div>
+            <div id="compress-file-size" style="color:#94a3b8;font-size:12px;"></div>
+          </div>
+          <button onclick="_compressClear()" style="background:rgba(255,76,106,0.1);color:#ff4c6a;border:1px solid rgba(255,76,106,0.25);border-radius:6px;padding:5px 12px;cursor:pointer;font-size:12px;">Remove</button>
+        </div>
+        <div style="margin-top:14px;">
+          <label style="color:#cbd5e1;font-size:13px;font-weight:600;">Quality: <span id="compress-quality-label">70</span>%</label>
+          <input type="range" id="compress-quality" min="10" max="100" value="70" step="5" style="width:100%;margin-top:6px;accent-color:#fbbf24;" oninput="document.getElementById('compress-quality-label').textContent=this.value" />
+          <div style="display:flex;justify-content:space-between;color:#64748b;font-size:11px;"><span>Smaller file</span><span>Higher quality</span></div>
+        </div>
+        <button id="compress-submit" style="margin-top:18px;width:100%;padding:12px;border-radius:10px;background:rgba(251,191,36,0.15);color:#fbbf24;border:1px solid rgba(251,191,36,0.3);font-size:14px;font-weight:700;cursor:pointer;" onclick="_compressSubmit()">Compress Image</button>
+        <div id="compress-status" style="margin-top:10px;text-align:center;font-size:13px;"></div>
+      </div>
+    </div>`;
+
+  let _compressFile = null;
+  const dropZone = container.querySelector('#compress-drop-zone');
+  const fileInput = container.querySelector('#compress-file-input');
+  const setFile = (f) => {
+    _compressFile = f;
+    window._compressCurrentFile = f;
+    document.getElementById('compress-controls').style.display = 'block';
+    document.getElementById('compress-file-name').textContent = f.name;
+    document.getElementById('compress-file-size').textContent = _formatFileSize(f.size);
+  };
+  dropZone.addEventListener('click', () => fileInput.click());
+  dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.style.borderColor = 'rgba(251,191,36,0.6)'; });
+  dropZone.addEventListener('dragleave', () => { dropZone.style.borderColor = 'rgba(251,191,36,0.25)'; });
+  dropZone.addEventListener('drop', (e) => { e.preventDefault(); dropZone.style.borderColor = 'rgba(251,191,36,0.25)'; if (e.dataTransfer.files.length) setFile(e.dataTransfer.files[0]); });
+  fileInput.addEventListener('change', () => { if (fileInput.files.length) setFile(fileInput.files[0]); });
+}
+
+function _compressClear() {
+  window._compressCurrentFile = null;
+  document.getElementById('compress-controls').style.display = 'none';
+  const fi = document.getElementById('compress-file-input');
+  if (fi) fi.value = '';
+}
+
+async function _compressSubmit() {
+  const file = window._compressCurrentFile;
+  if (!file) return;
+  const quality = document.getElementById('compress-quality').value;
+  const btn = document.getElementById('compress-submit');
+  const statusEl = document.getElementById('compress-status');
+  btn.disabled = true; btn.textContent = 'Compressing...';
+  statusEl.innerHTML = '<span style="color:#fbbf24;">Processing...</span>';
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('quality', quality);
+  try {
+    const resp = await fetch('/api/tools/compress-image', { method: 'POST', body: formData });
+    if (!resp.ok) { const err = await resp.json().catch(() => ({ error: 'Compression failed' })); throw new Error(err.error || 'Compression failed'); }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.download = file.name.replace(/\.[^.]+$/, '_compressed.jpg');
+    a.href = url; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    statusEl.innerHTML = `<span style="color:#22c55e;">✓ Compressed! Original: ${_formatFileSize(file.size)} → Downloaded: ${_formatFileSize(blob.size)}</span>`;
+  } catch (err) { statusEl.innerHTML = `<span style="color:#ff4c6a;">✗ ${_escapeHtml(err.message)}</span>`; }
+  btn.disabled = false; btn.textContent = 'Compress Image';
+}
+
+// ---------------------------------------------------------------------------
+// EXCEL FORMULA HELPER
+// ---------------------------------------------------------------------------
+
+const EXCEL_FORMULAS = {
+  Lookup: {
+    VLOOKUP: { syntax: 'VLOOKUP(lookup_value, table_array, col_index_num, [range_lookup])', params: [{name:'lookup_value',placeholder:'A2',desc:'The value to search for'},{name:'table_array',placeholder:'B2:D100',desc:'The table range to search in'},{name:'col_index_num',placeholder:'3',desc:'Column number to return (1, 2, 3...)'},{name:'range_lookup',placeholder:'FALSE',desc:'FALSE for exact match, TRUE for approximate'}], desc: 'Looks up a value in the first column of a range and returns a value from another column.' },
+    HLOOKUP: { syntax: 'HLOOKUP(lookup_value, table_array, row_index_num, [range_lookup])', params: [{name:'lookup_value',placeholder:'A1',desc:'The value to search for'},{name:'table_array',placeholder:'A1:Z3',desc:'The table range to search in'},{name:'row_index_num',placeholder:'2',desc:'Row number to return'},{name:'range_lookup',placeholder:'FALSE',desc:'FALSE for exact match'}], desc: 'Looks up a value in the first row and returns a value from another row.' },
+    'INDEX/MATCH': { syntax: 'INDEX(return_range, MATCH(lookup_value, lookup_range, 0))', params: [{name:'return_range',placeholder:'C2:C100',desc:'Range containing the value to return'},{name:'lookup_value',placeholder:'A2',desc:'The value to search for'},{name:'lookup_range',placeholder:'B2:B100',desc:'Range to search in'}], desc: 'More flexible alternative to VLOOKUP — can look left and handles column insertions.', build: (p) => `INDEX(${p.return_range}, MATCH(${p.lookup_value}, ${p.lookup_range}, 0))` },
+    XLOOKUP: { syntax: 'XLOOKUP(lookup_value, lookup_array, return_array, [if_not_found])', params: [{name:'lookup_value',placeholder:'A2',desc:'The value to search for'},{name:'lookup_array',placeholder:'B2:B100',desc:'Range to search in'},{name:'return_array',placeholder:'C2:C100',desc:'Range to return from'},{name:'if_not_found',placeholder:'"Not Found"',desc:'Value if no match (optional)'}], desc: 'Modern replacement for VLOOKUP. Searches any direction, returns exact matches.' },
+  },
+  Math: {
+    SUM: { syntax: 'SUM(number1, [number2], ...)', params: [{name:'range',placeholder:'A1:A100',desc:'Range or values to add up'}], desc: 'Adds up all numbers in a range.', build: (p) => `SUM(${p.range})` },
+    SUMIF: { syntax: 'SUMIF(range, criteria, [sum_range])', params: [{name:'range',placeholder:'A2:A100',desc:'Range to evaluate criteria against'},{name:'criteria',placeholder:'"Concrete"',desc:'Condition (text in quotes, number, or expression like ">100")'},{name:'sum_range',placeholder:'B2:B100',desc:'Range to sum (if different from criteria range)'}], desc: 'Sums values where a condition is met.' },
+    SUMIFS: { syntax: 'SUMIFS(sum_range, criteria_range1, criteria1, ...)', params: [{name:'sum_range',placeholder:'C2:C100',desc:'Range to sum'},{name:'criteria_range1',placeholder:'A2:A100',desc:'First criteria range'},{name:'criteria1',placeholder:'"Concrete"',desc:'First condition'},{name:'criteria_range2',placeholder:'B2:B100',desc:'Second criteria range (optional)'},{name:'criteria2',placeholder:'>100',desc:'Second condition (optional)'}], desc: 'Sums values where multiple conditions are met.', build: (p) => { let f = `SUMIFS(${p.sum_range}, ${p.criteria_range1}, ${p.criteria1}`; if (p.criteria_range2 && p.criteria2) f += `, ${p.criteria_range2}, ${p.criteria2}`; return f + ')'; } },
+    AVERAGE: { syntax: 'AVERAGE(number1, [number2], ...)', params: [{name:'range',placeholder:'A1:A100',desc:'Range to average'}], desc: 'Returns the arithmetic mean of a range.', build: (p) => `AVERAGE(${p.range})` },
+    ROUND: { syntax: 'ROUND(number, num_digits)', params: [{name:'number',placeholder:'A1',desc:'Number or cell to round'},{name:'num_digits',placeholder:'2',desc:'Number of decimal places'}], desc: 'Rounds a number to a specified number of digits.' },
+    COUNT: { syntax: 'COUNT(value1, [value2], ...)', params: [{name:'range',placeholder:'A1:A100',desc:'Range to count numbers in'}], desc: 'Counts cells containing numbers.', build: (p) => `COUNT(${p.range})` },
+    COUNTIF: { syntax: 'COUNTIF(range, criteria)', params: [{name:'range',placeholder:'A2:A100',desc:'Range to evaluate'},{name:'criteria',placeholder:'"Complete"',desc:'Condition to count'}], desc: 'Counts cells matching a condition.' },
+  },
+  Logic: {
+    IF: { syntax: 'IF(logical_test, value_if_true, value_if_false)', params: [{name:'logical_test',placeholder:'A1>100',desc:'Condition to test'},{name:'value_if_true',placeholder:'"Over Budget"',desc:'Value if condition is TRUE'},{name:'value_if_false',placeholder:'"OK"',desc:'Value if condition is FALSE'}], desc: 'Returns one value if true, another if false.' },
+    IFS: { syntax: 'IFS(logical_test1, value1, logical_test2, value2, ...)', params: [{name:'logical_test1',placeholder:'A1>=90',desc:'First condition'},{name:'value1',placeholder:'"A"',desc:'Value if first condition is true'},{name:'logical_test2',placeholder:'A1>=80',desc:'Second condition'},{name:'value2',placeholder:'"B"',desc:'Value if second condition is true'}], desc: 'Checks multiple conditions in order and returns the first match.' },
+    AND: { syntax: 'AND(logical1, [logical2], ...)', params: [{name:'logical1',placeholder:'A1>0',desc:'First condition'},{name:'logical2',placeholder:'B1<100',desc:'Second condition'}], desc: 'Returns TRUE if all conditions are true.' },
+    OR: { syntax: 'OR(logical1, [logical2], ...)', params: [{name:'logical1',placeholder:'A1="Yes"',desc:'First condition'},{name:'logical2',placeholder:'B1="Yes"',desc:'Second condition'}], desc: 'Returns TRUE if any condition is true.' },
+    IFERROR: { syntax: 'IFERROR(value, value_if_error)', params: [{name:'value',placeholder:'A1/B1',desc:'Formula or value to try'},{name:'value_if_error',placeholder:'0',desc:'Value to return if there is an error'}], desc: 'Returns a fallback value if the formula results in an error.' },
+  },
+  Text: {
+    CONCATENATE: { syntax: 'CONCATENATE(text1, text2, ...)', params: [{name:'text1',placeholder:'A1',desc:'First text or cell'},{name:'separator',placeholder:'" "',desc:'Separator (optional, e.g. " " or ", ")'},{name:'text2',placeholder:'B1',desc:'Second text or cell'}], desc: 'Joins text strings together.', build: (p) => p.separator ? `CONCATENATE(${p.text1}, ${p.separator}, ${p.text2})` : `CONCATENATE(${p.text1}, ${p.text2})` },
+    LEFT: { syntax: 'LEFT(text, [num_chars])', params: [{name:'text',placeholder:'A1',desc:'Text or cell'},{name:'num_chars',placeholder:'5',desc:'Number of characters from the left'}], desc: 'Returns characters from the start of a text string.' },
+    RIGHT: { syntax: 'RIGHT(text, [num_chars])', params: [{name:'text',placeholder:'A1',desc:'Text or cell'},{name:'num_chars',placeholder:'3',desc:'Number of characters from the right'}], desc: 'Returns characters from the end of a text string.' },
+    MID: { syntax: 'MID(text, start_num, num_chars)', params: [{name:'text',placeholder:'A1',desc:'Text or cell'},{name:'start_num',placeholder:'3',desc:'Starting position'},{name:'num_chars',placeholder:'5',desc:'Number of characters to extract'}], desc: 'Extracts characters from the middle of a text string.' },
+    TRIM: { syntax: 'TRIM(text)', params: [{name:'text',placeholder:'A1',desc:'Text or cell to trim'}], desc: 'Removes extra spaces from text.', build: (p) => `TRIM(${p.text})` },
+    'UPPER / LOWER': { syntax: 'UPPER(text) / LOWER(text)', params: [{name:'text',placeholder:'A1',desc:'Text or cell'},{name:'case',placeholder:'UPPER',desc:'UPPER or LOWER'}], desc: 'Converts text to uppercase or lowercase.', build: (p) => `${(p.case||'UPPER').toUpperCase()}(${p.text})` },
+  },
+  Date: {
+    TODAY: { syntax: 'TODAY()', params: [], desc: 'Returns today\'s date. Updates automatically when the sheet recalculates.', build: () => 'TODAY()' },
+    NOW: { syntax: 'NOW()', params: [], desc: 'Returns today\'s date and current time.', build: () => 'NOW()' },
+    DATEDIF: { syntax: 'DATEDIF(start_date, end_date, unit)', params: [{name:'start_date',placeholder:'A1',desc:'Start date cell'},{name:'end_date',placeholder:'B1',desc:'End date cell'},{name:'unit',placeholder:'"D"',desc:'"D" for days, "M" for months, "Y" for years'}], desc: 'Calculates the difference between two dates.' },
+    NETWORKDAYS: { syntax: 'NETWORKDAYS(start_date, end_date, [holidays])', params: [{name:'start_date',placeholder:'A1',desc:'Start date'},{name:'end_date',placeholder:'B1',desc:'End date'},{name:'holidays',placeholder:'D1:D10',desc:'Range of holiday dates (optional)'}], desc: 'Returns working days between two dates (excludes weekends).', build: (p) => p.holidays ? `NETWORKDAYS(${p.start_date}, ${p.end_date}, ${p.holidays})` : `NETWORKDAYS(${p.start_date}, ${p.end_date})` },
+    EDATE: { syntax: 'EDATE(start_date, months)', params: [{name:'start_date',placeholder:'A1',desc:'Start date'},{name:'months',placeholder:'3',desc:'Number of months to add (negative to subtract)'}], desc: 'Returns a date that is a given number of months before or after a start date.' },
+  },
+  'Construction Presets': {
+    'Material Cost': { syntax: 'Quantity × Unit Price', params: [{name:'qty_cell',placeholder:'B2',desc:'Quantity cell'},{name:'price_cell',placeholder:'C2',desc:'Unit price cell'}], desc: 'Calculate total material cost: quantity times unit price.', build: (p) => `${p.qty_cell}*${p.price_cell}` },
+    'Area (sq ft)': { syntax: 'Length × Width', params: [{name:'length_cell',placeholder:'A2',desc:'Length cell (ft)'},{name:'width_cell',placeholder:'B2',desc:'Width cell (ft)'}], desc: 'Calculate area in square feet.', build: (p) => `${p.length_cell}*${p.width_cell}` },
+    'Volume (cu ft)': { syntax: 'Length × Width × Height', params: [{name:'length_cell',placeholder:'A2',desc:'Length cell'},{name:'width_cell',placeholder:'B2',desc:'Width cell'},{name:'height_cell',placeholder:'C2',desc:'Height cell'}], desc: 'Calculate volume in cubic feet.', build: (p) => `${p.length_cell}*${p.width_cell}*${p.height_cell}` },
+    'Concrete (cu yd)': { syntax: '(L × W × Depth) / 27', params: [{name:'length_cell',placeholder:'A2',desc:'Length cell (ft)'},{name:'width_cell',placeholder:'B2',desc:'Width cell (ft)'},{name:'depth_cell',placeholder:'C2',desc:'Depth cell (ft)'}], desc: 'Calculate cubic yards of concrete needed (L×W×D in feet, divided by 27).', build: (p) => `(${p.length_cell}*${p.width_cell}*${p.depth_cell})/27` },
+    'Markup %': { syntax: 'Cost × (1 + Markup%)', params: [{name:'cost_cell',placeholder:'A2',desc:'Cost cell'},{name:'markup_pct',placeholder:'0.15',desc:'Markup as decimal (e.g. 0.15 for 15%)'}], desc: 'Apply markup percentage to a cost.', build: (p) => `${p.cost_cell}*(1+${p.markup_pct})` },
+    'Margin %': { syntax: '(Price - Cost) / Price', params: [{name:'price_cell',placeholder:'B2',desc:'Selling price cell'},{name:'cost_cell',placeholder:'A2',desc:'Cost cell'}], desc: 'Calculate profit margin as a percentage.', build: (p) => `(${p.price_cell}-${p.cost_cell})/${p.price_cell}` },
+  },
+};
+
+function _renderExcelHelper(container, backBtn) {
+  const categories = Object.keys(EXCEL_FORMULAS);
+  container.innerHTML = `${backBtn}
+    <div class="form-section" style="padding:24px;border-radius:16px;">
+      <div style="color:#eef2ff;font-size:18px;font-weight:700;margin-bottom:4px;">Excel Formula Helper</div>
+      <div style="color:#94a3b8;font-size:13px;margin-bottom:20px;">Pick a category, choose a formula, fill in your cell references, and copy the result.</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px;">
+        ${categories.map(cat => `<button type="button" class="excel-cat-btn" onclick="_excelSelectCategory('${_escapeHtml(cat)}')" style="padding:8px 16px;border-radius:8px;background:rgba(168,85,247,0.08);color:#c084fc;border:1px solid rgba(168,85,247,0.2);cursor:pointer;font-size:13px;font-weight:600;transition:all .15s;">${_escapeHtml(cat)}</button>`).join('')}
+      </div>
+      <div id="excel-formulas-list" style="display:grid;gap:8px;"></div>
+      <div id="excel-builder" style="display:none;margin-top:20px;padding:20px;border-radius:14px;border:1px solid rgba(168,85,247,0.2);background:rgba(168,85,247,0.04);">
+        <div id="excel-builder-title" style="color:#eef2ff;font-size:16px;font-weight:700;"></div>
+        <div id="excel-builder-desc" style="color:#94a3b8;font-size:13px;margin-top:4px;"></div>
+        <div id="excel-builder-syntax" style="color:#c084fc;font-size:12px;margin-top:8px;font-family:monospace;background:rgba(0,0,0,0.2);padding:8px 12px;border-radius:8px;"></div>
+        <div id="excel-builder-params" style="margin-top:14px;display:grid;gap:10px;"></div>
+        <div style="margin-top:16px;padding:14px;border-radius:10px;background:rgba(0,0,0,0.25);border:1px solid rgba(168,85,247,0.15);">
+          <div style="color:#94a3b8;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Generated Formula</div>
+          <div style="display:flex;align-items:center;gap:10px;">
+            <code id="excel-builder-result" style="flex:1;color:#22c55e;font-size:15px;font-family:monospace;word-break:break-all;"></code>
+            <button onclick="_excelCopyFormula()" style="background:rgba(168,85,247,0.15);color:#c084fc;border:1px solid rgba(168,85,247,0.3);border-radius:6px;padding:6px 14px;cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap;">Copy</button>
+          </div>
+          <div id="excel-copy-status" style="margin-top:4px;font-size:11px;"></div>
+        </div>
+      </div>
+    </div>`;
+}
+
+let _excelActiveCategory = null;
+let _excelActiveFormula = null;
+
+function _excelSelectCategory(cat) {
+  _excelActiveCategory = cat;
+  _excelActiveFormula = null;
+  document.querySelectorAll('.excel-cat-btn').forEach(btn => {
+    const isSel = btn.textContent === cat;
+    btn.style.background = isSel ? 'rgba(168,85,247,0.2)' : 'rgba(168,85,247,0.08)';
+    btn.style.borderColor = isSel ? 'rgba(168,85,247,0.5)' : 'rgba(168,85,247,0.2)';
+  });
+  const formulas = EXCEL_FORMULAS[cat] || {};
+  const listEl = document.getElementById('excel-formulas-list');
+  listEl.innerHTML = Object.entries(formulas).map(([name, f]) => `
+    <button type="button" class="excel-formula-btn" onclick="_excelSelectFormula('${_escapeHtml(cat)}','${_escapeHtml(name)}')" style="text-align:left;padding:12px 16px;border-radius:10px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);cursor:pointer;transition:all .15s;">
+      <div style="color:#eef2ff;font-size:14px;font-weight:600;">${_escapeHtml(name)}</div>
+      <div style="color:#94a3b8;font-size:12px;margin-top:2px;">${_escapeHtml(f.desc)}</div>
+    </button>`).join('');
+  document.getElementById('excel-builder').style.display = 'none';
+}
+
+function _excelSelectFormula(cat, name) {
+  _excelActiveFormula = name;
+  const f = EXCEL_FORMULAS[cat]?.[name];
+  if (!f) return;
+  document.getElementById('excel-builder').style.display = 'block';
+  document.getElementById('excel-builder-title').textContent = name;
+  document.getElementById('excel-builder-desc').textContent = f.desc;
+  document.getElementById('excel-builder-syntax').textContent = f.syntax;
+  const paramsEl = document.getElementById('excel-builder-params');
+  if (!f.params.length) {
+    paramsEl.innerHTML = '<div style="color:#94a3b8;font-size:13px;">This formula has no parameters — just use it directly!</div>';
+    document.getElementById('excel-builder-result').textContent = '=' + (f.build ? f.build({}) : f.syntax);
+    return;
+  }
+  paramsEl.innerHTML = f.params.map(p => `
+    <div>
+      <label style="color:#cbd5e1;font-size:12px;font-weight:600;">${_escapeHtml(p.name.replace(/_/g, ' '))} <span style="color:#64748b;font-weight:400;">— ${_escapeHtml(p.desc)}</span></label>
+      <input type="text" class="excel-param-input" data-param="${_escapeHtml(p.name)}" placeholder="${_escapeHtml(p.placeholder)}" value="${_escapeHtml(p.placeholder)}" oninput="_excelUpdateResult()" style="margin-top:4px;width:100%;padding:8px 12px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#eef2ff;font-size:13px;" />
+    </div>`).join('');
+  _excelUpdateResult();
+}
+
+function _excelUpdateResult() {
+  const cat = _excelActiveCategory;
+  const name = _excelActiveFormula;
+  const f = EXCEL_FORMULAS[cat]?.[name];
+  if (!f) return;
+  const values = {};
+  document.querySelectorAll('.excel-param-input').forEach(inp => { values[inp.dataset.param] = inp.value || inp.placeholder; });
+  let formula;
+  if (f.build) {
+    formula = f.build(values);
+  } else {
+    // Default: fill params positionally into syntax
+    let result = f.syntax;
+    f.params.forEach(p => { result = result.replace(p.name, values[p.name] || p.placeholder); });
+    formula = result;
+  }
+  document.getElementById('excel-builder-result').textContent = '=' + formula;
+}
+
+async function _excelCopyFormula() {
+  const formula = document.getElementById('excel-builder-result').textContent;
+  const statusEl = document.getElementById('excel-copy-status');
+  try {
+    await navigator.clipboard.writeText(formula);
+    statusEl.innerHTML = '<span style="color:#22c55e;">Copied to clipboard!</span>';
+  } catch (_) {
+    // Fallback
+    const ta = document.createElement('textarea');
+    ta.value = formula; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
+    statusEl.innerHTML = '<span style="color:#22c55e;">Copied to clipboard!</span>';
+  }
+  setTimeout(() => { statusEl.innerHTML = ''; }, 2000);
 }
 
 async function loadReviewPage() {

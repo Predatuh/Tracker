@@ -22,3 +22,4 @@ reportlab==4.2.5
 opencv-python-headless==4.8.1.78
 numpy==1.26.4
 openpyxl==3.1.5
+python-docx==1.1.2

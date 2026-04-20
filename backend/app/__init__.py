@@ -142,7 +142,7 @@ def create_app():
 
     # Register blueprints
     from app.routes import pdf_routes, tracker_routes, map_routes, lbd_routes
-    from app.routes import admin_routes, auth_routes, update_routes, report_routes
+    from app.routes import admin_routes, auth_routes, update_routes, report_routes, tools_routes
     app.register_blueprint(pdf_routes.bp)
     app.register_blueprint(tracker_routes.bp)
     app.register_blueprint(map_routes.bp)
@@ -151,6 +151,7 @@ def create_app():
     app.register_blueprint(auth_routes.bp)
     app.register_blueprint(update_routes.bp)
     app.register_blueprint(report_routes.bp)
+    app.register_blueprint(tools_routes.bp)
 
     # Create / migrate tables, then seed admin
     with app.app_context():
